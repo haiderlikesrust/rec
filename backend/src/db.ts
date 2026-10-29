@@ -8,7 +8,8 @@ import { config } from "./config";
  */
 const file = process.env.DB_FILE ?? path.join(config.dataDir, config.demo ? "demo.db" : `${config.cluster}.db`);
 export const db = new DatabaseSync(file);
-db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;");
+// WAL + a busy timeout: during a zero-downtime update two servers share this file for a few seconds
+db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 10000;");
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS quote (
@@ -77,6 +78,8 @@ CREATE TABLE IF NOT EXISTS airdrop (
   ts INTEGER NOT NULL, tx TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS airdrop_recipient ON airdrop(recipient);
+-- airdrop money allocated to a holder but not sent yet (sent once it is worth AIRDROP_MIN_PAYOUT_USD)
+CREATE TABLE IF NOT EXISTS airdrop_owed (coin TEXT NOT NULL, wallet TEXT NOT NULL, amount TEXT NOT NULL, PRIMARY KEY (coin, wallet));
 CREATE TABLE IF NOT EXISTS otc_quote (
   id TEXT PRIMARY KEY, coin TEXT NOT NULL, wallet TEXT NOT NULL, side TEXT NOT NULL, amount_in TEXT NOT NULL,
   amount_out TEXT NOT NULL, tax TEXT NOT NULL, sol_gross REAL NOT NULL, price_sol REAL NOT NULL, created_at INTEGER NOT NULL,

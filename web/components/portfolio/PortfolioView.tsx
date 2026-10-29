@@ -102,12 +102,12 @@ export function PortfolioView() {
               </IconTile>
             }
             title="Airdrops received"
-            sub="Paid hourly while your average entry is above the price."
+            sub="Paid continuously while your average entry is above the price."
           />
           <div className="mt-4">
             {data.airdrops.length === 0 ? (
               <div className="px-5 pb-6 sm:px-6">
-                <EmptyState title="None yet" detail="Airdrops go to holders whose average entry is above the current price, recomputed every hour." />
+                <EmptyState title="None yet" detail="Airdrops go to holders whose average entry is above the current price, recomputed every few seconds." />
               </div>
             ) : (
               <ul className="max-h-[420px] divide-y divide-line overflow-y-auto border-t border-line">

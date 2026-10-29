@@ -162,7 +162,7 @@ export default function DocsPage() {
               {
                 icon: Waves,
                 title: "Give back",
-                body: "Holders who are underwater get hourly airdrops, sellers at a loss can claim coverage, anyone can exit into the OTC reserve, and supply keeps shrinking.",
+                body: "Holders who are underwater get airdrops continuously, sellers at a loss can claim coverage, anyone can exit into the OTC reserve, and supply keeps shrinking.",
               },
             ]}
           />
@@ -213,7 +213,7 @@ export default function DocsPage() {
                 k: "airdrop",
                 icon: Gift,
                 tag: "High-entry airdrop",
-                text: "Her average entry is above the current price, so she receives the hourly airdrop. If the price recovers above her entry she rotates out, and newer high-entry buyers rotate in.",
+                text: "Her average entry is above the current price, so she receives airdrops as fees come in. If the price recovers above her entry she rotates out, and newer high-entry buyers rotate in.",
               },
               {
                 who: "Dev, the whale exiting",
@@ -448,21 +448,21 @@ export default function DocsPage() {
           </H2>
           <RuleCard icon={Gift} color={bucketColor.airdrop} title="10% of fees, to the holders who bought highest">
             <ul>
-              <li>10% of every fee, kept in the coin&apos;s quote asset, paid every hour.</li>
+              <li>10% of every fee, kept in the coin&apos;s quote asset, paid out continuously, within seconds of the trades that pay it.</li>
               <li>
                 Recipients are holders whose <strong>average entry is above the current price</strong>, weighted by how far
                 underwater they are (balance × (entry − price)). There is a minimum of about $20 so dust wallets don&apos;t
                 dilute it.
               </li>
               <li>
-                The set is recomputed every epoch. When the price rises, holders now in profit drop out and newer high-entry
+                The set is recomputed on every pass, every few seconds. When the price rises, holders now in profit drop out and newer high-entry
                 buyers rotate in. When it falls, more holders qualify.
               </li>
               <li>
                 Coins received by transfer count with a zero cost basis, so moving coins to a fresh wallet can&apos;t fake a
                 high entry.
               </li>
-              <li>Airdrops are pushed to your wallet from the airdrop wallet. If a transfer fails, it is retried next epoch.</li>
+              <li>Airdrops are pushed to your wallet from the airdrop wallet. If a transfer fails, the amount stays owed to you and is retried on the next pass.</li>
             </ul>
           </RuleCard>
 
@@ -486,7 +486,7 @@ export default function DocsPage() {
                 <strong>Protection fund</strong> holds the SOL for loss claims and co-signs every claim.
               </li>
               <li>
-                <strong>Airdrop wallet</strong> holds each coin&apos;s airdrop share in its quote asset and pushes it hourly.
+                <strong>Airdrop wallet</strong> holds each coin&apos;s airdrop share in its quote asset and pushes it out continuously: a holder's share is sent as soon as it's worth more than the network fee to move it.
               </li>
             </ul>
             <p>Every balance and transfer is public. Here they are, live:</p>

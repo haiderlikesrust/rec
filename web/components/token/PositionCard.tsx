@@ -97,7 +97,7 @@ export function PositionCard({ coin }: { coin: CoinDetail }) {
       >
         <Gift size={14} className="mt-px shrink-0" />
         {pos.airdropEligible ? (
-          <span>Receiving hourly airdrops: your entry is above the price.</span>
+          <span>Receiving airdrops: your entry is above the price.</span>
         ) : (
           <span className="text-muted">Not receiving airdrops: you&apos;re in profit at this price.</span>
         )}

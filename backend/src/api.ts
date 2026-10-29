@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import {
   LAUNCH_FEE_SOL,
   PROTECTION_EPOCH_BPS,
+  clusters,
   isSolanaAddress,
   type ActivityItem,
   type Candle,
@@ -19,6 +20,7 @@ import {
   type WalletSummary,
 } from "@cook/shared";
 import { config, log, roles } from "./config";
+import { lease } from "./lease";
 import { all, big, kvGet, kvSet, one, type ClaimRow, type CoinRow, type HolderRow, type QuoteRow, type TradeRow } from "./db";
 import { UserError, type Engine } from "./engine";
 import { claim, claimConfirm, otcConfirm, otcQuote } from "./flows";
@@ -420,9 +422,34 @@ export function createApi(engine: Engine) {
     return ctx.json({ ok: true });
   });
 
+  // runtime settings for the web app, so one image works for demo, devnet and mainnet. The browser gets its own
+  // RPC (PUBLIC_RPC_URL), never the backend's, whose URL usually carries an API key.
   app.get("/api/config", (ctx) =>
-    ctx.json({ cluster: config.cluster, demo: engine.demo, launchFeeSol: LAUNCH_FEE_SOL, rpc: engine.demo ? null : config.rpc }),
+    ctx.json({
+      cluster: config.cluster,
+      demo: engine.demo,
+      launchFeeSol: LAUNCH_FEE_SOL,
+      rpc: process.env.PUBLIC_RPC_URL || clusters[config.cluster].rpc,
+    }),
   );
+
+  /**
+   * Docker's health check. A standby (the new server during an update, waiting for the old one to hand over
+   * background work) counts as healthy: that is what lets Swarm stop the old one. A stopping server reports 503.
+   */
+  app.get("/api/health", (ctx) => {
+    let ok = lease.state !== "stopping";
+    try {
+      one("SELECT 1");
+    } catch {
+      ok = false;
+    }
+    return ctx.json(
+      { ok, state: lease.state, mode: engine.demo ? "demo" : config.cluster },
+      ok ? 200 : 503,
+      { "cache-control": "no-store" },
+    );
+  });
 
   return app;
 }

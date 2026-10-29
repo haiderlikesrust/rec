@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { uploadDir } from "@/lib/uploads";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -16,7 +17,8 @@ const EXT: Record<string, string> = {
 /**
  * Coin image upload.
  * - With PINATA_JWT set: pins to IPFS and returns ipfs://<cid> (portable, what production should use).
- * - Without it: saves under public/uploads and returns /uploads/<hash>.<ext> (local development).
+ * - Without it: saves to UPLOAD_DIR (a volume in Docker) and returns /uploads/<hash>.<ext>, served by
+ *   app/uploads/[file]/route.ts.
  */
 export async function POST(req: Request) {
   let form: FormData;
@@ -48,8 +50,8 @@ export async function POST(req: Request) {
   }
 
   const name = `${createHash("sha256").update(bytes).digest("hex").slice(0, 20)}.${ext}`;
-  const dir = join(process.cwd(), "public", "uploads");
+  const dir = uploadDir();
   await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, name), bytes);
+  await writeFile(join(/*turbopackIgnore: true*/ dir, name), bytes);
   return NextResponse.json({ url: `/uploads/${name}` });
 }

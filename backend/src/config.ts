@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Keypair } from "@solana/web3.js";
 import bs58 from "bs58";
-import { clusters, type Cluster, type TreasuryWallet } from "@cook/shared";
+import { AIRDROP_MIN_PAYOUT_USD, clusters, type Cluster, type TreasuryWallet } from "@cook/shared";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const demo = process.env.DEMO === "1";
@@ -27,10 +27,16 @@ export const config = {
   jupiterKey: process.env.JUPITER_API_KEY,
   /** Platform token ($RECR) mint, once launched. */
   mainToken: process.env.MAIN_TOKEN_MINT || null,
-  /** Skip splitting a coin's fees until they are worth at least this much. */
-  feeMinUsd: Number(process.env.FEE_MIN_USD ?? 5),
-  /** Buy and burn the platform token once this much SOL has accumulated for it. */
-  mainBuybackMinSol: Number(process.env.MAIN_BUYBACK_MIN_SOL ?? 0.25),
+  // Burns and airdrops run continuously: the fee router and the airdrop pass loop every few seconds and act as
+  // soon as an amount is worth more than the network fees it costs to move.
+  /** Split a coin's fees (burn, convert, distribute) once they are worth this much. */
+  feeMinUsd: Number(process.env.FEE_MIN_USD ?? (demo ? 0.25 : 2)),
+  /** Buy and burn the platform token once this much SOL is waiting for it. */
+  mainBuybackMinSol: Number(process.env.MAIN_BUYBACK_MIN_SOL ?? (demo ? 0.01 : 0.05)),
+  /** Send a holder's airdrop allocation once it is worth this much. */
+  airdropMinPayoutUsd: Number(process.env.AIRDROP_MIN_PAYOUT_USD ?? (demo ? 0.05 : AIRDROP_MIN_PAYOUT_USD)),
+  feesEveryMs: Number(process.env.FEES_EVERY_MS ?? (demo ? 5_000 : 15_000)),
+  airdropsEveryMs: Number(process.env.AIRDROPS_EVERY_MS ?? (demo ? 5_000 : 20_000)),
   /** Protection epochs: seconds between epochs (6 days; 2 hours in the demo). */
   protectionEpochSeconds: Number(process.env.PROTECTION_EPOCH_SECONDS ?? (demo ? 7200 : 6 * 86_400)),
   /** A config is replaced once its quote's USD price drifts this far, so new coins still start at $2.5k. */

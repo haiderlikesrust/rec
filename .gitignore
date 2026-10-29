@@ -7,4 +7,5 @@ backend/data
 *.log
 web/tsconfig.tsbuildinfo
 web/public/uploads
+web/.uploads
 marketing/

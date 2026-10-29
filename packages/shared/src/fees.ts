@@ -64,7 +64,7 @@ export const buckets: {
     label: "High-entry airdrop",
     short: "Airdrop",
     paidIn: "Quote asset",
-    blurb: "Paid hourly to holders whose average entry is above the current price.",
+    blurb: "Paid out continuously to holders whose average entry is above the current price.",
   },
 ];
 
@@ -158,8 +158,12 @@ export const otcSellLimitSol = (creditSol: number, activityBps: number, reserveS
 
 /** Airdrop recipients need at least this much (USD) at stake. */
 export const AIRDROP_MIN_USD = 20;
-/** Airdrop epochs run hourly. */
-export const AIRDROP_EPOCH_SECONDS = 3600;
+/**
+ * Airdrops run continuously: every few seconds each coin's new airdrop money is allocated to its current
+ * high-entry holders, and a holder's allocation is sent as soon as it is worth at least this much (USD), so
+ * network fees and token-account rent never eat a payout.
+ */
+export const AIRDROP_MIN_PAYOUT_USD = 0.5;
 
 // ---------------------------------------------------------------- protection policy
 //

@@ -66,6 +66,10 @@ export class DemoEngine implements Engine {
 
   async start() {}
 
+  jobs() {
+    return [];
+  }
+
   // ---------------------------------------------------------------- balances
 
   private key = (mint: string) => (mint === NATIVE_MINT ? SOL : mint);

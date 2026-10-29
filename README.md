@@ -15,7 +15,7 @@ fee wallet claims the rest and splits it:
 | OTC reserve | 30% | SOL (converted) | A SOL wallet you sell coins into with no slippage; limits follow each coin's contributions |
 | Platform buyback & burn | 10% | quote → SOL → $RECR | burned |
 | Coin buyback & burn | 10% | quote → the coin | burned |
-| High-entry airdrop | 10% | quote | hourly, to holders whose average entry is above the current price |
+| High-entry airdrop | 10% | quote | continuously, to holders whose average entry is above the current price |
 
 **No custom Solana programs.** The buckets are plain wallets controlled by the backend:
 - **fee**: Meteora partner and LP fee claimer; it splits, converts and burns.
@@ -53,7 +53,7 @@ packages/shared/  API types, fee policy, quote catalog, brand, Solana constants
    decays to 3% over the first 6 seconds as anti-snipe. The creator's bundled first buy skips that ramp.
 3. **Graduate.** The curve migrates to DAMM v2 with the same 3%. 100% of the LP is permanently locked to the fee
    wallet, so post-graduation fees keep coming.
-4. **Split** (every few minutes, per coin worth ≥ $5): the fee wallet claims the partner/LP fees and then:
+4. **Split** (continuously: every 15 s, per coin with ≥ $2 of new fees): the fee wallet claims the partner/LP fees and then:
    - buys the coin and burns it;
    - sends the airdrop share to the airdrop wallet;
    - converts the rest to SOL (Jupiter) for OTC 30 : protection 40 : platform burn 10;
@@ -62,8 +62,10 @@ packages/shared/  API types, fee policy, quote catalog, brand, Solana constants
    paying fees and fades to 5% after about 30 quiet days. Sells price at min(spot, 30-min TWAP) minus 3%; one coin
    can draw at most 10% of the reserve, and one wallet at most 5% per coin per day. The reserve resells its inventory
    at max(spot, TWAP).
-6. **Airdrops** (hourly). Recipients are holders whose average entry is above the price, weighted by unrealized
-   loss, with at least ~$20 at stake. Coins received by transfer carry zero cost basis.
+6. **Airdrops** (continuously). Every pass (20 s), new airdrop money is allocated to holders whose average entry is
+   above the price, weighted by unrealized loss, with at least ~$20 at stake. Each holder's allocation is sent as
+   soon as it's worth $0.50, so payouts never cost more than they deliver. Coins received by transfer carry zero
+   cost basis.
 7. **Protection** (every 6 days):
    - Coverage is the hold-time rate × the coin's funding ratio.
    - Hold-time rates: <5 min 0%, 5–30 min 25%, 30 min–6 h 45%, 6 h+ 60%, rug 70%.
@@ -120,6 +122,13 @@ That covers:
 4. `pnpm --filter @cook/backend start`, and run the web app with `NEXT_PUBLIC_CLUSTER` (and `NEXT_PUBLIC_SOLANA_RPC`)
    set to match.
 5. Launch $RECR through the app on the SOL pair, then set `MAIN_TOKEN_MINT` and restart the backend.
+
+## Deploy (Dokploy, zero downtime)
+
+One Docker image runs the site and the backend. Dokploy runs it as a Swarm Application with start-first updates:
+the new container serves at once while the old one hands over background work through a database lease, then
+stops. Setup, settings and the go-live checklist are in [docs/DOKPLOY.md](docs/DOKPLOY.md). The environment
+template is [deploy/dokploy.env.example](deploy/dokploy.env.example).
 
 ## Known limits
 

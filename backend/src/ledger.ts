@@ -285,11 +285,10 @@ export function recordAirdrop(coinMint: string, epoch: number, recipient: string
     const h = holder(coinMint, recipient);
     run("UPDATE holder SET airdrops = ? WHERE coin = ? AND wallet = ?", (big(h.airdrops) + amount).toString(), coinMint, recipient);
     run(
-      `UPDATE coin SET airdrops_paid = ?, airdrop_balance = ?, airdropped_sol = airdropped_sol + ?,
+      `UPDATE coin SET airdrops_paid = ?, airdropped_sol = airdropped_sol + ?,
          airdrop_last_recipients = CASE WHEN airdrop_last_epoch = ? THEN airdrop_last_recipients + 1 ELSE 1 END,
          airdrop_last_epoch = ? WHERE mint = ?`,
       (big(c.airdrops_paid) + amount).toString(),
-      (big(c.airdrop_balance) > amount ? big(c.airdrop_balance) - amount : 0n).toString(),
       toUnits(amount, quoteDecimals(c.quote)) * solPerUnit(c.quote),
       epoch,
       epoch,

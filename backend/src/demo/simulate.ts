@@ -155,14 +155,14 @@ export async function refreshTreasury(engine: DemoEngine) {
   treasury.airdropSol = await engine.solBalance(engine.wallets.airdrop);
 }
 
-/** Keeps the demo market moving: a trade every couple of seconds, a new coin every few minutes. */
-export function startSimulator(engine: DemoEngine) {
-  const wallets = traders();
+/** The demo market's heartbeat: one trade per tick, a new coin every few minutes. Runs on the leader only. */
+export function simulator(engine: DemoEngine) {
   const uri = `${config.publicUrl}/api/metadata/`;
   let n = 0;
   const names = ["Sunny", "Waffle", "Comet", "Pebble", "Mango", "Glitch", "Nova", "Bonk Jr", "Zappy", "Kiwi", "Rook", "Velvet"];
   const quotes = ["SOL", "SOL", "SOL", "USDC", "NVDAX", "TSLAX", "AMD", "SPYX", "ANTHROPIC", "COINX"];
-  setInterval(() => {
+  return () => {
+    const wallets = traders();
     const at = Math.floor(Date.now() / 1000);
     const coins = all<CoinRow>("SELECT * FROM coin ORDER BY last_trade_at DESC LIMIT 30");
     if (coins.length) step(engine, pick(coins), wallets, at);
@@ -175,5 +175,5 @@ export function startSimulator(engine: DemoEngine) {
         // ignore
       }
     }
-  }, 2500);
+  };
 }

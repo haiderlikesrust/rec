@@ -54,7 +54,8 @@ import { jupQuote, jupSwapTx } from "./jupiter";
 import { configParams } from "./params";
 
 const MEMO_PROGRAM_ID = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
-const PRIORITY_MICROLAMPORTS = Number(process.env.PRIORITY_MICROLAMPORTS ?? 50_000);
+// burns and airdrops send many small transactions, so the default priority fee stays low
+const PRIORITY_MICROLAMPORTS = Number(process.env.PRIORITY_MICROLAMPORTS ?? 5_000);
 
 /**
  * Recur on Solana. Pools are Meteora DBC pools (DAMM v2 after graduation); the five fee buckets are plain wallets
@@ -78,25 +79,16 @@ export class ChainEngine implements Engine {
   }
 
   async start() {
-    const loop = (ms: number, name: string, fn: () => Promise<void>) => {
-      let busy = false;
-      setInterval(async () => {
-        if (busy) return;
-        busy = true;
-        try {
-          await fn();
-        } catch (e) {
-          log(`${name}: ${(e as Error).message}`);
-        } finally {
-          busy = false;
-        }
-      }, ms);
-    };
-    loop(config.pollMs, "index", () => this.poll());
-    loop(60_000, "migrate", () => this.migrateCompleted());
-    loop(10 * 60_000, "holders", () => this.reconcileHolders());
     const fees = await this.solBalance(this.wallets.fees);
     if (fees < 0.05) log(`warning: the fee wallet holds ${fees} SOL; fund it so it can pay for configs, claims and transfers`);
+  }
+
+  jobs() {
+    return [
+      { name: "index", ms: config.pollMs, run: () => this.poll() },
+      { name: "migrate", ms: 60_000, run: () => this.migrateCompleted() },
+      { name: "holders", ms: 10 * 60_000, run: () => this.reconcileHolders() },
+    ];
   }
 
   // ---------------------------------------------------------------- plumbing

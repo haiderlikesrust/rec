@@ -16,12 +16,17 @@ import type { ClaimRow, CoinRow, OtcQuoteRow } from "./db";
  * the backend-controlled wallets; `demo/engine.ts` simulates the same moves in the database. The API, the fee
  * router, airdrops, OTC and protection only ever talk to this interface.
  */
+/** Periodic background work. Only the server holding the lease runs it (see lease.ts). */
+export type Job = { name: string; ms: number; run: () => Promise<unknown> | unknown };
+
 export interface Engine {
   readonly demo: boolean;
   /** Public keys of the backend-controlled wallets. */
   readonly wallets: Record<Role, string>;
 
   start(): Promise<void>;
+  /** The engine's own background work (chain indexing, migrations, holder reconciliation). */
+  jobs(): Job[];
 
   // ---- reads
   solBalance(owner: string): Promise<number>;

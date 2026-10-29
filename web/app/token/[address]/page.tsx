@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import { isSolanaAddress, type Coin } from "@cook/shared";
 import { TokenView } from "@/components/token/TokenView";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:42069";
+// server-side: talk to the backend directly (the browser goes through the /api proxy)
+const API = process.env.BACKEND_URL ?? "http://127.0.0.1:42069";
 
 export async function generateMetadata({ params }: { params: Promise<{ address: string }> }): Promise<Metadata> {
   const { address } = await params;

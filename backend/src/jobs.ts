@@ -1,5 +1,4 @@
 import {
-  AIRDROP_EPOCH_SECONDS,
   NATIVE_MINT,
   PROTECTION_CLAIM_WINDOW_SECONDS,
   otcPolicy,
@@ -21,7 +20,7 @@ const lamports = (sol: number) => BigInt(Math.floor(sol * LAMPORTS));
 // Per coin: claim the pool's accrued fees into the fee wallet, then split what Recur received (partner fee +
 // referral rebate, plus any OTC tax paid in SOL) 10/10/30/40/10:
 //   coin buyback  → buy the coin in its own pool and burn it
-//   airdrop       → quote asset to the airdrop wallet (paid out hourly)
+//   airdrop       → quote asset to the airdrop wallet (paid out continuously by runAirdrops)
 //   OTC reserve   → converted to SOL, sent to the OTC wallet (the coin earns 2× credit)
 //   protection    → converted to SOL, sent to the protection wallet
 //   platform burn → converted to SOL, held for the next $RECR buy-and-burn
@@ -132,28 +131,60 @@ export async function buybackMain(engine: Engine) {
 
 // ---------------------------------------------------------------- airdrops
 
-/** Hourly: each coin's airdrop bucket goes to holders whose average entry is above the current price. */
+/**
+ * Continuous airdrops. Every pass, each coin's new airdrop money is shared out to its current high-entry holders
+ * (average entry above the price, weighted by how far underwater they are), and every holder's allocation is sent
+ * as soon as it is worth the minimum payout, so nothing waits for an epoch and dust never costs more to move than
+ * it is worth. Unsent allocations stay owed across passes (and across restarts).
+ */
 export async function runAirdrops(engine: Engine, at = now()) {
-  const epoch = Math.floor(at / AIRDROP_EPOCH_SECONDS);
-  let paid = 0;
-  for (const c of all<CoinRow>("SELECT * FROM coin WHERE airdrop_balance != '0' AND airdrop_last_epoch < ?", epoch)) {
+  for (const c of all<CoinRow>("SELECT * FROM coin WHERE airdrop_balance != '0'")) {
     const balance = big(c.airdrop_balance);
     const holders = holdersOf(c.mint).filter((h) => h.airdropEligible);
-    if (holders.length === 0) continue; // the bucket waits for the next epoch
-    const items = holders
-      .map((h) => ({ to: h.address, amount: (balance * BigInt(Math.floor(h.airdropWeight * 1e9))) / 1_000_000_000n }))
-      .filter((i) => i.amount > 0n);
+    if (holders.length === 0) continue; // no one underwater right now; the money waits for the next pass
+    tx(() => {
+      let given = 0n;
+      for (const h of holders) {
+        const amount = (balance * BigInt(Math.floor(h.airdropWeight * 1e9))) / 1_000_000_000n;
+        if (amount <= 0n) continue;
+        const prev = big(one<{ amount: string }>("SELECT amount FROM airdrop_owed WHERE coin = ? AND wallet = ?", c.mint, h.address)?.amount);
+        run(
+          "INSERT INTO airdrop_owed (coin, wallet, amount) VALUES (?, ?, ?) ON CONFLICT(coin, wallet) DO UPDATE SET amount = excluded.amount",
+          c.mint,
+          h.address,
+          (prev + amount).toString(),
+        );
+        given += amount;
+      }
+      run("UPDATE coin SET airdrop_balance = ? WHERE mint = ?", (balance - given).toString(), c.mint);
+    });
+  }
+
+  let sent = 0;
+  const owed = all<{ coin: string; wallet: string; amount: string }>("SELECT * FROM airdrop_owed WHERE amount != '0'");
+  for (const mint of new Set(owed.map((o) => o.coin))) {
+    const c = getCoin(mint);
+    const q = c && one<{ usd: number; decimals: number }>("SELECT usd, decimals FROM quote WHERE mint = ?", c.quote);
+    if (!c || !q || !(q.usd > 0)) continue;
+    const minRaw = BigInt(Math.ceil((config.airdropMinPayoutUsd / q.usd) * 10 ** q.decimals));
+    const items = owed.filter((o) => o.coin === mint && big(o.amount) >= minRaw).map((o) => ({ to: o.wallet, amount: big(o.amount) }));
+    if (items.length === 0) continue;
     try {
-      const sent = await engine.sendTokens("airdrop", c.quote, items);
-      for (const s of sent) recordAirdrop(c.mint, epoch, s.to, items.find((i) => i.to === s.to)!.amount, at, s.sig);
-      run("UPDATE coin SET airdrop_last_epoch = ? WHERE mint = ?", epoch, c.mint);
-      paid++;
+      for (const r of await engine.sendTokens("airdrop", c.quote, items)) {
+        const amount = items.find((i) => i.to === r.to)!.amount;
+        tx(() => {
+          const left = big(one<{ amount: string }>("SELECT amount FROM airdrop_owed WHERE coin = ? AND wallet = ?", mint, r.to)?.amount) - amount;
+          run("UPDATE airdrop_owed SET amount = ? WHERE coin = ? AND wallet = ?", (left > 0n ? left : 0n).toString(), mint, r.to);
+          recordAirdrop(mint, at, r.to, amount, at, r.sig);
+        });
+        sent++;
+      }
     } catch (e) {
       log(`airdrop ${c.symbol}: ${(e as Error).message}`);
     }
   }
-  if (paid) log(`airdrops: paid ${paid} coin(s) for epoch ${epoch}`);
-  return paid;
+  if (sent) log(`airdrops: sent ${sent} payout(s)`);
+  return sent;
 }
 
 // ---------------------------------------------------------------- protection epochs

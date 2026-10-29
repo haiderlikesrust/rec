@@ -3,7 +3,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, type CoinSort } from "@cook/shared";
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:42069";
+/** The backend API. Empty = same origin: Next proxies /api/* to the backend (next.config.ts). */
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 export const client = api(API_URL);
 
 const live = { refetchInterval: 10_000, retry: 1 } as const;
