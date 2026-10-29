@@ -156,8 +156,10 @@ function Mark({ tone }: { tone?: Tone }) {
   );
 }
 
-/** Comparison grid with the Cook column wrapped in a spectrum ring. */
-export function CompareTable({ head, rows }: { head: [string, string, string, string]; rows: CompareRow[] }) {
+type CompareHead = string | { name: string; logo: string };
+
+/** Comparison grid with the Cook column wrapped in a spectrum ring. Other columns can carry their own logo. */
+export function CompareTable({ head, rows }: { head: [string, CompareHead, CompareHead, CompareHead]; rows: CompareRow[] }) {
   const cols = "minmax(150px,0.9fr) repeat(4, minmax(170px,1fr))";
   return (
     <div className="scroll-x -mx-4 my-6 px-4 pb-2 sm:mx-0 sm:px-0">
@@ -168,18 +170,27 @@ export function CompareTable({ head, rows }: { head: [string, string, string, st
           aria-hidden
         />
         <div style={{ gridColumn: 1, gridRow: 1 }} />
-        {head.map((h, j) => (
-          <div key={h} className="relative z-10 px-4 pt-4 pb-3" style={{ gridColumn: j + 2, gridRow: 1 }}>
-            {j === 0 ? (
-              <div className="flex items-center gap-2">
-                <LogoMark size={22} live className="text-fg" />
-                <span className="font-display text-lg font-semibold text-fg">{h}</span>
-              </div>
-            ) : (
-              <span className="text-sm font-semibold text-muted">{h}</span>
-            )}
-          </div>
-        ))}
+        {head.map((h, j) => {
+          const name = typeof h === "string" ? h : h.name;
+          return (
+            <div key={name} className="relative z-10 px-4 pt-4 pb-3" style={{ gridColumn: j + 2, gridRow: 1 }}>
+              {j === 0 ? (
+                <div className="flex items-center gap-2">
+                  <LogoMark size={22} live className="text-fg" />
+                  <span className="font-display text-lg font-semibold text-fg">{name}</span>
+                </div>
+              ) : typeof h === "string" ? (
+                <span className="text-sm font-semibold text-muted">{name}</span>
+              ) : (
+                <div className="flex items-center gap-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- a tiny static logo */}
+                  <img src={h.logo} alt="" width={22} height={22} className="h-[22px] w-[22px] shrink-0 object-contain" />
+                  <span className="text-sm font-semibold text-muted">{name}</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
         {rows.map((r, i) => (
           <div key={r.label} className="contents">
             <div

@@ -239,7 +239,12 @@ export default function DocsPage() {
             Same volume for everyone: <strong>{$(VOLUME)}</strong>. What does each model collect, and where does it go?
           </p>
           <CompareTable
-            head={[brand.name, "Pons", "pump.fun", "Reflection / dividend tokens"]}
+            head={[
+              brand.name,
+              { name: "Pons", logo: "/brand/pons.png" },
+              { name: "pump.fun", logo: "/brand/pump-fun.svg" },
+              "Reflection / dividend tokens",
+            ]}
             rows={[
               {
                 label: "Fee per trade",
@@ -385,8 +390,8 @@ export default function DocsPage() {
               <li>30% of every fee, converted to SOL, goes to one shared reserve wallet. Each coin is credited with what it contributed.</li>
               <li>
                 <strong>Sell limit</strong> = 2× the SOL a coin&apos;s fees contributed, minus what holders have already sold
-                into it. It stays at 100% while the coin keeps paying fees (3 days), then fades linearly to 5% over the next 27
-                days. <strong>Coins that pay more get higher limits; dead coins get next to nothing.</strong>
+                into it. It stays at 100% while the coin keeps paying fees; after 2 days without any it drops to 5%, until the
+                coin trades again. <strong>Coins that pay more get higher limits; dead coins get next to nothing.</strong>
               </li>
               <li>One coin can draw at most 10% of the reserve at a time, and one wallet at most 5% of it per coin per day.</li>
               <li>
@@ -499,10 +504,6 @@ export default function DocsPage() {
           <Faq
             items={[
               [
-                "Why 3% when Pons charges 1%?",
-                "Because none of it is extracted by the launchpad. A 1% fee where 70% goes to the creator returns nothing to traders. 3% where everything after Meteora's protocol share comes back funds an exit reserve, loss coverage, airdrops and two buybacks.",
-              ],
-              [
                 "Does the creator earn anything?",
                 "Not from fees. Creators earn the way everyone else does: by holding. They get the first buy at the launch price with no anti-snipe surcharge.",
               ],
@@ -516,7 +517,7 @@ export default function DocsPage() {
               ],
               [
                 "What happens to a dead coin's OTC credit?",
-                "It fades to 5% over about a month of no fees. The SOL stays in the shared reserve, where active coins can use it.",
+                "Nothing is taken away. If a coin goes 2 days without paying any fees, its OTC limit drops to 5% and stays there. Fresh trading brings it straight back to 100%. The SOL never leaves the shared reserve, where active coins can use it.",
               ],
               [
                 "Do trades through Jupiter or other apps pay the fee?",

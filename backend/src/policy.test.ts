@@ -84,11 +84,12 @@ test("protection: coverage scales with what the coin paid into the fund, capped 
   assert.ok(plan.totalSol <= 2 + 1e-9);
 });
 
-test("OTC limits fade once a coin stops paying fees", () => {
+test("OTC limits drop to 5% after 2 days without fees", () => {
   const now = 10_000_000;
-  assert.equal(otcActivityBps(now - 3600, now), 10_000);
   assert.equal(otcActivityBps(0, now), 0);
-  const mid = otcActivityBps(now - otcPolicy.activeSeconds - otcPolicy.decaySeconds / 2, now);
-  assert.ok(mid > otcPolicy.floorBps && mid < 10_000);
+  assert.equal(otcActivityBps(now - 3600, now), 10_000);
+  assert.equal(otcActivityBps(now - 2 * 86_400, now), 10_000);
+  assert.equal(otcActivityBps(now - 2 * 86_400 - 1, now), otcPolicy.floorBps);
+  assert.equal(otcPolicy.floorBps, 500);
   assert.equal(otcActivityBps(now - 90 * 86_400, now), otcPolicy.floorBps);
 });

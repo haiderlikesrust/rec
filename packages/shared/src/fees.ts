@@ -129,11 +129,9 @@ export const otcPolicy = {
   creditMultiplierBps: 20_000,
   /** Sells price at min(spot, TWAP), buys at max(spot, TWAP). OTC opens once this much history exists. */
   twapSeconds: 30 * 60,
-  /** Full limit while the coin contributed within this window... */
-  activeSeconds: 3 * 86_400,
-  /** ...then fades linearly over this window... */
-  decaySeconds: 27 * 86_400,
-  /** ...to this share of its credit. */
+  /** Full limit while the coin paid fees within this window... */
+  activeSeconds: 2 * 86_400,
+  /** ...and only this share of its credit once it has gone that long without any. */
   floorBps: 500,
   /** One coin can never draw more than 10% of the reserve at once. */
   maxShareOfReserveBps: 1_000,
@@ -143,13 +141,10 @@ export const otcPolicy = {
   quoteTtlSeconds: 60,
 } as const;
 
-/** 100% while a coin keeps paying fees, fading to `floorBps` once it goes quiet. */
+/** 100% while a coin keeps paying fees, `floorBps` once it has gone `activeSeconds` without any. */
 export function otcActivityBps(lastContribution: number, now: number) {
   if (lastContribution === 0) return 0;
-  const age = now - lastContribution;
-  if (age <= otcPolicy.activeSeconds) return 10_000;
-  if (age >= otcPolicy.activeSeconds + otcPolicy.decaySeconds) return otcPolicy.floorBps;
-  return 10_000 - ((10_000 - otcPolicy.floorBps) * (age - otcPolicy.activeSeconds)) / otcPolicy.decaySeconds;
+  return now - lastContribution <= otcPolicy.activeSeconds ? 10_000 : otcPolicy.floorBps;
 }
 
 /** Current SOL sell capacity for a coin. */

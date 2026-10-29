@@ -189,7 +189,7 @@ function OtcRow({
 function HowLimitsWork() {
   const items = [
     { icon: CoinsIcon, title: "Credit = 2× contribution", body: "Each coin's limit is 2× the SOL its fees put into the reserve, minus what holders already sold into it." },
-    { icon: Clock, title: "Fades when quiet", body: "Full strength while the coin keeps paying fees (3 days), then fades linearly to 5% over the next 27 days." },
+    { icon: Clock, title: "Drops when quiet", body: "Full strength while the coin keeps paying fees. After 2 days without any, it drops to 5%; fresh trading restores it to 100%." },
     { icon: Gauge, title: "Caps", body: "One coin can draw at most 10% of the reserve at a time, one wallet at most 5% of it per coin per day." },
     {
       icon: Scale,
@@ -199,7 +199,7 @@ function HowLimitsWork() {
   ];
   return (
     <Card className="overflow-hidden">
-      <CardHeader title="How limits work" sub="Coins that pay more fees earn bigger limits; dead coins fade to next to nothing." />
+      <CardHeader title="How limits work" sub="Coins that pay more fees earn bigger limits; dead coins drop to next to nothing." />
       <div className="mt-4 grid grid-cols-1 gap-px border-t border-line bg-line sm:grid-cols-2">
         {items.map((it) => (
           <div key={it.title} className="flex gap-3.5 bg-elev p-5">
