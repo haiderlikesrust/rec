@@ -6,6 +6,7 @@ import { brand } from "@cook/shared";
 import { useStats } from "@/lib/data";
 import { tokens, usd } from "@/lib/format";
 import { AnimatedNumber, ButtonLink } from "@/components/ui";
+import { ContractAddress } from "./ContractAddress";
 import { FeeRing } from "./FeeRing";
 
 export function Hero() {
@@ -56,7 +57,9 @@ export function Hero() {
           </ButtonLink>
         </div>
 
-        <ul className="mt-10 flex flex-wrap gap-x-6 gap-y-3 text-sm text-muted">
+        <ContractAddress className="mt-6" />
+
+        <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-3 text-sm text-muted">
           {["0% to creators", "0% to the team", "Every fee we collect goes back"].map((t) => (
             <li key={t} className="flex items-center gap-2">
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-up-soft text-up">

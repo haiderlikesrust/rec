@@ -3,7 +3,7 @@
 Recur ships as one Docker image (the [`Dockerfile`](../Dockerfile) at the repo root). Inside it, two processes run
 side by side:
 
-- the **Next.js site**, on port 3000;
+- the **Next.js site**, on port 7310 (set `PORT` to change it);
 - the **backend**: API, chain indexer, fee router (burns), airdrops, protection epochs and the demo market.
 
 Next proxies `/api/*` to the backend, so everything is served on one domain. The backend keeps its state in SQLite
@@ -11,7 +11,7 @@ on a Docker volume.
 
 | Dokploy service | What it is | Holds |
 |---|---|---|
-| **Application** `recur` | This repository, built from the `Dockerfile` and run as a Docker Swarm service. Traefik sends `recur.lol` to it on port 3000. | The bucket wallet keys, at runtime only |
+| **Application** `recur` | This repository, built from the `Dockerfile` and run as a Docker Swarm service. Traefik sends `recur.lol` to it on port 7310. | The bucket wallet keys, at runtime only |
 | Volume `recur-data` → `/app/data` | SQLite database, demo wallets, uploaded coin images | Coins, trades, holders, ledger, OTC quotes, claims |
 | Volume `recur-static` → `/app/web/.next/static` | Scripts and styles of current and earlier builds | Nothing sensitive |
 
@@ -67,7 +67,7 @@ Money stays safe across the hand-over:
    - `recur-static` at `/app/web/.next/static`. Each new container adds its build's files there, next to earlier
      builds'. Files no build has used for 30 days are removed.
 4. **Domain.**
-   - In **Domains**, add `recur.lol` with path `/`, container port **3000**, and HTTPS with Let's Encrypt. Point the
+   - In **Domains**, add `recur.lol` with path `/`, container port **7310** (or your `PORT`), and HTTPS with Let's Encrypt. Point the
      domain's DNS at the server.
    - For `www.recur.lol`, add it the same way, then add a "www to non-www" redirect under **Advanced → Redirects**.
 5. **Zero-downtime settings.** In **Advanced → Cluster Settings**:
@@ -84,7 +84,7 @@ Money stays safe across the hand-over:
    - **Health Check:** the same check that is built into the image. Paste it anyway, so an update never starts
      without one:
      ```json
-     { "Test": ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"], "Interval": 5000000000, "Timeout": 3000000000, "StartPeriod": 60000000000, "Retries": 3 }
+     { "Test": ["CMD", "node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 7310) + '/api/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"], "Interval": 5000000000, "Timeout": 3000000000, "StartPeriod": 60000000000, "Retries": 3 }
      ```
    - **Stop Grace Period** (if your Dokploy version shows it): `15000000000` (15 s). The hand-over needs up to ~10 s.
    - Durations in these fields are in nanoseconds (5000000000 = 5 s).
@@ -141,7 +141,7 @@ With Docker running:
 ```sh
 docker build -t recur .
 docker volume create recur-data
-docker run --rm -p 3000:3000 -v recur-data:/app/data -e DEMO=1 -e PUBLIC_URL=http://localhost:3000 recur
+docker run --rm -p 7310:7310 -v recur-data:/app/data -e DEMO=1 -e PUBLIC_URL=http://localhost:7310 recur
 ```
 
 Reference: [Dokploy zero downtime](https://docs.dokploy.com/docs/core/applications/zero-downtime),

@@ -33,7 +33,8 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 FROM node:22-bookworm-slim AS app
 WORKDIR /app
 # DATA_DIR holds the SQLite database, demo wallets and uploaded images: mount a volume there (docs/DOKPLOY.md).
-ENV NODE_ENV=production PORT=3000 BACKEND_PORT=42069 BACKEND_URL=http://127.0.0.1:42069 \
+# PORT is the site's container port (Dokploy → Domains → Container Port). Not 3000 on purpose; override with PORT.
+ENV NODE_ENV=production PORT=7310 BACKEND_PORT=42069 BACKEND_URL=http://127.0.0.1:42069 \
     DATA_DIR=/app/data UPLOAD_DIR=/app/data/uploads NEXT_TELEMETRY_DISABLED=1
 COPY --from=production-dependencies --chown=node:node /app ./
 COPY --chown=node:node packages/shared/src ./packages/shared/src
@@ -47,8 +48,8 @@ COPY --from=build --chown=node:node /app/web/static-build ./web/static-build
 # web/.next/static is filled at start (deploy/publish-static.mjs); a Dokploy volume there keeps earlier builds' files.
 RUN mkdir -p data web/.next/static && chown node:node data web/.next/static
 USER node
-EXPOSE 3000
+EXPOSE 7310
 # Healthy includes "standby": during an update the new server waits for the old one to hand over background work.
 HEALTHCHECK --interval=5s --timeout=3s --start-period=60s --retries=3 \
-  CMD ["node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+  CMD ["node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 7310) + '/api/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
 CMD ["node", "deploy/start.mjs"]

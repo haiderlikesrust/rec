@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
 import { config, loadWallets, log } from "./config";
 import { createApi } from "./api";
-import { db } from "./db";
+import { db, run } from "./db";
 import type { Engine, Job } from "./engine";
 import { processFees, runAirdrops, runProtectionEpoch, sweep } from "./jobs";
 import { lease, releaseLease, renewLease } from "./lease";
@@ -14,6 +14,8 @@ for (const k of Object.values(keys)) SYSTEM.add(k.publicKey.toBase58());
 
 syncQuotes();
 await refreshPrices();
+// $RECR is launched through the app first, then MAIN_TOKEN_MINT is set: mark it whenever the server starts
+if (config.mainToken) run("UPDATE coin SET is_main = CASE WHEN mint = ? THEN 1 ELSE 0 END", config.mainToken);
 
 let engine: Engine;
 /** Runs once, the first time this server becomes the leader. */

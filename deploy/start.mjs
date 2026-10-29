@@ -15,7 +15,7 @@ const children = [
     stdio: "inherit",
     env,
   }),
-  spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--hostname", "0.0.0.0", "--port", process.env.PORT ?? "3000"], {
+  spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--hostname", "0.0.0.0", "--port", process.env.PORT ?? "7310"], {
     cwd: "web",
     stdio: "inherit",
     env: process.env,
