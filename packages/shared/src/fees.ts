@@ -163,12 +163,12 @@ export const AIRDROP_MIN_PAYOUT_USD = 0.5;
 
 // ---------------------------------------------------------------- protection policy
 //
-// Coverage of a realized loss = hold-time rate ("up to") x the coin's funding ratio for that epoch.
-//  - Each epoch may commit at most PROTECTION_EPOCH_BPS of the protection wallet's uncommitted SOL.
-//  - A coin can draw only its share of that budget, in proportion to what it has paid into the fund.
-//    If its claims ask for more, they are paid pro-rata; coins that paid little cover little.
-//  - Each wallet's payout on a coin is capped at PROTECTION_CAP_X_TAX x the tax it paid on that coin.
-// One source of truth for the backend (epoch builder and estimates) and the UI.
+// Realized losses are covered as they happen and paid automatically, with nothing to claim:
+//  payout = loss x hold-time rate, then capped
+//  - per wallet and coin at PROTECTION_CAP_X_TAX x the tax that wallet has paid on the coin, across all its payouts;
+//  - at PROTECTION_PAYOUT_BPS of the coin's pot (what it paid into the fund minus what it has paid out), so a coin
+//    only ever pays from its own fees, one loss can't empty it, and coins that paid little cover little.
+// One source of truth for the backend (payouts) and the UI (estimates).
 
 /** "Up to" coverage by hold time (seconds). Markets are fast, so tiers are minutes and hours. */
 export const protectionTiers = [
@@ -180,11 +180,10 @@ export const protectionTiers = [
 /** Coins flagged as rugs get the top rate regardless of hold time. */
 export const RUG_COVERAGE_BPS = 7000;
 export const PROTECTION_CAP_X_TAX = 5;
-export const PROTECTION_EPOCH_BPS = 1500;
-/** Epochs are at least this far apart. */
-export const PROTECTION_EPOCH_SECONDS = 6 * 86_400;
-/** Unclaimed payouts return to the fund after this long. */
-export const PROTECTION_CLAIM_WINDOW_SECONDS = 60 * 86_400;
+/** The most one payout can take from its coin's pot. */
+export const PROTECTION_PAYOUT_BPS = 1500;
+/** A wallet's payouts are sent once they add up to this; anything smaller can't fund an empty account's rent. */
+export const PROTECTION_MIN_PAYOUT_SOL = 0.001;
 
 export function coverageBpsForHold(holdSeconds: number, rugged = false) {
   if (rugged) return RUG_COVERAGE_BPS;
@@ -193,89 +192,26 @@ export function coverageBpsForHold(holdSeconds: number, rugged = false) {
   return bps;
 }
 
-export type ProtectionLoss = {
-  coin: string;
-  symbol: string;
-  wallet: string;
-  lossSol: number;
-  holdSeconds: number;
-  /** wallet's lifetime tax on this coin, SOL-equivalent */
-  taxPaidSol: number;
-  rugged: boolean;
-};
-
-export type ProtectionPlan = {
-  wallets: Map<
-    string,
-    {
-      totalSol: number;
-      breakdown: { coin: string; symbol: string; lossSol: number; tierBps: number; coverageBps: number; holdSeconds: number }[];
-    }
-  >;
-  coins: Map<string, { allocationSol: number; requestedSol: number; scale: number }>;
-  totalSol: number;
-};
-
-/** A coin's slice of an epoch budget: its share of everything paid into the fund. */
-export const coinAllocationSol = (budgetSol: number, coinContributedSol: number, totalContributedSol: number) =>
-  totalContributedSol > 0 ? (budgetSol * coinContributedSol) / totalContributedSol : 0;
+/** What capped a payout: the hold-time rate itself, the 5x-tax cap, or the coin's pot. */
+export type PayoutLimit = "rate" | "tax" | "pot";
 
 /**
- * Builds an epoch: per-position requests at the hold-time rate (capped by tax paid), then each coin's requests
- * are scaled to that coin's slice of the budget. `contributedSol` is what each coin has paid into the fund.
+ * What one realized loss pays. `paidOnCoinSol` is what this wallet has already been paid on the coin, `taxPaidSol`
+ * its lifetime tax on it, and `potSol` what the coin has left in the fund.
  */
-export function planProtectionEpoch(
-  losses: ProtectionLoss[],
-  contributedSol: Record<string, number>,
-  totalContributedSol: number,
-  budgetSol: number,
-): ProtectionPlan {
-  // aggregate per wallet+coin first so the tax cap applies once per position
-  const positions = new Map<string, ProtectionLoss & { requested: number; tierBps: number }>();
-  for (const l of losses) {
-    const tierBps = coverageBpsForHold(l.holdSeconds, l.rugged);
-    const key = `${l.wallet}:${l.coin}`;
-    const req = (l.lossSol * tierBps) / 10_000;
-    const p = positions.get(key);
-    if (p) {
-      p.lossSol += l.lossSol;
-      p.requested += req;
-      p.taxPaidSol = Math.max(p.taxPaidSol, l.taxPaidSol);
-      p.holdSeconds = Math.max(p.holdSeconds, l.holdSeconds);
-      p.tierBps = Math.max(p.tierBps, tierBps);
-    } else positions.set(key, { ...l, requested: req, tierBps });
-  }
-  for (const p of positions.values()) p.requested = Math.min(p.requested, p.taxPaidSol * PROTECTION_CAP_X_TAX);
-
-  const coins: ProtectionPlan["coins"] = new Map();
-  for (const p of positions.values()) {
-    const c = coins.get(p.coin) ?? {
-      allocationSol: coinAllocationSol(budgetSol, contributedSol[p.coin] ?? 0, totalContributedSol),
-      requestedSol: 0,
-      scale: 0,
-    };
-    c.requestedSol += p.requested;
-    coins.set(p.coin, c);
-  }
-  for (const c of coins.values()) c.scale = c.requestedSol > 0 ? Math.min(1, c.allocationSol / c.requestedSol) : 0;
-
-  const wallets: ProtectionPlan["wallets"] = new Map();
-  let totalSol = 0;
-  for (const p of positions.values()) {
-    const pay = p.requested * coins.get(p.coin)!.scale;
-    if (pay <= 0) continue;
-    const w = wallets.get(p.wallet) ?? { totalSol: 0, breakdown: [] };
-    w.totalSol += pay;
-    w.breakdown.push({
-      coin: p.coin,
-      symbol: p.symbol,
-      lossSol: p.lossSol,
-      tierBps: p.tierBps,
-      coverageBps: p.lossSol > 0 ? Math.round((pay / p.lossSol) * 10_000) : 0,
-      holdSeconds: p.holdSeconds,
-    });
-    wallets.set(p.wallet, w);
-    totalSol += pay;
-  }
-  return { wallets, coins, totalSol };
+export function protectionPayout(p: {
+  lossSol: number;
+  holdSeconds: number;
+  rugged: boolean;
+  taxPaidSol: number;
+  paidOnCoinSol: number;
+  potSol: number;
+}): { tierBps: number; requestedSol: number; payoutSol: number; limit: PayoutLimit } {
+  const tierBps = coverageBpsForHold(p.holdSeconds, p.rugged);
+  const requestedSol = (p.lossSol * tierBps) / 10_000;
+  const taxRoom = Math.max(0, p.taxPaidSol * PROTECTION_CAP_X_TAX - p.paidOnCoinSol);
+  const potRoom = Math.max(0, (p.potSol * PROTECTION_PAYOUT_BPS) / 10_000);
+  const payoutSol = Math.min(requestedSol, taxRoom, potRoom);
+  const limit: PayoutLimit = payoutSol >= requestedSol ? "rate" : taxRoom <= potRoom ? "tax" : "pot";
+  return { tierBps, requestedSol, payoutSol, limit };
 }

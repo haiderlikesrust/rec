@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { otcPolicy, type ClaimResponse, type OtcQuote, type OtcQuoteRequest } from "@cook/shared";
-import { big, one, run, type ClaimRow, type OtcQuoteRow } from "./db";
+import { otcPolicy, type OtcQuote, type OtcQuoteRequest } from "@cook/shared";
+import { big, one, run, type OtcQuoteRow } from "./db";
 import { UserError, memoFor, type Engine } from "./engine";
-import { settleClaim, settleOtc } from "./jobs";
+import { settleOtc } from "./jobs";
 import { getCoin } from "./ledger";
 import { now, otcCoin, treasury, walletDailyCapSol, walletSoldToday } from "./services";
 import { toUnits } from "./prices";
@@ -101,41 +101,3 @@ export async function otcConfirm(engine: Engine, id: string, signature: string) 
   return { ok: s === "ok" };
 }
 
-/**
- * Protection claims: the protection wallet co-signs a payout transaction the claimant sends (and pays the network
- * fee for). Only one transaction per claim is outstanding at a time, so a claim can't be paid twice.
- */
-export async function claim(engine: Engine, wallet: string, epoch: number): Promise<ClaimResponse> {
-  const c = one<ClaimRow>("SELECT * FROM protection_claim WHERE epoch = ? AND wallet = ?", epoch, wallet);
-  if (!c) throw new UserError("Nothing to claim for this epoch.");
-  if (c.status === "claimed") throw new UserError("Already claimed.");
-  if (c.status === "expired" || c.expires_at < now()) throw new UserError("This epoch's claim window has closed.");
-  if (c.status === "pending" && c.claimed_at && now() < c.claimed_at + 90)
-    throw new UserError("A claim transaction is already in flight. Try again in a minute if it doesn't land.");
-  if (toUnits(c.amount, 9) > treasury.protectionSol) throw new UserError("The protection wallet is short right now. Try again later.");
-  // claimed_at doubles as the issue time while pending
-  run("UPDATE protection_claim SET status = 'pending', signature = NULL, claimed_at = ? WHERE id = ?", now(), c.id);
-  try {
-    const env = await engine.claimTx(c);
-    if (env.demo && env.signature) settleClaim(c.id, env.signature);
-    else run("UPDATE protection_claim SET last_valid_height = ? WHERE id = ?", env.lastValidBlockHeight ?? 0, c.id);
-    return { ...env, claimId: c.id, amount: c.amount };
-  } catch (e) {
-    run("UPDATE protection_claim SET status = 'open' WHERE id = ?", c.id);
-    throw e;
-  }
-}
-
-export async function claimConfirm(engine: Engine, claimId: string, signature: string) {
-  const c = one<ClaimRow>("SELECT * FROM protection_claim WHERE id = ?", claimId);
-  if (!c) throw new UserError("Unknown claim.");
-  if (c.status === "claimed") return { ok: true };
-  run("UPDATE protection_claim SET signature = ? WHERE id = ?", signature, claimId);
-  const s = await engine.verify(signature, memoFor("claim", claimId), "protection");
-  if (s === "failed") {
-    run("UPDATE protection_claim SET status = 'open', signature = NULL WHERE id = ?", claimId);
-    throw new UserError("The claim transaction failed on-chain.");
-  }
-  if (s === "ok") settleClaim(claimId, signature);
-  return { ok: s === "ok" };
-}

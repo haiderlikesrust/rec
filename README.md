@@ -11,7 +11,7 @@ fee wallet claims the rest and splits it:
 
 | Bucket | Share | Paid in | Goes to |
 |---|---|---|---|
-| Protection fund | 40% | SOL (converted) | Loss coverage claims, up to 60% by hold time (70% on rugs), scaled by the coin's funding |
+| Protection fund | 40% | SOL (converted) | Loss payouts, sent automatically: up to 60% by hold time (70% on rugs), from the coin's own pot |
 | OTC reserve | 30% | SOL (converted) | A SOL wallet you sell coins into with no slippage; limits follow each coin's contributions |
 | Platform buyback & burn | 10% | quote → SOL → $RECR | burned |
 | Coin buyback & burn | 10% | quote → the coin | burned |
@@ -23,9 +23,9 @@ fee wallet claims the rest and splits it:
 - **protection**: the fund.
 - **airdrop**: pays the airdrops.
 
-Their addresses are public, on the site and in `/api/stats`, so anyone can audit them on Solscan. Anything that pays
-a user out of a backend wallet is a single transaction co-signed by that wallet and the user: an OTC trade (coins one
-way, SOL the other, the 3% to the fee wallet) or a protection claim. It settles atomically or not at all.
+Their addresses are public, on the site and in `/api/stats`, so anyone can audit them on Solscan. An OTC trade is a
+single transaction co-signed by the reserve and the user (coins one way, SOL the other, the 3% to the fee wallet), so it
+settles atomically or not at all. Airdrops and protection payouts are pushed to wallets, with nothing to claim.
 
 The brand lives in [packages/shared/src/brand.ts](packages/shared/src/brand.ts): `Recur` / `$RECR` / recur.lol.
 
@@ -35,8 +35,8 @@ and [packages/shared/src/quotes.ts](packages/shared/src/quotes.ts) (quote catalo
 ## Layout
 
 ```
-backend/          Node service: Meteora configs, launch/swap/OTC/claim transactions, indexer, fee router, airdrops,
-                  protection epochs, REST API (http://localhost:42069/api/...). SQLite via node:sqlite.
+backend/          Node service: Meteora configs, launch/swap/OTC transactions, indexer, fee router, airdrops,
+                  protection payouts, REST API (http://localhost:42069/api/...). SQLite via node:sqlite.
   src/chain/      Solana engine: DBC + DAMM v2 SDKs, event decoding, Jupiter conversions, co-signed transactions
   src/demo/       Demo engine: the same money moves simulated in the database, plus a market simulator
 web/              Next.js app: home, launch, token, OTC, protection, portfolio, docs (Solana wallet adapter)
@@ -66,12 +66,13 @@ packages/shared/  API types, fee policy, quote catalog, brand, Solana constants
    above the price, weighted by unrealized loss, with at least ~$20 at stake. Each holder's allocation is sent as
    soon as it's worth $0.50, so payouts never cost more than they deliver. Coins received by transfer carry zero
    cost basis.
-7. **Protection** (every 6 days):
-   - Coverage is the hold-time rate × the coin's funding ratio.
-   - Hold-time rates: <5 min 0%, 5–30 min 25%, 30 min–6 h 45%, 6 h+ 60%, rug 70%.
-   - Each payout is capped at 5× the tax paid.
-   - Each epoch spends at most 15% of the uncommitted fund.
-   - Claims stay open for 60 days.
+7. **Protection** (continuously, every 30 s). Each losing sale is covered as it's indexed and paid automatically:
+   - Payout = loss × hold-time rate: <5 min 0%, 5–30 min 25%, 30 min–6 h 45%, 6 h+ 60%, rug 70%.
+   - Capped at 5× the tax that wallet paid on the coin, across all its payouts.
+   - Paid from the coin's own pot (what its fees put into the fund, minus what it has paid out), at most 15% of the
+     pot per payout, and never more than the protection wallet holds.
+   - Sent in batched transfers once a wallet is owed 0.001 SOL. Nothing to claim, nothing expires. Claims still open
+     from the old 6-day rounds are sent the same way.
 
 ## Run it locally (demo mode, no chain)
 
@@ -94,7 +95,7 @@ Open http://localhost:3000.
   market moving.
 - **Web:** with `NEXT_PUBLIC_DEMO=1` in `web/.env.local`, adds a burner wallet; every new demo wallet gets $10k of
   each quote asset.
-- **Transactions:** launches, trades, OTC and claims are applied by the demo engine instead of being sent on-chain.
+- **Transactions:** launches, trades, OTC and payouts are applied by the demo engine instead of being sent on-chain.
 - **Reset:** `pnpm --filter @cook/backend demo:reset` wipes the demo database.
 
 Tests:
@@ -135,11 +136,11 @@ template is [deploy/dokploy.env.example](deploy/dokploy.env.example).
 - **Custodial treasury.** The bucket wallets are hot keys on the backend server. Whoever holds them can move the
   funds. Use a dedicated server and secret storage, keep balances visible, and consider moving the larger balances
   to a multisig (e.g. Squads) that the backend tops up from.
-- **Trusted backend.** Airdrop recipients, OTC limits and protection claims are computed off-chain from public chain
+- **Trusted backend.** Airdrop recipients, OTC limits and protection payouts are computed off-chain from public chain
   data. They're reproducible, but not enforced on-chain.
 - **Not exercised on a live cluster here.** The demo engine and the tests run end to end. The on-chain engine is
   type-checked against the Meteora SDKs, its configs pass Meteora's validator, and its event decoder is tested on live
-  mainnet swaps. Run a devnet launch → trade → claim → split cycle before mainnet.
+  mainnet swaps. Run a devnet launch → trade → split → payout cycle before mainnet.
 - **Token-2022 quotes.** xStocks and most stock tokens are Token-2022 mints. Meteora DBC accepts them as a quote only
   when the mint has a token badge. The backend marks a quote unavailable if Meteora rejects its config.
 - **Meteora's share.** 16–20% of each 3% fee is Meteora's protocol fee. To route a full 3% to the buckets, raise

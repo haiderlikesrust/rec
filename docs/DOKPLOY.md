@@ -4,7 +4,7 @@ Recur ships as one Docker image (the [`Dockerfile`](../Dockerfile) at the repo r
 side by side:
 
 - the **Next.js site**, on port 7310 (set `PORT` to change it);
-- the **backend**: API, chain indexer, fee router (burns), airdrops, protection epochs and the demo market.
+- the **backend**: API, chain indexer, fee router (burns), airdrops, protection payouts and the demo market.
 
 Next proxies `/api/*` to the backend, so everything is served on one domain. The backend keeps its state in SQLite
 on a Docker volume.
@@ -27,7 +27,7 @@ once the new one is healthy. The settings below turn that on.
 
 1. **Build.** Dokploy builds the new image while the old version keeps serving. If the build fails, nothing changes.
 2. **Standby.** The new container starts and opens the same SQLite file, then serves the site and API right away.
-   Background work (indexing, fee splits and burns, airdrops, protection epochs) runs on exactly one server, the
+   Background work (indexing, fee splits and burns, airdrops, protection payouts) runs on exactly one server, the
    holder of a lease in the database. The old one still holds it, so the new one waits as a **standby**. Its health
    check counts that as healthy.
 3. **Hand-over.**

@@ -10,6 +10,7 @@ import { age, price, sol, tokens, units, usd } from "@/lib/format";
 import { useAddress } from "@/lib/wallet";
 import { CoinAvatar } from "@/components/CoinAvatar";
 import { LogoMark } from "@/components/LogoMark";
+import { PayoutList } from "@/components/protection/Payouts";
 import { QuoteChip } from "@/components/QuoteChip";
 import { AnimatedNumber, Badge, Button, ButtonLink, Card, CardHeader, Change, EmptyState, ErrorState, IconTile, Skeleton } from "@/components/ui";
 import { useWalletModal } from "@/components/wallet/WalletModal";
@@ -33,7 +34,7 @@ export function PortfolioView() {
   const valueUsd = positions.reduce((s, p) => s + p.valueUsd, 0);
   const unrealUsd = positions.reduce((s, p) => s + p.unrealizedUsd, 0);
   const costUsd = valueUsd - unrealUsd;
-  const claimable = data.claims.filter((c) => c.status === "open").reduce((s, c) => s + units(c.amount, 9), 0);
+  const received = data.protection.receivedSol;
   const receiving = positions.filter((p) => p.airdropEligible).length;
   const images = new Map(data.positions.map((p) => [p.coin.address, p.coin.image]));
 
@@ -67,10 +68,10 @@ export function PortfolioView() {
             <Tile
               icon={ShieldCheck}
               color={bucketColor.protection}
-              label="Claimable"
-              value={usd(claimable * solUsd)}
-              sub={`${sol(claimable)} protection`}
-              href={claimable > 0 ? "/protection" : undefined}
+              label="Protection"
+              value={usd(received * solUsd)}
+              sub={`${sol(received)} paid to you`}
+              href="/protection"
             />
           </div>
         </div>
@@ -133,32 +134,18 @@ export function PortfolioView() {
                 <ShieldCheck size={16} />
               </IconTile>
             }
-            title="Protection claims"
-            sub="Losses you realized, covered by hold time and the coin's funding."
+            title="Protection payouts"
+            sub="Losing sales, covered by hold time and the coin's pot, and sent to your wallet automatically."
           />
           <div className="mt-4">
-            {data.claims.length === 0 ? (
+            {data.protection.losses.length === 0 ? (
               <div className="px-5 pb-6 sm:px-6">
-                <EmptyState title="No claims" detail="If you sell a coin below your entry, the next epoch includes your loss." />
+                <EmptyState title="Nothing to cover" detail="Sell a coin below your average entry and the payout arrives about a minute later." />
               </div>
             ) : (
-              <ul className="divide-y divide-line border-t border-line">
-                {data.claims.map((c) => (
-                  <li key={c.epoch} className="flex items-center gap-3 px-5 py-3.5 sm:px-6">
-                    <span className="num flex-1 text-sm text-muted">Epoch #{c.epoch}</span>
-                    <span className="num text-sm font-medium">{usd(units(c.amount, 9) * solUsd)}</span>
-                    {c.status === "claimed" ? (
-                      <Badge tone="up">Claimed</Badge>
-                    ) : c.status === "expired" ? (
-                      <Badge tone="outline">Expired</Badge>
-                    ) : (
-                      <ButtonLink href="/protection" size="sm">
-                        Claim
-                      </ButtonLink>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              <div className="max-h-[420px] overflow-y-auto border-t border-line px-5 sm:px-6">
+                <PayoutList items={data.protection.losses.slice(0, 50)} solUsd={solUsd} />
+              </div>
             )}
           </div>
         </Card>
@@ -282,7 +269,7 @@ function ConnectPrompt() {
   const benefits = [
     { icon: LineChart, color: "var(--accent)", title: "Entries and P/L", body: "Your average entry on every coin, tax included, against the live price." },
     { icon: Gift, color: bucketColor.airdrop, title: "Airdrops you're earning", body: "See which coins are paying you because you bought high." },
-    { icon: ShieldCheck, color: bucketColor.protection, title: "Protection claims", body: "Losses you realized, what they're covered for, and a claim button." },
+    { icon: ShieldCheck, color: bucketColor.protection, title: "Protection payouts", body: "Losses you realized and what the fund paid you for them, automatically." },
   ];
   return (
     <Card featured className="relative overflow-hidden">
@@ -292,7 +279,7 @@ function ConnectPrompt() {
           <LogoMark size={52} live className="text-fg" />
           <h2 className="font-display mt-6 text-3xl leading-tight font-semibold sm:text-4xl">Your coins, all in one place</h2>
           <p className="mt-3 max-w-md text-[15px] leading-relaxed text-muted">
-            Connect a wallet to see your positions, the airdrops you&apos;re earning and any protection you can claim.
+            Connect a wallet to see your positions, the airdrops you&apos;re earning and the protection payouts you&apos;ve received.
           </p>
           <Button size="lg" className="mt-7" onClick={open}>
             Connect wallet <ArrowRight size={16} />

@@ -4,11 +4,11 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import {
   PROTECTION_CAP_X_TAX,
-  PROTECTION_EPOCH_BPS,
+  PROTECTION_PAYOUT_BPS,
   RUG_COVERAGE_BPS,
   brand,
   buyTaxBpsAt,
-  coinAllocationSol,
+  protectionPayout,
   protectionTiers,
 } from "@cook/shared";
 import { buckets, bucketColor } from "@/lib/buckets";
@@ -313,27 +313,28 @@ export function TierChart({ className }: { className?: string }) {
         ))}
       </div>
       <p className="!mt-3 text-center text-[11px] text-faint">
-        then × the coin&apos;s funding ratio for that epoch, capped at {PROTECTION_CAP_X_TAX}× the tax you paid
+        of your loss, capped at {PROTECTION_CAP_X_TAX}× the tax you paid and {PROTECTION_PAYOUT_BPS / 100}% of the coin&apos;s pot
       </p>
     </div>
   );
 }
 
-/** How a coin's contributions limit what its traders can draw. Example numbers are illustrative. */
-export function FundingRatio({ className }: { className?: string }) {
-  const fund = 20;
-  const coinA = 2;
-  const budget = (fund * PROTECTION_EPOCH_BPS) / 10_000;
-  const slice = coinAllocationSol(budget, coinA, fund);
-  const requested = slice * 2;
+/** How a coin's own pot limits what its sellers are paid. Example numbers are illustrative. */
+export function PotExample({ className }: { className?: string }) {
+  const paidIn = 20;
+  const paidOut = 5;
+  const pot = paidIn - paidOut;
+  const loss = 10;
+  const first = protectionPayout({ lossSol: loss, holdSeconds: 7 * 3600, rugged: false, taxPaidSol: 1, paidOnCoinSol: 0, potSol: pot });
+  const nextMax = ((pot - first.payoutSol) * PROTECTION_PAYOUT_BPS) / 10_000;
   return (
     <div className={clsx("my-6 rounded-[22px] border border-line bg-sunk/60 p-5 sm:p-6", className)}>
-      <span className="eyebrow">Funding ratio, worked through</span>
+      <span className="eyebrow">A coin&apos;s pot, worked through</span>
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
         {[
-          { k: "Coin A paid in", v: `${coinA * 10} SOL`, s: `of the ${fund * 10} SOL ever paid into the fund` },
-          { k: "So it can draw", v: `${((coinA / fund) * 100).toFixed(0)}%`, s: `of each epoch's budget (${PROTECTION_EPOCH_BPS / 100}% of the fund)` },
-          { k: "This epoch", v: `${(slice * 10).toFixed(1)} SOL`, s: `for coin A's traders, out of a ${(budget * 10).toFixed(0)} SOL budget` },
+          { k: "Coin A paid in", v: `${paidIn} SOL`, s: "40% of its fees, converted to SOL" },
+          { k: "Already paid out", v: `${paidOut} SOL`, s: "to earlier sellers at a loss" },
+          { k: "Next payout up to", v: `${((pot * PROTECTION_PAYOUT_BPS) / 10_000).toFixed(2)} SOL`, s: `${PROTECTION_PAYOUT_BPS / 100}% of the ${pot} SOL left` },
         ].map((x) => (
           <div key={x.k} className="rounded-2xl border border-line bg-elev p-4">
             <div className="text-xs text-muted">{x.k}</div>
@@ -343,9 +344,10 @@ export function FundingRatio({ className }: { className?: string }) {
         ))}
       </div>
       <p className="!mt-4 text-[13px]">
-        If coin A&apos;s traders request {(requested * 10).toFixed(1)} SOL of cover that epoch, each is paid{" "}
-        {((slice / requested) * 100).toFixed(0)}% of their request. A coin that paid almost nothing into the fund can cover
-        almost nothing, however big the fund is.
+        A seller who held 7 hours and lost {loss} SOL earns {first.tierBps / 100}%, so {first.requestedSol} SOL, and is paid{" "}
+        {first.payoutSol.toFixed(2)} SOL about a minute later. The pot drops to {(pot - first.payoutSol).toFixed(2)} SOL, so
+        the next seller can get up to {nextMax.toFixed(2)} SOL. A coin that paid almost nothing into the fund can pay almost
+        nothing out, however big the fund is.
       </p>
     </div>
   );

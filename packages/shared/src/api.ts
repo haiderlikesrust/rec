@@ -4,6 +4,7 @@
  * equivalents) are numbers. Addresses are base58 public keys. The UI displays USD; coins trade in their quote asset.
  */
 
+import type { PayoutLimit } from "./fees";
 import type { QuoteCategory } from "./quotes";
 import type { Cluster } from "./solana";
 
@@ -152,40 +153,44 @@ export type Position = {
   airdropsReceived: string; // raw quote
 };
 
-export type ProtectionClaim = {
-  epoch: number;
-  account: Address;
-  amount: string; // lamports
-  status: "open" | "pending" | "claimed" | "expired";
-  signature: string | null;
-  expiresAt: number;
-  breakdown: { coin: Address; symbol: string; lossSol: number; coverageBps: number; holdSeconds: number }[];
+/** A realized loss and what it paid. The protection wallet sends payouts automatically; there's nothing to claim. */
+export type CoveredLoss = {
+  id: string;
+  wallet: Address;
+  coin: Address;
+  symbol: string;
+  t: number; // when the losing sale happened
+  lossSol: number;
+  holdSeconds: number;
+  tierBps: number; // hold-time rate
+  amountSol: number; // 0 when the rate or a cap left nothing
+  /** what capped it; "round" for payouts carried over from the old 6-day rounds */
+  limit: PayoutLimit | "round";
+  status: "owed" | "sending" | "sent";
+  tx: string | null;
 };
 
-/** How well a coin's losses are funded in the coming protection epoch. */
+/** A coin's protection pot: what it paid into the fund, what it has paid its sellers, and what's left. */
 export type CoinProtection = {
   coin: Address;
   symbol: string;
   image: string;
   contributedSol: number; // SOL this coin has paid into the protection wallet
-  shareOfFund: number; // 0..1 of everything ever paid in
-  allocationSol: number; // most this coin's claims can draw from the next epoch
-  requestedSol: number; // tier-weighted claims since the last epoch
-  /** 0..1 multiplier applied to tier rates in the next epoch (1 = fully funded) */
-  scale: number;
+  paidSol: number; // paid or owed to its sellers
+  potSol: number; // left for future losses (never more than the wallet actually holds)
+  maxPayoutSol: number; // the most the next payout on this coin can be
 };
 
 export type ProtectionStatus = {
   wallet: Address; // the protection wallet, verifiable on-chain
   fundSol: number; // wallet balance
-  reservedSol: number; // committed to open claims
-  epochBudgetSol: number;
-  maxEpochBps: number;
+  owedSol: number; // covered but not sent yet
   totalPaidSol: number;
-  lastEpochAt: number;
-  nextEpochAt: number; // unix seconds (0 = any time)
-  epochs: { id: number; totalSol: number; claimedSol: number; publishedAt: number; claims: number }[];
-  /** coins ranked by contribution, with their next-epoch funding */
+  paid24hSol: number;
+  payoutBps: number; // the most one payout can take from its coin's pot
+  /** the latest losses that earned a payout */
+  recent: CoveredLoss[];
+  /** coins ranked by what they paid in */
   coins: CoinProtection[];
 };
 
@@ -193,16 +198,8 @@ export type WalletSummary = {
   address: Address;
   positions: Position[];
   airdrops: { coin: Address; symbol: string; amount: string; quoteSymbol: string; quoteDecimals: number; t: number; tx: string }[];
-  claims: ProtectionClaim[];
-  /** realized losses not yet in a published epoch, with the coverage they'd earn today */
-  pendingCoverage: {
-    coin: Address;
-    symbol: string;
-    lossSol: number;
-    tierBps: number; // hold-time rate
-    coverageBps: number; // effective rate after the coin funding ratio
-    estimatedSol: number;
-  }[];
+  /** this wallet's covered losses, newest first */
+  protection: { receivedSol: number; owedSol: number; losses: CoveredLoss[] };
 };
 
 /** A backend-controlled wallet. Each one is a plain Solana account anyone can audit. */
@@ -312,8 +309,6 @@ export type OtcQuote = TxEnvelope & {
 export type OtcWalletLimits = OtcCoin & { reserveSol: number; walletRemainingSol: number };
 export type OtcStatus = { wallet: Address; reserveSol: number; walletDailyCapSol: number; coins: OtcCoin[] };
 
-export type ClaimResponse = TxEnvelope & { claimId: string; amount: string };
-
 export const api = (base: string) => {
   const get = async <T>(path: string): Promise<T> => {
     const res = await fetch(`${base}${path}`, { cache: "no-store" } as RequestInit);
@@ -355,8 +350,6 @@ export const api = (base: string) => {
     launch: (req: LaunchRequest) => post<LaunchResponse>("/api/tx/launch", req),
     otcQuote: (req: OtcQuoteRequest) => post<OtcQuote>("/api/otc/quote", req),
     otcConfirm: (id: string, signature: string) => post<{ ok: boolean }>("/api/otc/confirm", { id, signature }),
-    claim: (wallet: string, epoch: number) => post<ClaimResponse>("/api/protection/claim", { wallet, epoch }),
-    claimConfirm: (claimId: string, signature: string) => post<{ ok: boolean }>("/api/protection/confirm", { claimId, signature }),
     /** Ask the backend to index a transaction the wallet just sent, so the UI updates without waiting for polling. */
     ingest: (signature: string) => post<{ ok: boolean }>("/api/ingest", { signature }),
   };

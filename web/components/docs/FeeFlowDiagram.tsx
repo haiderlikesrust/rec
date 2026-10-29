@@ -3,7 +3,7 @@ import { brand, type BucketKey } from "@cook/shared";
 import { buckets } from "@/lib/buckets";
 
 const meta: Record<BucketKey, { icon: LucideIcon; sub: string; dest: string }> = {
-  protection: { icon: ShieldCheck, sub: "converted to SOL", dest: "Loss claims · SOL" },
+  protection: { icon: ShieldCheck, sub: "converted to SOL", dest: "Loss payouts · SOL" },
   otcReserve: { icon: ArrowLeftRight, sub: "converted to SOL", dest: "No-slippage exits" },
   mainBuyback: { icon: Flame, sub: `quote → SOL → $${brand.mainTicker}`, dest: `$${brand.mainTicker} burned` },
   coinBuyback: { icon: Flame, sub: "quote → this coin", dest: "Coin burned" },

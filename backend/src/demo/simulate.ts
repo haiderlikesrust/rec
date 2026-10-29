@@ -1,7 +1,7 @@
 import { NATIVE_MINT, brand, type LaunchRequest } from "@cook/shared";
 import { config, log } from "../config";
 import { all, big, kvGet, kvSet, one, type CoinRow, type HolderRow } from "../db";
-import { processFees, runAirdrops, runProtectionEpoch } from "../jobs";
+import { processFees, runAirdrops, runProtection } from "../jobs";
 import { SYSTEM, getCoin } from "../ledger";
 import { quoteRow } from "../prices";
 import { treasury } from "../services";
@@ -136,10 +136,8 @@ export async function seedDemo(engine: DemoEngine) {
       await refreshTreasury(engine);
       await processFees(engine, t);
       await runAirdrops(engine, t);
-      if (t - start > 30 * 3600 && !one("SELECT 1 FROM protection_epoch")) {
-        await refreshTreasury(engine);
-        runProtectionEpoch(t, true);
-      }
+      await refreshTreasury(engine);
+      await runProtection(engine, t);
       nextHour += 3600;
     }
   }

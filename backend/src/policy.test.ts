@@ -4,13 +4,14 @@ import { Keypair } from "@solana/web3.js";
 import { BaseFeeMode, MigratedCollectFeeMode, getFeeSchedulerParams, validateConfigParameters } from "@meteora-ag/dynamic-bonding-curve-sdk";
 import {
   GRADUATION_MCAP_USD,
+  RUG_COVERAGE_BPS,
   SNIPE,
   START_MCAP_USD,
   TAX_BPS,
   buyTaxBpsAt,
   otcActivityBps,
   otcPolicy,
-  planProtectionEpoch,
+  protectionPayout,
   splitRaw,
 } from "@cook/shared";
 import { configParams } from "./chain/params";
@@ -83,18 +84,22 @@ test("demo curve: buying to the threshold reaches the $30k graduation price", ()
   assert.ok(Math.abs(back.out - r.used) < 1e-6);
 });
 
-test("protection: coverage scales with what the coin paid into the fund, capped at 5x tax", () => {
-  const losses = [
-    { coin: "A", symbol: "A", wallet: "w1", lossSol: 10, holdSeconds: 7 * 3600, taxPaidSol: 1, rugged: false },
-    { coin: "B", symbol: "B", wallet: "w2", lossSol: 10, holdSeconds: 7 * 3600, taxPaidSol: 0.1, rugged: false },
-  ];
-  // A paid 90% of the fund, B 10%; budget 2 SOL
-  const plan = planProtectionEpoch(losses, { A: 9, B: 1 }, 10, 2);
-  const w1 = plan.wallets.get("w1")!.totalSol;
-  const w2 = plan.wallets.get("w2")!.totalSol;
-  assert.ok(Math.abs(w1 - 1.8) < 1e-9, `A gets its 90% slice of the budget: ${w1}`); // asked 6, allotted 1.8
-  assert.ok(Math.abs(w2 - 0.2) < 1e-9, `B is capped by its slice: ${w2}`); // asked min(6, 0.5) = 0.5, allotted 0.2
-  assert.ok(plan.totalSol <= 2 + 1e-9);
+test("protection: a loss pays its hold-time rate, capped at 5x tax and 15% of the coin's pot", () => {
+  const base = { lossSol: 10, holdSeconds: 7 * 3600, rugged: false, taxPaidSol: 2, paidOnCoinSol: 0, potSol: 100 };
+  // 6h+ holds earn 60%: 6 SOL, well inside 5x tax (10) and 15% of the pot (15)
+  assert.deepEqual(protectionPayout(base), { tierBps: 6000, requestedSol: 6, payoutSol: 6, limit: "rate" });
+  // the tax cap counts what this wallet was already paid on the coin
+  const taxed = protectionPayout({ ...base, paidOnCoinSol: 7 });
+  assert.equal(taxed.limit, "tax");
+  assert.ok(Math.abs(taxed.payoutSol - 3) < 1e-9);
+  // a small pot: one payout takes at most 15% of it, so the next seller still gets something
+  const small = protectionPayout({ ...base, potSol: 10 });
+  assert.equal(small.limit, "pot");
+  assert.ok(Math.abs(small.payoutSol - 1.5) < 1e-9);
+  // sold within 5 minutes of buying: nothing, whatever the pot
+  assert.equal(protectionPayout({ ...base, holdSeconds: 60 }).payoutSol, 0);
+  // rugs get the top rate whatever the hold time
+  assert.equal(protectionPayout({ ...base, holdSeconds: 60, rugged: true }).tierBps, RUG_COVERAGE_BPS);
 });
 
 test("OTC limits drop to 5% after 2 days without fees", () => {

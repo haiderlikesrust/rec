@@ -11,10 +11,10 @@ process.env.DATA_DIR = mkdtempSync(path.join(tmpdir(), "recur-test-"));
 
 const { NATIVE_MINT } = await import("@cook/shared");
 const { loadWallets } = await import("./config");
-const { all, big, one } = await import("./db");
+const { all, big, one, run } = await import("./db");
 const { DemoEngine, fakeKey } = await import("./demo/engine");
-const { claim, otcQuote } = await import("./flows");
-const { processFees, runProtectionEpoch } = await import("./jobs");
+const { otcQuote } = await import("./flows");
+const { processFees, runProtection } = await import("./jobs");
 const { SYSTEM, getCoin } = await import("./ledger");
 const { syncQuotes } = await import("./prices");
 const { otcCoin, treasury, walletDailyCapSol } = await import("./services");
@@ -29,7 +29,7 @@ const refresh = () => {
   treasury.protectionSol = sol(engine.wallets.protection);
 };
 
-test("fees flow from trades into the five wallets, and losses become protection claims", async () => {
+test("fees flow from trades into the five wallets, and losses are paid out automatically", async () => {
   const t0 = Math.floor(Date.now() / 1000) - 4 * 3600;
   const creator = fakeKey();
   const { mint } = engine.createCoin(
@@ -94,17 +94,35 @@ test("fees flow from trades into the five wallets, and losses become protection 
   assert.equal(engine.bal(engine.wallets.otc, mint), 0n, "the reserve holds no coins");
   await assert.rejects(otcQuote(engine, { wallet: buyer, coin: mint, side: "buy" as "sell", amount: "1000000" }), /only buys/);
 
-  // protection: an epoch covers the buyer's realized loss, and the claim pays out of the protection wallet
+  // protection: the buyer's losing sales are covered and paid out of the protection wallet, with nothing to claim
   refresh();
-  assert.ok(runProtectionEpoch(t0 + 7500, true));
-  const row = one<{ epoch: number; amount: string }>("SELECT epoch, amount FROM protection_claim WHERE wallet = ?", buyer)!;
-  assert.ok(big(row.amount) > 0n);
   const protBefore = sol(engine.wallets.protection);
+  const buyerBefore = sol(buyer);
+  await runProtection(engine, t0 + 7500);
+  const payouts = all<{ amount_sol: number; tx: string | null }>("SELECT amount_sol, tx FROM protection_payout WHERE wallet = ?", buyer);
+  const paid = payouts.reduce((s, p) => s + p.amount_sol, 0);
+  assert.ok(paid > 0, "the buyer's losses earned a payout");
+  assert.ok(payouts.every((p) => p.tx && !p.tx.startsWith("sending:")), "and it was sent");
+  assert.ok(Math.abs(protBefore - sol(engine.wallets.protection) - paid) < 1e-9, "out of the protection wallet");
+  assert.ok(Math.abs(sol(buyer) - buyerBefore - paid) < 1e-9, "to the buyer");
+  assert.ok(Math.abs(getCoin(mint)!.protection_paid - paid) < 1e-9, "charged to the coin's own pot");
+  assert.ok(payouts.every((p) => p.amount_sol <= after.sol_to_protection * 0.15 + 1e-9), "no payout takes over 15% of the pot");
+  await runProtection(engine, t0 + 7600);
+  assert.ok(Math.abs(sol(buyer) - buyerBefore - paid) < 1e-9, "a second pass pays nothing twice");
+
+  // a claim left open from the old 6-day rounds is paid without being claimed
+  const legacy = fakeKey();
+  run("INSERT INTO protection_epoch (id, total, published_at, window_from, window_to, coins) VALUES (99, '2000000', ?, ?, ?, '{}')", t0, t0, t0);
+  run(
+    "INSERT INTO protection_claim (id, epoch, wallet, amount, breakdown, status, expires_at) VALUES ('99-x', 99, ?, '2000000', ?, 'open', ?)",
+    legacy,
+    JSON.stringify([{ coin: mint, symbol: "TEST", lossSol: 0.01, coverageBps: 2000, holdSeconds: 600 }]),
+    t0 + 86_400,
+  );
   refresh();
-  const r = await claim(engine, buyer, row.epoch);
-  assert.equal(r.demo, true);
-  assert.ok(Math.abs(protBefore - sol(engine.wallets.protection) - Number(row.amount) / 1e9) < 1e-9);
-  assert.equal(one<{ status: string }>("SELECT status FROM protection_claim WHERE wallet = ?", buyer)!.status, "claimed");
-  await assert.rejects(claim(engine, buyer, row.epoch), /Already claimed/);
+  const legacyBefore = engine.bal(legacy, NATIVE_MINT);
+  await runProtection(engine, t0 + 7700);
+  assert.equal(one<{ status: string }>("SELECT status FROM protection_claim WHERE id = '99-x'")!.status, "converted");
+  assert.equal(engine.bal(legacy, NATIVE_MINT) - legacyBefore, 2_000_000n);
   assert.ok(all("SELECT * FROM ledger").length > 0);
 });

@@ -37,8 +37,8 @@ export const config = {
   airdropMinPayoutUsd: Number(process.env.AIRDROP_MIN_PAYOUT_USD ?? (demo ? 0.05 : AIRDROP_MIN_PAYOUT_USD)),
   feesEveryMs: Number(process.env.FEES_EVERY_MS ?? (demo ? 5_000 : 15_000)),
   airdropsEveryMs: Number(process.env.AIRDROPS_EVERY_MS ?? (demo ? 5_000 : 20_000)),
-  /** Protection epochs: seconds between epochs (6 days; 2 hours in the demo). */
-  protectionEpochSeconds: Number(process.env.PROTECTION_EPOCH_SECONDS ?? (demo ? 7200 : 6 * 86_400)),
+  /** How often realized losses are covered and owed protection payouts sent. */
+  protectionEveryMs: Number(process.env.PROTECTION_EVERY_MS ?? (demo ? 5_000 : 30_000)),
   /** A config is replaced once its quote's USD price drifts this far, so new coins still start at $2.5k. */
   configDriftBps: Number(process.env.CONFIG_DRIFT_BPS ?? 1500),
   pollMs: Number(process.env.POLL_MS ?? 4000),

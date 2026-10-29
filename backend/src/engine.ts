@@ -9,7 +9,7 @@ import type {
   TxEnvelope,
 } from "@cook/shared";
 import type { Role } from "./config";
-import type { ClaimRow, CoinRow, OtcQuoteRow } from "./db";
+import type { CoinRow, OtcQuoteRow } from "./db";
 
 /**
  * Everything that touches money goes through an Engine. `chain/engine.ts` does it on Solana with Meteora pools and
@@ -38,12 +38,12 @@ export interface Engine {
   launch(req: LaunchRequest, metadataUri: string): Promise<LaunchResponse>;
   /** OTC trade as one transaction co-signed by the OTC wallet. Demo mode settles it immediately. */
   otcTx(q: OtcQuoteRow, c: CoinRow): Promise<TxEnvelope>;
-  /** Protection payout as one transaction co-signed by the protection wallet. Demo mode pays immediately. */
-  claimTx(claim: ClaimRow): Promise<TxEnvelope>;
   /** True once `signature` landed successfully and carries `memo` signed by the given backend wallet. */
   verify(signature: string, memo: string, signer: Role): Promise<"ok" | "pending" | "failed">;
   /** Index one transaction right away (the UI calls this after sending). */
   ingest(signature: string): Promise<void>;
+  /** Memos on a backend wallet's recent transactions, to find transfers that landed without being recorded. */
+  recentMemos(wallet: Role): Promise<{ signature: string; memo: string }[]>;
 
   // ---- treasury moves (fee wallet and friends)
   /** Claims the fee wallet's accrued trading fees on a coin's pool. Returns the raw quote received. */

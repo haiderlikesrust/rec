@@ -3,9 +3,9 @@
 import clsx from "clsx";
 import { Gift, ShieldCheck, Wallet } from "lucide-react";
 import Link from "next/link";
-import { coverageBpsForHold, protectionTiers, RUG_COVERAGE_BPS, type CoinDetail } from "@cook/shared";
+import { coverageBpsForHold, PROTECTION_CAP_X_TAX, protectionTiers, RUG_COVERAGE_BPS, type CoinDetail } from "@cook/shared";
 import { bucketColor } from "@/lib/buckets";
-import { useWalletSummary } from "@/lib/data";
+import { useSolUsd, useWalletSummary } from "@/lib/data";
 import { bps, duration, tokens, units, usd } from "@/lib/format";
 import { useAddress } from "@/lib/wallet";
 import { IconTile, Row, Skeleton } from "@/components/ui";
@@ -14,6 +14,7 @@ import { TinyPrice } from "./TinyPrice";
 export function PositionCard({ coin }: { coin: CoinDetail }) {
   const address = useAddress();
   const { data, isLoading } = useWalletSummary(address);
+  const solUsd = useSolUsd();
   if (!address) return null;
   const pos = data?.positions.find((p) => p.coin.address === coin.address);
   const q = coin.quote;
@@ -37,8 +38,7 @@ export function PositionCard({ coin }: { coin: CoinDetail }) {
 
   const hold = pos.firstBuyAt ? Date.now() / 1000 - pos.firstBuyAt : 0;
   const tierBps = coverageBpsForHold(hold);
-  const funding = coin.protection?.scale ?? 0;
-  const effectiveBps = Math.round(tierBps * funding);
+  const maxPayoutSol = coin.protection?.maxPayoutSol ?? 0;
   const nextTier = protectionTiers.find((t) => t.minHold > hold);
   const basis = units(pos.costBasis, q.decimals);
   const pnlPct = basis > 0 ? (pos.unrealized / basis) * 100 : 0;
@@ -107,7 +107,7 @@ export function PositionCard({ coin }: { coin: CoinDetail }) {
         <div className="flex items-center gap-2.5">
           <ShieldCheck size={14} style={{ color: bucketColor.protection }} className="shrink-0" />
           <span className="text-muted">
-            Loss cover if sold now: <span className="num font-medium text-fg">{bps(effectiveBps)}</span>
+            Loss cover if sold now: <span className="num font-medium text-fg">{bps(tierBps)}</span>
           </span>
           <Link href="/protection" className="ml-auto text-accent hover:underline">
             Rules
@@ -124,11 +124,11 @@ export function PositionCard({ coin }: { coin: CoinDetail }) {
           ))}
         </div>
         <p className="num mt-2.5 text-[11px] text-muted">
-          {bps(tierBps)} hold rate × {(funding * 100).toFixed(0)}% coin funding = {bps(effectiveBps)}
+          {bps(tierBps)} of your loss, up to {usd(maxPayoutSol * solUsd)} from this coin&apos;s pot and {PROTECTION_CAP_X_TAX}× the tax you paid
         </p>
         <p className="mt-1 text-[11px] leading-relaxed text-faint">
           Held {duration(hold)}.{nextTier && ` Rate rises to ${bps(nextTier.coverageBps)} after ${duration(nextTier.minHold - hold)} more.`} Rugs
-          get {bps(RUG_COVERAGE_BPS)}. Funding is this coin&apos;s share of the next epoch&apos;s budget, set by what it paid into the fund.
+          get {bps(RUG_COVERAGE_BPS)}. Paid to your wallet automatically about a minute after you sell.
         </p>
       </div>
     </section>

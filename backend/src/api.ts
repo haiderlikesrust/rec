@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import {
   LAUNCH_FEE_SOL,
-  PROTECTION_EPOCH_BPS,
+  PROTECTION_PAYOUT_BPS,
   clusters,
   isSolanaAddress,
   type ActivityItem,
@@ -13,7 +13,6 @@ import {
   type OtcQuoteRequest,
   type PlatformStats,
   type Position,
-  type ProtectionClaim,
   type ProtectionStatus,
   type SwapRequest,
   type Trade,
@@ -21,26 +20,26 @@ import {
 } from "@cook/shared";
 import { config, log, roles } from "./config";
 import { lease } from "./lease";
-import { all, big, kvGet, kvSet, one, type ClaimRow, type CoinRow, type HolderRow, type QuoteRow, type TradeRow } from "./db";
+import { all, big, kvGet, kvSet, one, type CoinRow, type HolderRow, type QuoteRow, type TradeRow } from "./db";
 import { UserError, type Engine } from "./engine";
-import { claim, claimConfirm, otcConfirm, otcQuote } from "./flows";
+import { otcConfirm, otcQuote } from "./flows";
 import { getCoin } from "./ledger";
 import { solUsd, toQuoteAsset, toUnits } from "./prices";
 import {
   allCoins,
   coinCandles24h,
-  currentProtectionPlan,
-  epochBudgetSol,
+  coinProtection,
+  coveredLosses,
   holdersOf,
   now,
   otcCoin,
-  pendingCoverage,
+  owedProtectionSol,
   quotesMap,
-  reservedSol,
   shapeCoin,
   sortCoins,
   treasury,
   walletDailyCapSol,
+  walletProtection,
   walletSoldToday,
 } from "./services";
 
@@ -159,7 +158,7 @@ export function createApi(engine: Engine) {
           usd: toUnits(quote, q.decimals) * q.usd,
         };
       })(),
-      protection: currentProtectionPlan().coinFunding(c),
+      protection: coinProtection(c),
     };
     return ctx.json(detail);
   });
@@ -244,15 +243,6 @@ export function createApi(engine: Engine) {
       "SELECT coin, amount, ts, tx FROM airdrop WHERE recipient = ? ORDER BY ts DESC LIMIT 200",
       wallet,
     );
-    const claims: ProtectionClaim[] = all<ClaimRow>("SELECT * FROM protection_claim WHERE wallet = ? ORDER BY epoch DESC", wallet).map((c) => ({
-      epoch: c.epoch,
-      account: c.wallet,
-      amount: c.amount,
-      status: c.status as ProtectionClaim["status"],
-      signature: c.signature,
-      expiresAt: c.expires_at,
-      breakdown: JSON.parse(c.breakdown),
-    }));
     const summary: WalletSummary = {
       address: wallet,
       positions,
@@ -269,8 +259,7 @@ export function createApi(engine: Engine) {
           tx: d.tx,
         };
       }),
-      claims,
-      pendingCoverage: pendingCoverage(wallet),
+      protection: walletProtection(wallet),
     };
     return ctx.json(summary);
   });
@@ -278,32 +267,20 @@ export function createApi(engine: Engine) {
   app.get("/api/balances/:address", async (ctx) => ctx.json(await engine.balances(address(ctx, "address"))));
 
   app.get("/api/protection", (ctx) => {
-    const p = currentProtectionPlan();
-    const epochs = all<{ id: number; total: string; claimed: string; published_at: number; n: number }>(
-      `SELECT e.id, e.total, e.claimed, e.published_at, (SELECT COUNT(*) FROM protection_claim c WHERE c.epoch = e.id) AS n
-       FROM protection_epoch e ORDER BY e.id DESC`,
-    );
-    const last = epochs[0]?.published_at ?? 0;
+    const owed = owedProtectionSol();
+    const available = treasury.protectionSol - owed;
     const status: ProtectionStatus = {
       wallet: engine.wallets.protection,
       fundSol: treasury.protectionSol,
-      reservedSol: reservedSol(),
-      epochBudgetSol: epochBudgetSol(),
-      maxEpochBps: PROTECTION_EPOCH_BPS,
+      owedSol: owed,
       totalPaidSol: toUnits(kvGet("protection_paid") ?? "0", 9),
-      lastEpochAt: last,
-      nextEpochAt: last === 0 ? 0 : last + config.protectionEpochSeconds,
-      epochs: epochs.map((e) => ({
-        id: e.id,
-        totalSol: toUnits(e.total, 9),
-        claimedSol: toUnits(e.claimed, 9),
-        publishedAt: e.published_at,
-        claims: e.n,
-      })),
-      coins: [...p.coins.values()]
-        .map(p.coinFunding)
-        .filter((c) => c.contributedSol > 0)
-        .sort((a, b) => b.contributedSol - a.contributedSol),
+      paid24hSol: one<{ s: number }>(
+        "SELECT COALESCE(SUM(amount_sol), 0) AS s FROM protection_payout WHERE sent_at >= ? AND tx NOT LIKE 'sending:%'",
+        now() - 86_400,
+      )!.s,
+      payoutBps: PROTECTION_PAYOUT_BPS,
+      recent: coveredLosses("p.amount_sol > 0", [], 30),
+      coins: all<CoinRow>("SELECT * FROM coin WHERE sol_to_protection > 0 ORDER BY sol_to_protection DESC").map((c) => coinProtection(c, available)),
     };
     return ctx.json(status);
   });
@@ -375,19 +352,6 @@ export function createApi(engine: Engine) {
   app.post("/api/otc/confirm", async (ctx) => {
     const { id, signature } = await ctx.req.json<{ id: string; signature: string }>();
     return ctx.json(await otcConfirm(engine, id, signature));
-  });
-
-  // ---------------------------------------------------------------- protection claims
-
-  app.post("/api/protection/claim", async (ctx) => {
-    const { wallet, epoch } = await ctx.req.json<{ wallet: string; epoch: number }>();
-    if (!isSolanaAddress(wallet)) throw new UserError("Connect a wallet first.");
-    return ctx.json(await claim(engine, wallet, Number(epoch)));
-  });
-
-  app.post("/api/protection/confirm", async (ctx) => {
-    const { claimId, signature } = await ctx.req.json<{ claimId: string; signature: string }>();
-    return ctx.json(await claimConfirm(engine, claimId, signature));
   });
 
   // ---------------------------------------------------------------- trading and launching

@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS coin (
   -- OTC reserve accounting (SOL)
   otc_credit REAL NOT NULL DEFAULT 0, otc_last_contribution INTEGER NOT NULL DEFAULT 0, otc_inventory TEXT NOT NULL DEFAULT '0',
   otc_burned TEXT NOT NULL DEFAULT '0',
+  -- protection: SOL committed to this coin's sellers so far (its pot is sol_to_protection minus this)
+  protection_paid REAL NOT NULL DEFAULT 0,
   -- rug heuristic
   creator_bought TEXT NOT NULL DEFAULT '0', creator_sold TEXT NOT NULL DEFAULT '0'
 );
@@ -71,9 +73,16 @@ CREATE TABLE IF NOT EXISTS holder (
 CREATE INDEX IF NOT EXISTS holder_wallet ON holder(wallet);
 CREATE TABLE IF NOT EXISTS loss (
   id TEXT PRIMARY KEY, coin TEXT NOT NULL, wallet TEXT NOT NULL, ts INTEGER NOT NULL, loss_quote TEXT NOT NULL,
-  loss_sol REAL NOT NULL, hold INTEGER NOT NULL, tax_paid_sol REAL NOT NULL
+  loss_sol REAL NOT NULL, hold INTEGER NOT NULL, tax_paid_sol REAL NOT NULL, processed INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS loss_ts ON loss(ts);
+-- one row per covered loss: what it pays, and the transfer that paid it (NULL while owed, 'sending:…' mid-send)
+CREATE TABLE IF NOT EXISTS protection_payout (
+  id TEXT PRIMARY KEY, wallet TEXT NOT NULL, coin TEXT NOT NULL, ts INTEGER NOT NULL, loss_sol REAL NOT NULL,
+  hold INTEGER NOT NULL, tier_bps INTEGER NOT NULL, amount_sol REAL NOT NULL, limit_by TEXT NOT NULL, tx TEXT, sent_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS payout_wallet ON protection_payout(wallet);
+CREATE INDEX IF NOT EXISTS payout_tx ON protection_payout(tx);
 CREATE TABLE IF NOT EXISTS airdrop (
   id TEXT PRIMARY KEY, coin TEXT NOT NULL, epoch INTEGER NOT NULL, recipient TEXT NOT NULL, amount TEXT NOT NULL,
   ts INTEGER NOT NULL, tx TEXT NOT NULL
@@ -113,6 +122,27 @@ export const run = (sql: string, ...params: SQLInputValue[]) => db.prepare(sql).
 // columns added after a database was first created
 const coinColumns = new Set(all<{ name: string }>("PRAGMA table_info(coin)").map((c) => c.name));
 if (!coinColumns.has("otc_burned")) db.exec("ALTER TABLE coin ADD COLUMN otc_burned TEXT NOT NULL DEFAULT '0'");
+if (!coinColumns.has("protection_paid")) {
+  // protection used to pay in 6-day rounds: charge each coin's pot for what its rounds promised
+  db.exec("ALTER TABLE coin ADD COLUMN protection_paid REAL NOT NULL DEFAULT 0");
+  for (const c of all<{ amount: string; breakdown: string }>("SELECT amount, breakdown FROM protection_claim WHERE status != 'expired'"))
+    for (const [coin, sol] of claimByCoin(c.amount, c.breakdown)) run("UPDATE coin SET protection_paid = protection_paid + ? WHERE mint = ?", sol, coin);
+}
+const lossColumns = new Set(all<{ name: string }>("PRAGMA table_info(loss)").map((c) => c.name));
+if (!lossColumns.has("processed")) {
+  db.exec("ALTER TABLE loss ADD COLUMN processed INTEGER NOT NULL DEFAULT 0");
+  // losses a published round already covered
+  run("UPDATE loss SET processed = 1 WHERE ts < (SELECT COALESCE(MAX(window_to), 0) FROM protection_epoch)");
+}
+
+/** A round's claim (lamports) split across the coins in its breakdown, in proportion to what each loss earned. */
+export function claimByCoin(amount: string, breakdown: string): [string, number][] {
+  const items = JSON.parse(breakdown) as { coin: string; lossSol: number; coverageBps: number }[];
+  const weights = items.map((b) => b.lossSol * b.coverageBps);
+  const total = weights.reduce((s, w) => s + w, 0);
+  const sol = Number(BigInt(amount)) / 1e9;
+  return items.map((b, i) => [b.coin, total > 0 ? (sol * weights[i]!) / total : sol / items.length]);
+}
 
 let depth = 0;
 /** Runs `fn` in a transaction (nested calls join the outer one). */
@@ -211,6 +241,7 @@ export type CoinRow = {
   otc_last_contribution: number;
   otc_inventory: string;
   otc_burned: string;
+  protection_paid: number;
   creator_bought: string;
   creator_sold: string;
 };
@@ -250,6 +281,21 @@ export type LossRow = {
   loss_sol: number;
   hold: number;
   tax_paid_sol: number;
+  processed: number;
+};
+
+export type PayoutRow = {
+  id: string;
+  wallet: string;
+  coin: string;
+  ts: number;
+  loss_sol: number;
+  hold: number;
+  tier_bps: number;
+  amount_sol: number;
+  limit_by: string;
+  tx: string | null;
+  sent_at: number | null;
 };
 
 export type ClaimRow = {

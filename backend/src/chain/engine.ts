@@ -48,7 +48,7 @@ import {
 import { storeMetadata } from "../api";
 import { config, log, type Role } from "../config";
 import { COIN_DECIMALS, SUPPLY_RAW, curveFor } from "../curve";
-import { all, big, kvGet, kvSet, one, run, type ClaimRow, type CoinRow, type OtcQuoteRow } from "../db";
+import { all, big, kvGet, kvSet, one, run, type CoinRow, type OtcQuoteRow } from "../db";
 import { UserError, memoFor, type Engine } from "../engine";
 import { SYSTEM, coinByPool, getCoin, quoteDecimals, recordLaunch, recordTrade, recordTransfer } from "../ledger";
 import { activeConfig, quoteRow } from "../prices";
@@ -462,15 +462,6 @@ export class ChainEngine implements Engine {
     return this.forUser(tx, q.wallet, [this.keys.otc]);
   }
 
-  async claimTx(claim: ClaimRow): Promise<TxEnvelope> {
-    const protection = this.keys.protection.publicKey;
-    const tx = new Transaction().add(
-      SystemProgram.transfer({ fromPubkey: protection, toPubkey: this.pk(claim.wallet), lamports: BigInt(claim.amount) }),
-      this.memo(memoFor("claim", claim.id), protection),
-    );
-    return this.forUser(tx, claim.wallet, [this.keys.protection]);
-  }
-
   async verify(signature: string, memo: string, signer: Role) {
     const tx = await this.conn.getTransaction(signature, { maxSupportedTransactionVersion: 1, commitment: "confirmed" });
     if (!tx) return "pending" as const;
@@ -658,6 +649,11 @@ export class ChainEngine implements Engine {
         kvSet(`cursor:${address}`, s.signature);
       }
     }
+  }
+
+  async recentMemos(wallet: Role) {
+    const sigs = await this.conn.getSignaturesForAddress(this.keys[wallet].publicKey, { limit: 1000 }, "confirmed");
+    return sigs.filter((s) => !s.err && s.memo).map((s) => ({ signature: s.signature, memo: s.memo! }));
   }
 
   async ingest(signature: string) {

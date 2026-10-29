@@ -17,7 +17,8 @@ import {
 } from "lucide-react";
 import {
   PROTECTION_CAP_X_TAX,
-  PROTECTION_EPOCH_BPS,
+  PROTECTION_MIN_PAYOUT_SOL,
+  PROTECTION_PAYOUT_BPS,
   RUG_COVERAGE_BPS,
   GRADUATION_MCAP_USD,
   START_MCAP_USD,
@@ -42,7 +43,7 @@ import {
   SplitList,
   StepCards,
   TierChart,
-  FundingRatio,
+  PotExample,
 } from "@/components/docs/DocsBlocks";
 import { DocsTreasury } from "@/components/docs/DocsTreasury";
 import { FeeFlowDiagram } from "@/components/docs/FeeFlowDiagram";
@@ -118,7 +119,7 @@ export default function DocsPage() {
             icon: ShieldCheck,
             color: bucketColor.protection,
             title: "Protection rules",
-            body: "Hold-time tiers, coin funding, caps and epochs.",
+            body: "Hold-time tiers, each coin's pot, caps, and automatic payouts.",
           },
         ]}
       />
@@ -162,7 +163,7 @@ export default function DocsPage() {
               {
                 icon: Waves,
                 title: "Give back",
-                body: "Holders who are underwater get airdrops continuously, sellers at a loss can claim coverage, anyone can exit into the OTC reserve, and supply keeps shrinking.",
+                body: "Holders who are underwater get airdrops continuously, sellers at a loss are paid back automatically, anyone can exit into the OTC reserve, and supply keeps shrinking.",
               },
             ]}
           />
@@ -206,7 +207,7 @@ export default function DocsPage() {
                 k: "protection",
                 icon: ShieldCheck,
                 tag: "Protection fund",
-                text: `Bought near the peak, held 7 hours, sold at a $120 loss. That's the ${BEN_TIER.label} tier: up to ${BEN_PCT}%, so ${$(120 * BEN_PCT / 100)} requested, paid in SOL. It's then scaled by the coin's funding ratio for that epoch and capped at ${PROTECTION_CAP_X_TAX}× the fee he paid.`,
+                text: `Bought near the peak, held 7 hours, sold at a $120 loss. That's the ${BEN_TIER.label} tier: up to ${BEN_PCT}%, so ${$(120 * BEN_PCT / 100)}, paid to his wallet in SOL a minute after the sale, as long as it's within ${PROTECTION_CAP_X_TAX}× the fee he paid and ${PROTECTION_PAYOUT_BPS / 100}% of the coin's pot.`,
               },
               {
                 who: "Cara, still holding underwater",
@@ -419,8 +420,8 @@ export default function DocsPage() {
           <RuleCard icon={ShieldCheck} color={bucketColor.protection} title="40% of fees, covering realized losses">
             <p>
               40% of every fee, converted to SOL. It only covers <strong>realized</strong> losses: you sold below your average
-              entry. How much comes back depends on three things:{" "}
-              <strong>how long you held, how much the coin paid into the fund, and how big the fund is</strong>.
+              entry. There&apos;s nothing to claim: about a minute after a losing sale, the payout arrives in your wallet. How
+              much comes back depends on <strong>how long you held and how much the coin has left in its pot</strong>.
             </p>
             <p>
               <strong>1. Hold time sets an &quot;up to&quot; rate.</strong> Markets are fast, so the tiers are minutes and hours.
@@ -429,23 +430,23 @@ export default function DocsPage() {
             </p>
             <TierChart />
             <p className="!mt-6">
-              <strong>2. Each coin can only draw its share of the fund.</strong> Every epoch has a budget (at most{" "}
-              {PROTECTION_EPOCH_BPS / 100}% of the uncommitted fund). A coin gets a slice of it in proportion to what that coin has
-              paid into the fund: its contributions divided by everyone&apos;s. If its traders&apos; requests add up to more than
-              the slice, they are paid pro-rata. Coins that paid little in fees cover little; dead coins cover almost nothing.
+              <strong>2. Each coin pays from its own pot.</strong> A coin&apos;s pot is what its fees put into the fund, minus
+              what it has already paid its sellers. One payout can take at most {PROTECTION_PAYOUT_BPS / 100}% of what&apos;s left,
+              so a single big loss can&apos;t empty it and the next seller still gets something. Coins that paid little in fees
+              cover little; dead coins cover almost nothing.
             </p>
-            <FundingRatio />
+            <PotExample />
             <ul>
-              <li>Each claim is capped at {PROTECTION_CAP_X_TAX}× the tax that wallet paid on that coin.</li>
+              <li>Each payout is capped at {PROTECTION_CAP_X_TAX}× the tax that wallet paid on that coin, across all its payouts.</li>
               <li>
-                Claims are batched into epochs at least 6 days apart. An epoch can commit at most {PROTECTION_EPOCH_BPS / 100}% of
-                the uncommitted fund. The protection wallet&apos;s balance and every payout are public on-chain.
+                Payouts are sent automatically by the protection wallet, batched with others, once a wallet is owed{" "}
+                {PROTECTION_MIN_PAYOUT_SOL} SOL. Nothing to claim and nothing expires.
               </li>
               <li>
-                Each epoch is computed from public trade data with the same open-source policy code the site uses. You claim in a
-                transaction you co-sign with the protection wallet. Claims expire after 60 days and return to the fund.
+                Every payout is computed from public trade data with the same open-source policy code the site uses. The protection
+                wallet&apos;s balance and every transfer are public on-chain.
               </li>
-              <li>Excluded: creators on their own coins, protocol addresses, and wallet clusters that wash-trade.</li>
+              <li>Excluded: creators selling their own coin, and protocol addresses.</li>
               <li>Losses are measured in SOL at the time of each trade, so they are comparable across pairs.</li>
             </ul>
           </RuleCard>
@@ -490,7 +491,7 @@ export default function DocsPage() {
                 <strong>OTC reserve</strong> holds the SOL you can sell into and co-signs every OTC trade.
               </li>
               <li>
-                <strong>Protection fund</strong> holds the SOL for loss claims and co-signs every claim.
+                <strong>Protection fund</strong> holds the SOL for loss cover and sends every payout.
               </li>
               <li>
                 <strong>Airdrop wallet</strong> holds each coin&apos;s airdrop share in its quote asset and pushes it out continuously: a holder's share is sent as soon as it's worth more than the network fee to move it.
@@ -511,11 +512,11 @@ export default function DocsPage() {
               ],
               [
                 "Can I farm the protection fund by wash trading?",
-                `Each round trip costs about 6% in fees. Coverage is capped at ${PROTECTION_CAP_X_TAX}× the fee you paid, short holds earn little or nothing, each coin can only draw what it paid into the fund, epochs have a hard budget, and linked wallets are excluded. That limits abuse; it can't rule it out entirely.`,
+                `Each round trip costs about 6% in fees. Sales within 5 minutes of buying earn nothing, coverage is capped at ${PROTECTION_CAP_X_TAX}× the fee you paid, and a coin only pays from its own pot, at most ${PROTECTION_PAYOUT_BPS / 100}% of it per payout, so a farmer mostly gets back fees they paid in. That limits abuse; it can't rule it out entirely.`,
               ],
               [
                 "Why does my coverage depend on the coin?",
-                "Because each coin can only draw its share of the fund, in proportion to what it has paid in. A busy coin that generated lots of fees can cover its traders well; a coin that paid little covers little, and a dead coin covers almost nothing. That stops quiet coins from draining what active coins paid for.",
+                "Because each coin pays only from its own pot: what its fees put into the fund, minus what it has paid out. A busy coin that generated lots of fees can cover its sellers well; a coin that paid little covers little, and a dead coin covers almost nothing. That stops quiet coins from draining what active coins paid for.",
               ],
               [
                 "What happens to a dead coin's OTC credit?",
@@ -543,12 +544,12 @@ export default function DocsPage() {
             <ul>
               <li>
                 <strong>Protection is discretionary and capped. It is not insurance.</strong> Payouts depend on the fund&apos;s
-                size, the epoch budget and the published rules. A coin can lose more than any coverage returns.
+                size, each coin&apos;s pot and the published rules. A coin can lose more than any coverage returns.
               </li>
               <li>
                 <strong>The fund wallets are custodial.</strong> The OTC reserve, protection fund, airdrop and fee wallets are
                 ordinary Solana wallets controlled by {brand.name}&apos;s backend keys. You are trusting the operator&apos;s key
-                handling and its off-chain calculations of airdrops and claims. Every balance and transfer is public, but no
+                handling and its off-chain calculations of airdrops and payouts. Every balance and transfer is public, but no
                 program enforces the policy.
               </li>
               <li>

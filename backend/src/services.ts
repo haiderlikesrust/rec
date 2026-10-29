@@ -1,20 +1,18 @@
+import type { SQLInputValue } from "node:sqlite";
 import {
   AIRDROP_MIN_USD,
-  PROTECTION_EPOCH_BPS,
-  coinAllocationSol,
-  coverageBpsForHold,
+  PROTECTION_PAYOUT_BPS,
   otcActivityBps,
   otcPolicy,
   otcSellLimitSol,
-  planProtectionEpoch,
   type Coin,
   type CoinProtection,
   type CoinSort,
+  type CoveredLoss,
   type Holder,
   type OtcCoin,
-  type ProtectionLoss,
 } from "@cook/shared";
-import { all, big, one, type CoinRow, type HolderRow, type LossRow, type QuoteRow } from "./db";
+import { all, big, claimByCoin, one, type ClaimRow, type CoinRow, type HolderRow, type PayoutRow, type QuoteRow } from "./db";
 import { SYSTEM, quoteDecimals } from "./ledger";
 import { solPerUnit, solUsd, toQuoteAsset, toUnits } from "./prices";
 
@@ -173,91 +171,76 @@ export function holdersOf(mint: string): Holder[] {
 
 // ---------------------------------------------------------------- protection
 
-/** SOL already promised to open or pending claims. */
-export const reservedSol = () =>
-  toUnits(
-    all<{ amount: string }>("SELECT amount FROM protection_claim WHERE status IN ('open', 'pending')").reduce(
-      (s, r) => s + big(r.amount),
-      0n,
-    ),
-    9,
-  );
+/** SOL covered but not sent yet: owed, or in a transfer being sent. */
+export const owedProtectionSol = () =>
+  one<{ s: number }>("SELECT COALESCE(SUM(amount_sol), 0) AS s FROM protection_payout WHERE (tx IS NULL OR tx LIKE 'sending:%') AND amount_sol > 0")!.s;
 
-export const epochBudgetSol = () => Math.max(0, ((treasury.protectionSol - reservedSol()) * PROTECTION_EPOCH_BPS) / 10_000);
+/** What a coin has left for its sellers: its own pot, and never more than the protection wallet can actually pay. */
+export const coinPotSol = (c: CoinRow, availableSol = treasury.protectionSol - owedProtectionSol()) =>
+  Math.max(0, Math.min(c.sol_to_protection - c.protection_paid, availableSol));
 
-export function lossesSince(from: number, to = Number.MAX_SAFE_INTEGER) {
-  const coins = new Map(all<CoinRow>("SELECT * FROM coin").map((c) => [c.mint, c]));
-  const rows = all<LossRow>("SELECT * FROM loss WHERE ts >= ? AND ts < ?", from, to);
-  const losses: ProtectionLoss[] = rows
-    .filter((l) => coins.get(l.coin) && coins.get(l.coin)!.creator !== l.wallet)
-    .map((l) => {
-      const c = coins.get(l.coin)!;
-      return {
-        coin: l.coin,
-        symbol: c.symbol,
-        wallet: l.wallet,
-        lossSol: l.loss_sol,
-        holdSeconds: l.hold,
-        taxPaidSol: l.tax_paid_sol,
-        rugged: isRugged(c),
-      };
-    });
-  const contributed: Record<string, number> = {};
-  let total = 0;
-  for (const c of coins.values()) {
-    contributed[c.mint] = c.sol_to_protection;
-    total += c.sol_to_protection;
-  }
-  return { coins, losses, contributed, total };
-}
-
-export const lastEpochTo = () => one<{ t: number }>("SELECT MAX(window_to) AS t FROM protection_epoch")?.t ?? 0;
-
-/** The protection epoch as it would be built right now, from losses since the last one. */
-export function currentProtectionPlan() {
-  const since = lastEpochTo();
-  const { coins, losses, contributed, total } = lossesSince(since);
-  const budgetSol = epochBudgetSol();
-  const plan = planProtectionEpoch(losses, contributed, total, budgetSol);
-  const coinFunding = (c: CoinRow): CoinProtection => {
-    const allocationSol = coinAllocationSol(budgetSol, contributed[c.mint] ?? 0, total);
-    const requestedSol = plan.coins.get(c.mint)?.requestedSol ?? 0;
-    return {
-      coin: c.mint,
-      symbol: c.symbol,
-      image: c.image,
-      contributedSol: contributed[c.mint] ?? 0,
-      shareOfFund: total > 0 ? (contributed[c.mint] ?? 0) / total : 0,
-      allocationSol,
-      requestedSol,
-      scale: requestedSol > 0 ? Math.min(1, allocationSol / requestedSol) : allocationSol > 0 ? 1 : 0,
-    };
+export function coinProtection(c: CoinRow, availableSol?: number): CoinProtection {
+  const potSol = coinPotSol(c, availableSol);
+  return {
+    coin: c.mint,
+    symbol: c.symbol,
+    image: c.image,
+    contributedSol: c.sol_to_protection,
+    paidSol: c.protection_paid,
+    potSol,
+    maxPayoutSol: (potSol * PROTECTION_PAYOUT_BPS) / 10_000,
   };
-  return { plan, coins, since, budgetSol, coinFunding };
 }
 
-export function pendingCoverage(wallet: string) {
-  const p = currentProtectionPlan();
-  const planned = p.plan.wallets.get(wallet)?.breakdown ?? [];
-  const byCoin = new Map<string, { lossSol: number; hold: number }>();
-  for (const l of all<LossRow>("SELECT * FROM loss WHERE wallet = ? AND ts >= ?", wallet, p.since)) {
-    const e = byCoin.get(l.coin) ?? { lossSol: 0, hold: 0 };
-    e.lossSol += l.loss_sol;
-    e.hold = Math.max(e.hold, l.hold);
-    byCoin.set(l.coin, e);
+const payoutStatus = (tx: string | null): CoveredLoss["status"] => (tx === null ? "owed" : tx.startsWith("sending:") ? "sending" : "sent");
+
+/** Covered losses, newest first. `where` filters protection_payout (aliased p). */
+export function coveredLosses(where: string, params: SQLInputValue[], limit = 50): CoveredLoss[] {
+  return all<PayoutRow & { symbol: string | null }>(
+    `SELECT p.*, c.symbol FROM protection_payout p LEFT JOIN coin c ON c.mint = p.coin WHERE ${where} ORDER BY p.ts DESC, p.rowid DESC LIMIT ?`,
+    ...params,
+    limit,
+  ).map((p) => ({
+    id: p.id,
+    wallet: p.wallet,
+    coin: p.coin,
+    symbol: p.symbol ?? "?",
+    t: p.ts,
+    lossSol: p.loss_sol,
+    holdSeconds: p.hold,
+    tierBps: p.tier_bps,
+    amountSol: p.amount_sol,
+    limit: p.limit_by as CoveredLoss["limit"],
+    status: payoutStatus(p.tx),
+    tx: p.tx?.startsWith("sending:") ? null : p.tx,
+  }));
+}
+
+/** A wallet's covered losses, plus anything it claimed back when protection paid in rounds. */
+export function walletProtection(wallet: string) {
+  const losses = coveredLosses("p.wallet = ?", [wallet], 200);
+  for (const c of all<ClaimRow>("SELECT * FROM protection_claim WHERE wallet = ? AND status = 'claimed'", wallet)) {
+    const items = JSON.parse(c.breakdown) as { coin: string; symbol: string; lossSol: number; coverageBps: number; holdSeconds: number }[];
+    const amounts = new Map(claimByCoin(c.amount, c.breakdown));
+    for (const b of items)
+      losses.push({
+        id: `claim:${c.id}:${b.coin}`,
+        wallet,
+        coin: b.coin,
+        symbol: b.symbol,
+        t: c.claimed_at ?? 0,
+        lossSol: b.lossSol,
+        holdSeconds: b.holdSeconds,
+        tierBps: b.coverageBps,
+        amountSol: amounts.get(b.coin) ?? 0,
+        limit: "round",
+        status: "sent",
+        tx: c.signature,
+      });
   }
-  return [...byCoin].map(([coin, e]) => {
-    const b = planned.find((x) => x.coin === coin);
-    const row = p.coins.get(coin);
-    return {
-      coin,
-      symbol: row?.symbol ?? "?",
-      lossSol: e.lossSol,
-      tierBps: b?.tierBps ?? coverageBpsForHold(e.hold, row ? isRugged(row) : false),
-      coverageBps: b?.coverageBps ?? 0,
-      estimatedSol: b ? (b.lossSol * b.coverageBps) / 10_000 : 0,
-    };
-  });
+  losses.sort((a, b) => b.t - a.t);
+  const sum = (s: CoveredLoss["status"][]) => losses.filter((l) => s.includes(l.status)).reduce((t, l) => t + l.amountSol, 0);
+  return { receivedSol: sum(["sent"]), owedSol: sum(["owed", "sending"]), losses };
 }
 
 // ---------------------------------------------------------------- OTC

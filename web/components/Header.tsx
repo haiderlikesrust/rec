@@ -15,7 +15,7 @@ const nav = [
   { href: "/", label: "Coins", blurb: "Every coin, every pair" },
   { href: "/otc", label: "OTC", blurb: "Sell into the SOL reserve, no slippage" },
   { href: "/protection", label: "Protection", blurb: "Claim back part of a loss" },
-  { href: "/portfolio", label: "Portfolio", blurb: "Your coins, airdrops and claims" },
+  { href: "/portfolio", label: "Portfolio", blurb: "Your coins, airdrops and payouts" },
   { href: "/docs", label: "Docs", blurb: "How the 3% comes back" },
 ];
 

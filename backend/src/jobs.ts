@@ -1,16 +1,10 @@
-import {
-  NATIVE_MINT,
-  PROTECTION_CLAIM_WINDOW_SECONDS,
-  otcPolicy,
-  planProtectionEpoch,
-  splitRaw,
-} from "@cook/shared";
+import { NATIVE_MINT, PROTECTION_MIN_PAYOUT_SOL, otcPolicy, protectionPayout, splitRaw } from "@cook/shared";
 import { config, log } from "./config";
-import { all, big, kvGet, kvSet, one, run, tx, type ClaimRow, type CoinRow, type OtcQuoteRow } from "./db";
-import type { Engine } from "./engine";
+import { all, big, claimByCoin, kvGet, kvSet, one, run, tx, type ClaimRow, type CoinRow, type LossRow, type OtcQuoteRow } from "./db";
+import { memoFor, type Engine } from "./engine";
 import { getCoin, ledger, quoteDecimals, recordAirdrop, recordBurn, recordTrade } from "./ledger";
 import { solPerUnit, solUsd, toUnits } from "./prices";
-import { epochBudgetSol, holdersOf, lastEpochTo, lossesSince, now, treasury } from "./services";
+import { coinPotSol, holdersOf, isRugged, now, owedProtectionSol, treasury } from "./services";
 
 const LAMPORTS = 1_000_000_000;
 const lamports = (sol: number) => BigInt(Math.floor(sol * LAMPORTS));
@@ -187,58 +181,152 @@ export async function runAirdrops(engine: Engine, at = now()) {
   return sent;
 }
 
-// ---------------------------------------------------------------- protection epochs
+// ---------------------------------------------------------------- protection payouts
 
-/** When an epoch is due: cover realized losses since the last one, each coin limited to its share of the budget. */
-export function runProtectionEpoch(at = now(), force = false) {
-  const last = one<{ t: number }>("SELECT MAX(published_at) AS t FROM protection_epoch")?.t ?? 0;
-  if (!force && last !== 0 && at < last + config.protectionEpochSeconds) return false;
-  const from = lastEpochTo();
-  const { losses, contributed, total } = lossesSince(from, at);
-  // a hair under the budget so lamport rounding can never exceed it
-  const plan = planProtectionEpoch(losses, contributed, total, epochBudgetSol() * 0.999);
-  const claims = [...plan.wallets].map(([wallet, w]) => ({ wallet, amount: lamports(w.totalSol), breakdown: w.breakdown })).filter((c) => c.amount > 0n);
-  if (claims.length === 0) {
-    if (last === 0) return false; // nothing to publish yet; keep accumulating
-    run(
-      "INSERT INTO protection_epoch (total, published_at, window_from, window_to, coins) VALUES ('0', ?, ?, ?, '{}')",
-      at,
-      from,
-      at,
-    );
-    return false;
-  }
-  const totalLamports = claims.reduce((s, c) => s + c.amount, 0n);
-  tx(() => {
-    const r = run(
-      "INSERT INTO protection_epoch (total, published_at, window_from, window_to, coins) VALUES (?, ?, ?, ?, ?)",
-      totalLamports.toString(),
-      at,
-      from,
-      at,
-      JSON.stringify(Object.fromEntries(plan.coins)),
-    );
-    const epoch = Number(r.lastInsertRowid);
-    for (const c of claims)
+/**
+ * Covers realized losses as they happen, with nothing to claim. Each new loss gets its payout right away (loss x
+ * hold-time rate, capped at 5x the tax that wallet paid on the coin and at a share of the coin's own pot), and every
+ * wallet owed at least the minimum is paid from the protection wallet in batched transfers.
+ */
+export async function runProtection(engine: Engine, at = now()) {
+  await payOldRounds(engine);
+  coverLosses();
+  return sendPayouts(engine, at);
+}
+
+/** Decides the payout for every loss recorded since the last pass, oldest first. */
+export function coverLosses() {
+  const losses = all<LossRow>("SELECT * FROM loss WHERE processed = 0 ORDER BY ts, rowid");
+  if (losses.length === 0) return 0;
+  const coins = new Map(all<CoinRow>("SELECT * FROM coin").map((c) => [c.mint, c]));
+  let available = treasury.protectionSol - owedProtectionSol();
+  let covered = 0;
+  for (const l of losses) {
+    const c = coins.get(l.coin);
+    tx(() => {
+      run("UPDATE loss SET processed = 1 WHERE id = ?", l.id);
+      // creators selling their own coin aren't covered
+      if (!c || c.creator === l.wallet) return;
+      const paidOnCoin = one<{ s: number }>(
+        "SELECT COALESCE(SUM(amount_sol), 0) AS s FROM protection_payout WHERE wallet = ? AND coin = ?",
+        l.wallet,
+        l.coin,
+      )!.s;
+      const p = protectionPayout({
+        lossSol: l.loss_sol,
+        holdSeconds: l.hold,
+        rugged: isRugged(c),
+        taxPaidSol: l.tax_paid_sol,
+        paidOnCoinSol: paidOnCoin,
+        potSol: coinPotSol(c, available),
+      });
+      // whole lamports, so what's booked is exactly what gets sent
+      const amount = Number(lamports(p.payoutSol)) / LAMPORTS;
       run(
-        "INSERT INTO protection_claim (id, epoch, wallet, amount, breakdown, status, expires_at) VALUES (?, ?, ?, ?, ?, 'open', ?)",
-        `${epoch}-${c.wallet}`,
-        epoch,
-        c.wallet,
-        c.amount.toString(),
-        JSON.stringify(
-          c.breakdown.map((b) => ({ coin: b.coin, symbol: b.symbol, lossSol: b.lossSol, coverageBps: b.coverageBps, holdSeconds: b.holdSeconds })),
-        ),
-        at + PROTECTION_CLAIM_WINDOW_SECONDS,
+        "INSERT INTO protection_payout (id, wallet, coin, ts, loss_sol, hold, tier_bps, amount_sol, limit_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        l.id,
+        l.wallet,
+        l.coin,
+        l.ts,
+        l.loss_sol,
+        l.hold,
+        p.tierBps,
+        amount,
+        p.limit,
       );
-    log(`protection epoch ${epoch}: ${claims.length} wallet(s), ${(Number(totalLamports) / LAMPORTS).toFixed(4)} SOL`);
+      if (amount > 0) {
+        run("UPDATE coin SET protection_paid = protection_paid + ? WHERE mint = ?", amount, c.mint);
+        c.protection_paid += amount;
+        available -= amount;
+        covered++;
+      }
+    });
+  }
+  if (covered) log(`protection: covered ${covered} loss(es)`);
+  return covered;
+}
+
+/**
+ * Pays every wallet owed at least the minimum. The payouts are marked as sending before the transfer, so if the
+ * server dies mid-send they're left for a look rather than sent twice; a transfer that fails puts them back.
+ */
+async function sendPayouts(engine: Engine, at: number) {
+  const owed = all<{ wallet: string; s: number }>(
+    "SELECT wallet, SUM(amount_sol) AS s FROM protection_payout WHERE tx IS NULL AND amount_sol > 0 GROUP BY wallet ORDER BY s",
+  ).filter((o) => o.s >= PROTECTION_MIN_PAYOUT_SOL);
+  // never send more than the wallet holds, less a little for network fees
+  let room = treasury.protectionSol - 0.005;
+  const items: { to: string; amount: bigint }[] = [];
+  for (const o of owed) {
+    if (o.s > room) break;
+    room -= o.s;
+    // each payout is booked in whole lamports, so the sum rounds back to one exactly
+    items.push({ to: o.wallet, amount: BigInt(Math.round(o.s * LAMPORTS)) });
+  }
+  if (items.length === 0) return 0;
+  const batch = `sending:${at}`;
+  tx(() => {
+    for (const i of items) run("UPDATE protection_payout SET tx = ? WHERE wallet = ? AND tx IS NULL AND amount_sol > 0", batch, i.to);
   });
-  return true;
+  const sent = new Map((await engine.sendTokens("protection", NATIVE_MINT, items)).map((r) => [r.to, r.sig]));
+  let paid = 0n;
+  tx(() => {
+    for (const i of items) {
+      const sig = sent.get(i.to);
+      if (!sig) {
+        run("UPDATE protection_payout SET tx = NULL WHERE wallet = ? AND tx = ?", i.to, batch);
+        continue;
+      }
+      run("UPDATE protection_payout SET tx = ?, sent_at = ? WHERE wallet = ? AND tx = ?", sig, at, i.to, batch);
+      ledger({ kind: "protection-payout", mint: NATIVE_MINT, amount: i.amount, sol: Number(i.amount) / LAMPORTS, tx: sig, note: i.to });
+      paid += i.amount;
+    }
+    kvSet("protection_paid", big(kvGet("protection_paid")) + paid);
+  });
+  treasury.protectionSol -= Number(paid) / LAMPORTS;
+  if (sent.size) log(`protection: paid ${sent.size} wallet(s) ${(Number(paid) / LAMPORTS).toFixed(4)} SOL`);
+  return sent.size;
+}
+
+/**
+ * Claims still open from when protection paid in 6-day rounds become ordinary owed payouts, so they're sent
+ * without a claim. One whose claim transaction already landed (memo on the protection wallet) is just recorded.
+ */
+async function payOldRounds(engine: Engine) {
+  const open = all<ClaimRow>("SELECT * FROM protection_claim WHERE status = 'open'");
+  if (open.length === 0) return;
+  const landed = await engine.recentMemos("protection");
+  for (const c of open) {
+    const hit = landed.find((m) => m.memo.includes(memoFor("claim", c.id)));
+    if (hit) {
+      settleClaim(c.id, hit.signature);
+      continue;
+    }
+    const items = JSON.parse(c.breakdown) as { coin: string; lossSol: number; coverageBps: number; holdSeconds: number }[];
+    const amounts = new Map(claimByCoin(c.amount, c.breakdown));
+    tx(() => {
+      run("UPDATE protection_claim SET status = 'converted' WHERE id = ?", c.id);
+      // the coins' pots were charged for these when the round was published
+      for (const b of items)
+        run(
+          "INSERT OR IGNORE INTO protection_payout (id, wallet, coin, ts, loss_sol, hold, tier_bps, amount_sol, limit_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'round')",
+          `claim:${c.id}:${b.coin}`,
+          c.wallet,
+          b.coin,
+          one<{ t: number }>("SELECT published_at AS t FROM protection_epoch WHERE id = ?", c.epoch)?.t ?? now(),
+          b.lossSol,
+          b.holdSeconds,
+          b.coverageBps,
+          Number(lamports(amounts.get(b.coin) ?? 0)) / LAMPORTS,
+        );
+    });
+  }
+  log(`protection: ${open.length} open claim(s) from the old rounds will be paid automatically`);
 }
 
 // ---------------------------------------------------------------- housekeeping
 
-/** Expires stale OTC quotes and claims, and settles any the UI sent but never confirmed. */
+/** Expires stale OTC quotes, and settles OTC trades and old-round claims the UI sent but never confirmed. */
 export async function sweep(engine: Engine, at = now()) {
   for (const q of all<OtcQuoteRow>("SELECT * FROM otc_quote WHERE status = 'issued'")) {
     if (q.signature) {
@@ -259,7 +347,6 @@ export async function sweep(engine: Engine, at = now()) {
     if (s === "ok") settleClaim(c.id, c.signature, at);
     else if (s === "failed" || at > (c.claimed_at ?? 0) + 120) run("UPDATE protection_claim SET status = 'open', signature = NULL WHERE id = ?", c.id);
   }
-  run("UPDATE protection_claim SET status = 'expired' WHERE status = 'open' AND expires_at < ?", at);
   await burnOtcLeftovers(engine);
 }
 

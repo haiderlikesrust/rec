@@ -21,7 +21,7 @@ import {
 } from "@cook/shared";
 import { storeMetadata } from "../api";
 import type { Role } from "../config";
-import { all, big, kvGet, kvSet, one, run, tx, type ClaimRow, type CoinRow, type OtcQuoteRow } from "../db";
+import { all, big, kvGet, kvSet, one, run, tx, type CoinRow, type OtcQuoteRow } from "../db";
 import { UserError, type Engine } from "../engine";
 import { COIN_DECIMALS, SUPPLY_RAW, buy, curveFor, quoteReserve, sell, type CurveState } from "../curve";
 import { SYSTEM, getCoin, quoteDecimals, recordLaunch, recordTrade } from "../ledger";
@@ -308,19 +308,16 @@ export class DemoEngine implements Engine {
     return { tx: null, demo: true, signature: fakeSig() };
   }
 
-  async claimTx(claim: ClaimRow): Promise<TxEnvelope> {
-    tx(() => {
-      this.add(this.wallets.protection, NATIVE_MINT, -big(claim.amount), "SOL in the protection wallet");
-      this.add(claim.wallet, NATIVE_MINT, big(claim.amount));
-    });
-    return { tx: null, demo: true, signature: fakeSig() };
-  }
-
   async verify() {
     return "ok" as const;
   }
 
   async ingest() {}
+
+  // demo transfers are settled the moment they're made, so none can land unrecorded
+  async recentMemos() {
+    return [];
+  }
 
   // ---------------------------------------------------------------- treasury
 

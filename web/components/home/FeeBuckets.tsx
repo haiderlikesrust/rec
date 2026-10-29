@@ -95,7 +95,7 @@ export function FeeBuckets() {
       title: "Protection fund",
       value: s ? usd(fund * solUsd) : loading,
       sub: s ? `${sol(fund)} in the fund · ${usd(paid * solUsd)} paid out` : "",
-      body: "Sold at a loss? Claim back up to 70%, by how long you held and how much that coin paid in.",
+      body: "Sold at a loss? Get up to 70% back automatically, by how long you held and what that coin paid in.",
       href: "/protection",
     },
     {
