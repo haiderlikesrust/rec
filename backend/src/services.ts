@@ -2,6 +2,7 @@ import type { SQLInputValue } from "node:sqlite";
 import {
   AIRDROP_MIN_USD,
   PROTECTION_PAYOUT_BPS,
+  coverageBpsForHold,
   otcActivityBps,
   otcPolicy,
   otcSellLimitSol,
@@ -12,7 +13,7 @@ import {
   type Holder,
   type OtcCoin,
 } from "@cook/shared";
-import { all, big, claimByCoin, one, type ClaimRow, type CoinRow, type HolderRow, type PayoutRow, type QuoteRow } from "./db";
+import { all, big, claimByCoin, one, type ClaimRow, type CoinRow, type HolderRow, type LossRow, type PayoutRow, type QuoteRow } from "./db";
 import { SYSTEM, quoteDecimals } from "./ledger";
 import { solPerUnit, solUsd, toQuoteAsset, toUnits } from "./prices";
 
@@ -175,12 +176,11 @@ export function holdersOf(mint: string): Holder[] {
 export const owedProtectionSol = () =>
   one<{ s: number }>("SELECT COALESCE(SUM(amount_sol), 0) AS s FROM protection_payout WHERE (tx IS NULL OR tx LIKE 'sending:%') AND amount_sol > 0")!.s;
 
-/** What a coin has left for its sellers: its own pot, and never more than the protection wallet can actually pay. */
-export const coinPotSol = (c: CoinRow, availableSol = treasury.protectionSol - owedProtectionSol()) =>
-  Math.max(0, Math.min(c.sol_to_protection - c.protection_paid, availableSol));
+/** What a coin has left for its sellers: what its fees put into the fund, minus what it has paid out. */
+export const coinPotSol = (c: CoinRow) => Math.max(0, c.sol_to_protection - c.protection_paid);
 
-export function coinProtection(c: CoinRow, availableSol?: number): CoinProtection {
-  const potSol = coinPotSol(c, availableSol);
+export function coinProtection(c: CoinRow): CoinProtection {
+  const potSol = coinPotSol(c);
   return {
     coin: c.mint,
     symbol: c.symbol,
@@ -216,9 +216,27 @@ export function coveredLosses(where: string, params: SQLInputValue[], limit = 50
   }));
 }
 
-/** A wallet's covered losses, plus anything it claimed back when protection paid in rounds. */
+/** A wallet's covered losses, the ones still waiting, and anything it claimed back when protection paid in rounds. */
 export function walletProtection(wallet: string) {
   const losses = coveredLosses("p.wallet = ?", [wallet], 200);
+  for (const l of all<LossRow>("SELECT * FROM loss WHERE wallet = ? AND processed = 0", wallet)) {
+    const c = one<CoinRow>("SELECT * FROM coin WHERE mint = ?", l.coin);
+    if (!c || c.creator === wallet) continue;
+    losses.push({
+      id: l.id,
+      wallet,
+      coin: l.coin,
+      symbol: c.symbol,
+      t: l.ts,
+      lossSol: l.loss_sol,
+      holdSeconds: l.hold,
+      tierBps: coverageBpsForHold(l.hold, isRugged(c)),
+      amountSol: 0,
+      limit: "rate",
+      status: "waiting",
+      tx: null,
+    });
+  }
   for (const c of all<ClaimRow>("SELECT * FROM protection_claim WHERE wallet = ? AND status = 'claimed'", wallet)) {
     const items = JSON.parse(c.breakdown) as { coin: string; symbol: string; lossSol: number; coverageBps: number; holdSeconds: number }[];
     const amounts = new Map(claimByCoin(c.amount, c.breakdown));

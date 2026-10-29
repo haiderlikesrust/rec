@@ -70,7 +70,7 @@ packages/shared/  API types, fee policy, quote catalog, brand, Solana constants
    - Payout = loss × hold-time rate: <5 min 0%, 5–30 min 25%, 30 min–6 h 45%, 6 h+ 60%, rug 70%.
    - Capped at 5× the tax that wallet paid on the coin, across all its payouts.
    - Paid from the coin's own pot (what its fees put into the fund, minus what it has paid out), at most 15% of the
-     pot per payout, and never more than the protection wallet holds.
+     pot per payout. If the protection wallet is short, losses wait in order until it can pay them.
    - Sent in batched transfers once a wallet is owed 0.001 SOL. Nothing to claim, nothing expires. Claims still open
      from the old 6-day rounds are sent the same way.
 

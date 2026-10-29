@@ -268,11 +268,13 @@ export function createApi(engine: Engine) {
 
   app.get("/api/protection", (ctx) => {
     const owed = owedProtectionSol();
-    const available = treasury.protectionSol - owed;
     const status: ProtectionStatus = {
       wallet: engine.wallets.protection,
       fundSol: treasury.protectionSol,
       owedSol: owed,
+      waitingLosses: one<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM loss l JOIN coin c ON c.mint = l.coin WHERE l.processed = 0 AND l.wallet != c.creator",
+      )!.n,
       totalPaidSol: toUnits(kvGet("protection_paid") ?? "0", 9),
       paid24hSol: one<{ s: number }>(
         "SELECT COALESCE(SUM(amount_sol), 0) AS s FROM protection_payout WHERE sent_at >= ? AND tx NOT LIKE 'sending:%'",
@@ -280,7 +282,7 @@ export function createApi(engine: Engine) {
       )!.s,
       payoutBps: PROTECTION_PAYOUT_BPS,
       recent: coveredLosses("p.amount_sol > 0", [], 30),
-      coins: all<CoinRow>("SELECT * FROM coin WHERE sol_to_protection > 0 ORDER BY sol_to_protection DESC").map((c) => coinProtection(c, available)),
+      coins: all<CoinRow>("SELECT * FROM coin WHERE sol_to_protection > 0 ORDER BY sol_to_protection DESC").map(coinProtection),
     };
     return ctx.json(status);
   });

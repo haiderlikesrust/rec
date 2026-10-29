@@ -166,7 +166,8 @@ export type CoveredLoss = {
   amountSol: number; // 0 when the rate or a cap left nothing
   /** what capped it; "round" for payouts carried over from the old 6-day rounds */
   limit: PayoutLimit | "round";
-  status: "owed" | "sending" | "sent";
+  /** "waiting": not decided yet, because the protection wallet can't cover it right now */
+  status: "waiting" | "owed" | "sending" | "sent";
   tx: string | null;
 };
 
@@ -177,7 +178,7 @@ export type CoinProtection = {
   image: string;
   contributedSol: number; // SOL this coin has paid into the protection wallet
   paidSol: number; // paid or owed to its sellers
-  potSol: number; // left for future losses (never more than the wallet actually holds)
+  potSol: number; // left for future losses
   maxPayoutSol: number; // the most the next payout on this coin can be
 };
 
@@ -185,6 +186,7 @@ export type ProtectionStatus = {
   wallet: Address; // the protection wallet, verifiable on-chain
   fundSol: number; // wallet balance
   owedSol: number; // covered but not sent yet
+  waitingLosses: number; // losses not decided yet, waiting for the wallet to cover them
   totalPaidSol: number;
   paid24hSol: number;
   payoutBps: number; // the most one payout can take from its coin's pot

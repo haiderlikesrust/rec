@@ -60,7 +60,13 @@ export function ProtectionView() {
               {[
                 { label: "Paid out so far", value: status?.totalPaidSol },
                 { label: "Paid in the last 24h", value: status?.paid24hSol },
-                { label: "Waiting to send", value: status?.owedSol, sub: `sent once a wallet is owed ${PROTECTION_MIN_PAYOUT_SOL} SOL` },
+                {
+                  label: "Waiting to send",
+                  value: status?.owedSol,
+                  sub: status?.waitingLosses
+                    ? `+ ${status.waitingLosses} loss${status.waitingLosses === 1 ? "" : "es"} waiting for the fund`
+                    : `sent once a wallet is owed ${PROTECTION_MIN_PAYOUT_SOL} SOL`,
+                },
               ].map((s) => (
                 <div key={s.label} className="rounded-2xl border border-line bg-sunk/70 px-4 py-3">
                   <div className="text-xs text-muted">{s.label}</div>

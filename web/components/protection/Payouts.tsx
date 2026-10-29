@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui";
 export function payoutNote(l: CoveredLoss) {
   if (l.limit === "round") return "from a 6-day round";
   if (l.tierBps === 0) return "sold within 5 min of buying";
+  if (l.status === "waiting") return "paid as soon as the fund can cover it";
   if (l.limit === "tax") return l.amountSol > 0 ? `capped at ${PROTECTION_CAP_X_TAX}× tax paid` : `${PROTECTION_CAP_X_TAX}× tax cap reached`;
   if (l.limit === "pot") return l.amountSol > 0 ? `capped at ${bps(PROTECTION_PAYOUT_BPS)} of the coin's pot` : "the coin's pot is empty";
   return null;
@@ -42,7 +43,7 @@ export function PayoutList({ items, solUsd, showWallet = false }: { items: Cover
               </div>
               <div className="mt-1 flex items-center justify-end gap-1.5">
                 <span className="num text-[11px] text-faint">{age(l.t)}</span>
-                {l.amountSol > 0 && <PayoutStatus l={l} />}
+                {(l.amountSol > 0 || (l.status === "waiting" && l.tierBps > 0)) && <PayoutStatus l={l} />}
               </div>
             </div>
           </li>
@@ -63,5 +64,6 @@ function PayoutStatus({ l }: { l: CoveredLoss }) {
     ) : (
       <Badge tone="up">Paid</Badge>
     );
+  if (l.status === "waiting") return <Badge>Pending</Badge>;
   return <Badge tone="accent">{l.status === "sending" ? "Sending" : "Queued"}</Badge>;
 }

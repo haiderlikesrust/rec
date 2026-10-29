@@ -194,34 +194,45 @@ export async function runProtection(engine: Engine, at = now()) {
   return sendPayouts(engine, at);
 }
 
-/** Decides the payout for every loss recorded since the last pass, oldest first. */
+/**
+ * Decides the payout for every loss recorded since the last pass, oldest first. When the protection wallet can't
+ * cover the next payout on top of what it already owes, that loss and every later one wait for the next pass, so a
+ * short wallet delays payouts instead of shrinking them.
+ */
 export function coverLosses() {
   const losses = all<LossRow>("SELECT * FROM loss WHERE processed = 0 ORDER BY ts, rowid");
   if (losses.length === 0) return 0;
   const coins = new Map(all<CoinRow>("SELECT * FROM coin").map((c) => [c.mint, c]));
   let available = treasury.protectionSol - owedProtectionSol();
   let covered = 0;
-  for (const l of losses) {
+  for (const [i, l] of losses.entries()) {
     const c = coins.get(l.coin);
+    // creators selling their own coin aren't covered
+    if (!c || c.creator === l.wallet) {
+      run("UPDATE loss SET processed = 1 WHERE id = ?", l.id);
+      continue;
+    }
+    const paidOnCoin = one<{ s: number }>(
+      "SELECT COALESCE(SUM(amount_sol), 0) AS s FROM protection_payout WHERE wallet = ? AND coin = ?",
+      l.wallet,
+      l.coin,
+    )!.s;
+    const p = protectionPayout({
+      lossSol: l.loss_sol,
+      holdSeconds: l.hold,
+      rugged: isRugged(c),
+      taxPaidSol: l.tax_paid_sol,
+      paidOnCoinSol: paidOnCoin,
+      potSol: coinPotSol(c),
+    });
+    // whole lamports, so what's booked is exactly what gets sent
+    const amount = Number(lamports(p.payoutSol)) / LAMPORTS;
+    if (amount > available) {
+      log(`protection: the wallet holds ${Math.max(0, available).toFixed(4)} SOL beyond what it owes; ${losses.length - i} loss(es) wait for it`);
+      break;
+    }
     tx(() => {
       run("UPDATE loss SET processed = 1 WHERE id = ?", l.id);
-      // creators selling their own coin aren't covered
-      if (!c || c.creator === l.wallet) return;
-      const paidOnCoin = one<{ s: number }>(
-        "SELECT COALESCE(SUM(amount_sol), 0) AS s FROM protection_payout WHERE wallet = ? AND coin = ?",
-        l.wallet,
-        l.coin,
-      )!.s;
-      const p = protectionPayout({
-        lossSol: l.loss_sol,
-        holdSeconds: l.hold,
-        rugged: isRugged(c),
-        taxPaidSol: l.tax_paid_sol,
-        paidOnCoinSol: paidOnCoin,
-        potSol: coinPotSol(c, available),
-      });
-      // whole lamports, so what's booked is exactly what gets sent
-      const amount = Number(lamports(p.payoutSol)) / LAMPORTS;
       run(
         "INSERT INTO protection_payout (id, wallet, coin, ts, loss_sol, hold, tier_bps, amount_sol, limit_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         l.id,

@@ -14,7 +14,7 @@ const { loadWallets } = await import("./config");
 const { all, big, one, run } = await import("./db");
 const { DemoEngine, fakeKey } = await import("./demo/engine");
 const { otcQuote } = await import("./flows");
-const { processFees, runProtection } = await import("./jobs");
+const { coverLosses, processFees, runProtection } = await import("./jobs");
 const { SYSTEM, getCoin } = await import("./ledger");
 const { syncQuotes } = await import("./prices");
 const { otcCoin, treasury, walletDailyCapSol } = await import("./services");
@@ -124,5 +124,22 @@ test("fees flow from trades into the five wallets, and losses are paid out autom
   await runProtection(engine, t0 + 7700);
   assert.equal(one<{ status: string }>("SELECT status FROM protection_claim WHERE id = '99-x'")!.status, "converted");
   assert.equal(engine.bal(legacy, NATIVE_MINT) - legacyBefore, 2_000_000n);
+
+  // a short protection wallet makes a loss wait instead of paying it $0, and it's paid once the wallet can cover it
+  const late = fakeKey();
+  run(
+    "INSERT INTO loss (id, coin, wallet, ts, loss_quote, loss_sol, hold, tax_paid_sol) VALUES ('late', ?, ?, ?, '0', 0.05, 7200, 0.02)",
+    mint,
+    late,
+    t0 + 7800,
+  );
+  treasury.protectionSol = 0;
+  coverLosses();
+  assert.equal(one<{ processed: number }>("SELECT processed FROM loss WHERE id = 'late'")!.processed, 0, "waits while the wallet is short");
+  assert.equal(one("SELECT 1 FROM protection_payout WHERE id = 'late'"), undefined);
+  refresh();
+  const lateBefore = engine.bal(late, NATIVE_MINT);
+  await runProtection(engine, t0 + 7900);
+  assert.equal(engine.bal(late, NATIVE_MINT) - lateBefore, 22_500_000n, "paid 45% of the loss once the wallet can cover it");
   assert.ok(all("SELECT * FROM ledger").length > 0);
 });

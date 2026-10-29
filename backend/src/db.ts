@@ -134,6 +134,12 @@ if (!lossColumns.has("processed")) {
   // losses a published round already covered
   run("UPDATE loss SET processed = 1 WHERE ts < (SELECT COALESCE(MAX(window_to), 0) FROM protection_epoch)");
 }
+// the first automatic payouts treated an emptied protection wallet as an empty pot and paid $0: decide those again
+if (!one("SELECT 1 FROM kv WHERE k = 'repair:short-wallet'")) {
+  run("UPDATE loss SET processed = 0 WHERE id IN (SELECT id FROM protection_payout WHERE amount_sol = 0 AND limit_by = 'pot')");
+  run("DELETE FROM protection_payout WHERE amount_sol = 0 AND limit_by = 'pot'");
+  run("INSERT INTO kv (k, v) VALUES ('repair:short-wallet', '1')");
+}
 
 /** A round's claim (lamports) split across the coins in its breakdown, in proportion to what each loss earned. */
 export function claimByCoin(amount: string, breakdown: string): [string, number][] {
