@@ -1,7 +1,6 @@
 "use client";
 
-import { ArrowRight, Check, Rocket } from "lucide-react";
-import Link from "next/link";
+import { Check, Rocket } from "lucide-react";
 import { brand } from "@cook/shared";
 import { useStats } from "@/lib/data";
 import { tokens, usd } from "@/lib/format";
@@ -25,18 +24,7 @@ export function Hero() {
   return (
     <section className="relative grid grid-cols-1 items-center gap-14 pt-4 pb-6 lg:grid-cols-[1.2fr_1fr] lg:gap-10 lg:pt-10">
       <div className="animate-fade-up">
-        <Link
-          href="/docs"
-          className="group inline-flex items-center gap-2.5 rounded-full border border-line bg-elev/70 py-1.5 pr-3 pl-2.5 text-xs text-muted shadow-card transition-colors hover:border-line-strong hover:text-fg"
-        >
-          <span className="live-dot" />
-          <span>Live on Solana · pools on Meteora</span>
-          <span className="h-3 w-px bg-line-strong" />
-          <span className="text-fg">How it works</span>
-          <ArrowRight size={12} className="transition-transform group-hover:translate-x-0.5" />
-        </Link>
-
-        <h1 className="font-display mt-7 text-[52px] leading-[0.92] font-semibold sm:text-7xl lg:text-[88px]">
+        <h1 className="font-display text-[52px] leading-[0.92] font-semibold sm:text-7xl lg:text-[88px]">
           Every fee
           <br />
           <span className="text-spectrum">comes back.</span>
