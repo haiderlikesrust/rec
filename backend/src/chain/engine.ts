@@ -49,11 +49,16 @@ import { all, big, kvGet, kvSet, one, run, type ClaimRow, type CoinRow, type Otc
 import { UserError, memoFor, type Engine } from "../engine";
 import { SYSTEM, coinByPool, getCoin, quoteDecimals, recordLaunch, recordTrade, recordTransfer } from "../ledger";
 import { activeConfig, quoteRow } from "../prices";
+import { LOW_SOL, QUOTE_REJECTED } from "./errors";
 import { accountKeys, asBig, asKey, decodeEvents, field, sqrtFromQ64, swapsOf } from "./events";
 import { jupQuote, jupSwapTx } from "./jupiter";
 import { configParams } from "./params";
 
 const MEMO_PROGRAM_ID = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
+// network and priority fees on top of a config's rent
+const CONFIG_FEE_MARGIN_LAMPORTS = 1_000_000;
+const lowFeeWallet = (symbol: string) =>
+  new UserError(`Launches on the ${symbol} pair open once the platform's fee wallet is topped up with SOL. Try again shortly.`);
 // burns and airdrops send many small transactions, so the default priority fee stays low
 const PRIORITY_MICROLAMPORTS = Number(process.env.PRIORITY_MICROLAMPORTS ?? 5_000);
 
@@ -79,6 +84,12 @@ export class ChainEngine implements Engine {
   }
 
   async start() {
+    // earlier versions disabled a quote on any failed config (a low fee wallet included); bring those back
+    for (const q of all<{ mint: string; symbol: string; error: string }>("SELECT mint, symbol, error FROM quote WHERE available = 0 AND error IS NOT NULL")) {
+      if (QUOTE_REJECTED.test(q.error)) continue;
+      run("UPDATE quote SET available = 1, error = NULL WHERE mint = ?", q.mint);
+      log(`re-enabled ${q.symbol}: its config failed for a reason other than Meteora rejecting the mint`);
+    }
     const fees = await this.solBalance(this.wallets.fees);
     if (fees < 0.05) log(`warning: the fee wallet holds ${fees} SOL; fund it so it can pay for configs, claims and transfers`);
   }
@@ -202,6 +213,14 @@ export class ChainEngine implements Engine {
   }
 
   private async createConfig(quoteMint: string, usd: number) {
+    const symbol = quoteRow(quoteMint)?.symbol ?? quoteMint;
+    // the fee wallet pays the config's rent: check up front so a launch says why instead of failing mid-way
+    const rent = await this.conn.getMinimumBalanceForRentExemption(this.dbc.program.account.poolConfig.size);
+    const balance = await this.conn.getBalance(this.keys.fees.publicKey, "confirmed");
+    if (balance < rent + CONFIG_FEE_MARGIN_LAMPORTS) {
+      log(`fee wallet too low for a ${symbol} config: holds ${balance / 1e9} SOL, needs ${(rent + CONFIG_FEE_MARGIN_LAMPORTS) / 1e9}`);
+      throw lowFeeWallet(symbol);
+    }
     const program = await this.tokenProgram(quoteMint);
     const mint = await getMint(this.conn, this.pk(quoteMint), "confirmed", program);
     const params = configParams(usd, mint.decimals);
@@ -220,11 +239,13 @@ export class ChainEngine implements Engine {
       log(`config ${kp.publicKey.toBase58()} for ${quoteRow(quoteMint)?.symbol} at $${usd} (${sig})`);
     } catch (e) {
       const msg = (e as Error).message;
-      // a program rejection (e.g. a Token-2022 quote without a token badge) makes the quote unavailable
-      if (/custom program error|InstructionError|badge/i.test(msg)) {
+      // only Meteora turning the mint down (e.g. a Token-2022 quote without a token badge) makes the quote
+      // unavailable; low SOL or RPC trouble fails this launch and the next one tries again
+      if (QUOTE_REJECTED.test(msg)) {
         run("UPDATE quote SET available = 0, error = ? WHERE mint = ?", msg.slice(0, 300), quoteMint);
         throw new UserError("Meteora doesn't accept this quote asset yet.");
       }
+      if (LOW_SOL.test(msg)) throw lowFeeWallet(symbol);
       throw e;
     }
     run("UPDATE config SET active = 0 WHERE quote = ?", quoteMint);
