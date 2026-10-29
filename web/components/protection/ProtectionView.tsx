@@ -47,7 +47,9 @@ export function ProtectionView() {
   const lastEpochAt = status?.lastEpochAt ?? 0;
   const nextAt = status?.nextEpochAt ?? 0;
   const left = Math.max(0, nextAt - now);
-  const elapsed = lastEpochAt > 0 ? Math.min(1, (now - lastEpochAt) / PROTECTION_EPOCH_SECONDS) : 1;
+  // the backend schedules the next epoch one interval after the last (shorter in demo mode)
+  const interval = lastEpochAt > 0 && nextAt > lastEpochAt ? nextAt - lastEpochAt : PROTECTION_EPOCH_SECONDS;
+  const elapsed = lastEpochAt > 0 ? Math.min(1, (now - lastEpochAt) / interval) : 1;
 
   return (
     <div className="space-y-6">
@@ -96,7 +98,7 @@ export function ProtectionView() {
               ))}
             </div>
           </div>
-          <Countdown elapsed={elapsed} label={status ? (left <= 0 ? "Any time now" : duration(left)) : "…"} />
+          <Countdown loaded={!!status} left={left} elapsed={elapsed} interval={interval} lastEpochAt={lastEpochAt} />
         </div>
       </Card>
 
@@ -229,29 +231,58 @@ export function ProtectionView() {
   );
 }
 
-/** Ring showing how far we are through the current epoch interval. */
-function Countdown({ elapsed, label }: { elapsed: number; label: string }) {
-  const r = 52;
-  const c = 2 * Math.PI * r;
+/** "6 days" or "2 hours" for a round interval, "1h 30m" otherwise. */
+const wholeUnits = (s: number) => {
+  for (const [unit, len] of [
+    ["day", 86_400],
+    ["hour", 3600],
+  ] as const) {
+    if (s >= len && s % len === 0) return `${s / len} ${unit}${s === len ? "" : "s"}`;
+  }
+  return duration(s);
+};
+
+/** Time to the next epoch, with a bar for how far we are through the current interval. */
+function Countdown({
+  loaded,
+  left,
+  elapsed,
+  interval,
+  lastEpochAt,
+}: {
+  loaded: boolean;
+  left: number;
+  elapsed: number;
+  interval: number;
+  lastEpochAt: number;
+}) {
+  const due = loaded && left <= 0;
   return (
-    <div className="relative mx-auto h-44 w-44 shrink-0">
-      <svg viewBox="0 0 128 128" className="h-full w-full -rotate-90">
-        <circle cx="64" cy="64" r={r} fill="none" stroke="var(--line)" strokeWidth="8" />
-        <circle
-          cx="64"
-          cy="64"
-          r={r}
-          fill="none"
-          stroke={VIOLET}
-          strokeWidth="8"
-          strokeLinecap="round"
-          strokeDasharray={`${Math.max(elapsed, 0.01) * c} ${c}`}
-          style={{ transition: "stroke-dasharray 1s linear", filter: `drop-shadow(0 0 6px color-mix(in srgb, ${VIOLET} 60%, transparent))` }}
+    <div className="w-full rounded-[22px] border border-line bg-sunk/70 p-5 md:w-64">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs text-muted">Next epoch</span>
+        {due && (
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium" style={{ color: VIOLET }}>
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-60" style={{ background: VIOLET }} />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full" style={{ background: VIOLET }} />
+            </span>
+            Due
+          </span>
+        )}
+      </div>
+      <div className="font-display mt-2 text-3xl leading-none font-semibold">
+        {!loaded ? <Skeleton className="inline-block h-8 w-28 align-middle" /> : due ? "Due now" : duration(left)}
+      </div>
+      <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-line">
+        <div
+          className="h-full rounded-full"
+          style={{ width: `${Math.max(elapsed, 0.02) * 100}%`, background: VIOLET, transition: "width 1s linear" }}
         />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-        <span className="eyebrow">Next epoch</span>
-        <span className="num mt-1.5 text-lg font-medium">{label}</span>
+      </div>
+      <div className="num mt-2.5 flex justify-between gap-2 text-[11px] text-faint">
+        <span>{lastEpochAt > 0 ? `last ${age(lastEpochAt)} ago` : "first one pending"}</span>
+        <span>every {wholeUnits(interval)}</span>
       </div>
     </div>
   );
