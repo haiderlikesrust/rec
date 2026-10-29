@@ -3,9 +3,9 @@ import { brand, type BucketKey } from "@cook/shared";
 import { buckets } from "@/lib/buckets";
 
 const meta: Record<BucketKey, { icon: LucideIcon; sub: string; dest: string }> = {
-  protection: { icon: ShieldCheck, sub: "converted to ETH", dest: "Loss claims · ETH" },
-  otcReserve: { icon: ArrowLeftRight, sub: "converted to ETH", dest: "No-slippage exits" },
-  mainBuyback: { icon: Flame, sub: `quote → ETH → $${brand.mainTicker}`, dest: `$${brand.mainTicker} burned` },
+  protection: { icon: ShieldCheck, sub: "converted to SOL", dest: "Loss claims · SOL" },
+  otcReserve: { icon: ArrowLeftRight, sub: "converted to SOL", dest: "No-slippage exits" },
+  mainBuyback: { icon: Flame, sub: `quote → SOL → $${brand.mainTicker}`, dest: `$${brand.mainTicker} burned` },
   coinBuyback: { icon: Flame, sub: "quote → this coin", dest: "Coin burned" },
   airdrop: { icon: Gift, sub: "kept in the quote asset", dest: "Underwater holders" },
 };
@@ -75,7 +75,7 @@ function BucketNode({ k, x, y, w, h }: { k: BucketKey; x: number; y: number; w: 
   );
 }
 
-/** The fee flow: trade → hook (3%) → five buckets → where each ends up. Wide on large screens, stacked below. */
+/** The fee flow: trade → Meteora pool (3%) → fee wallet → five buckets. Wide on large screens, stacked below. */
 export function FeeFlowDiagram() {
   const bx = 446;
   const bw = 334;
@@ -93,7 +93,7 @@ export function FeeFlowDiagram() {
             Every buy &amp; sell
           </text>
           <text x="14" y="236" fontSize="11" fill="var(--muted)">
-            any coin, pair or router
+            any coin, pair or app
           </text>
         </Node>
 
@@ -108,10 +108,10 @@ export function FeeFlowDiagram() {
           <Ring cx={307} cy={164} r={20} width={6} />
           <circle cx="307" cy="164" r="4" fill="var(--fg)" />
           <text x="307" y="216" textAnchor="middle" fontSize="14.5" fontWeight="600" fill="var(--fg)">
-            {brand.name} hook
+            Meteora pool
           </text>
           <text x="307" y="235" textAnchor="middle" fontSize="11" fill="var(--muted)">
-            3% of the quote side
+            3% quote-side fee
           </text>
           <text x="307" y="262" textAnchor="middle" fontSize="11" fontWeight="600" fill="var(--accent)">
             0% creator · 0% team
@@ -139,7 +139,7 @@ export function FeeFlowDiagram() {
             Every buy &amp; sell
           </text>
           <text x="180" y="44" textAnchor="middle" fontSize="11" fill="var(--muted)">
-            any coin, pair or router
+            any coin, pair or app
           </text>
         </Node>
         <path d="M180 60 L180 100" stroke="var(--accent)" strokeWidth="2" className="cook-flow" />
@@ -151,10 +151,10 @@ export function FeeFlowDiagram() {
           <Ring cx={78} cy={146} r={17} width={5} />
           <circle cx="78" cy="146" r="3.5" fill="var(--fg)" />
           <text x="110" y="134" fontSize="14" fontWeight="600" fill="var(--fg)">
-            {brand.name} hook
+            Meteora pool
           </text>
           <text x="110" y="152" fontSize="11" fill="var(--muted)">
-            3% of the quote side
+            3% quote-side fee
           </text>
           <text x="110" y="171" fontSize="11" fontWeight="600" fill="var(--accent)">
             0% creator · 0% team
@@ -175,8 +175,9 @@ export function FeeFlowDiagram() {
 
       <figcaption className="mt-5 flex items-start gap-2 text-xs leading-relaxed text-muted">
         <span className="spectrum mt-1.5 h-1 w-6 shrink-0 rounded-full" />
-        Fees are collected in the coin&apos;s quote asset. The protection fund and OTC reserve always receive ETH, whatever
-        the pair.
+        Meteora keeps its protocol share (20% of the fee, 16% on trades built by {brand.name}). {brand.name}&apos;s fee wallet
+        claims the rest from every pool and splits it. The protection fund and OTC reserve always receive SOL, whatever the
+        pair.
       </figcaption>
     </figure>
   );

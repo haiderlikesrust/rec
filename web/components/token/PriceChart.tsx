@@ -45,7 +45,7 @@ const palette = {
   },
 } as const;
 
-export function PriceChart({ coin, ethUsd = 0 }: { coin: Coin; ethUsd?: number }) {
+export function PriceChart({ coin }: { coin: Coin }) {
   const [interval, setInterval] = useState<Interval>("5m");
   const [mode, setMode] = useState<"mcap" | "price">("mcap");
   const { data, isLoading, isError } = useCandles(coin.address, interval);
@@ -58,9 +58,12 @@ export function PriceChart({ coin, ethUsd = 0 }: { coin: Coin; ethUsd?: number }
 
   // circulating supply, so price candles can be shown as market cap
   const supply = coin.price > 0 ? coin.marketCap / coin.price : 1e9;
-  const factor = mode === "mcap" ? supply : 1;
+  // candles are in the quote asset; the chart shows USD whenever the quote has a USD price
+  const toUsd = coin.quote.usdPerUnit > 0 ? coin.quote.usdPerUnit : 0;
+  const factor = (mode === "mcap" ? supply : 1) * (toUsd || 1);
+  const prefix = toUsd ? "$" : "";
 
-  const fmt = useMemo(() => (p: number) => (Math.abs(p) >= 1 ? num(p) : sig(p, 4)), []);
+  const fmt = useMemo(() => (p: number) => `${prefix}${Math.abs(p) >= 1 ? num(p) : sig(p, 4)}`, [prefix]);
 
   useEffect(() => {
     if (!el.current) return;
@@ -140,19 +143,15 @@ export function PriceChart({ coin, ethUsd = 0 }: { coin: Coin; ethUsd?: number }
     volume.current.setData(
       sorted.map((d) => ({
         time: d.t as UTCTimestamp,
-        value: d.v,
+        value: d.v * (toUsd || 1),
         color: d.c >= d.o ? colors.upVol : colors.downVol,
       })),
     );
     chart.current?.timeScale().fitContent();
-  }, [data, factor, colors]);
+  }, [data, factor, toUsd, colors]);
 
   const headline =
-    mode === "mcap"
-      ? ethUsd > 0
-        ? usd(coin.marketCapEth * ethUsd)
-        : `${fmt(coin.marketCap)} ${coin.quote.symbol}`
-      : null;
+    mode === "mcap" ? (toUsd ? usd(coin.marketCapUsd) : `${fmt(coin.marketCap)} ${coin.quote.symbol}`) : null;
 
   return (
     <section className="surface rounded-[22px] p-4 sm:p-5">
@@ -160,15 +159,20 @@ export function PriceChart({ coin, ethUsd = 0 }: { coin: Coin; ethUsd?: number }
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs text-muted">
             <CandlestickChart size={14} className="text-accent" />
-            {mode === "mcap" ? "Market cap" : `Price in ${coin.quote.symbol}`}
+            {mode === "mcap" ? "Market cap" : toUsd ? "Price (USD)" : `Price in ${coin.quote.symbol}`}
           </div>
           <div className="mt-1 flex items-baseline gap-2.5">
             <span className="num text-2xl font-medium">
-              {headline ?? (
-                <>
-                  <TinyPrice value={coin.price} /> {coin.quote.symbol}
-                </>
-              )}
+              {headline ??
+                (toUsd ? (
+                  <>
+                    $<TinyPrice value={coin.priceUsd} />
+                  </>
+                ) : (
+                  <>
+                    <TinyPrice value={coin.price} /> {coin.quote.symbol}
+                  </>
+                ))}
             </span>
             <Change value={coin.change24h} pill className="text-xs" />
             <span className="text-[11px] text-faint">24h</span>

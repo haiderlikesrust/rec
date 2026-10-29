@@ -1,14 +1,15 @@
 "use client";
 
-import { ConnectButton } from "@rainbow-me/rainbowkit";
 import clsx from "clsx";
 import { Menu, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { brand } from "@cook/shared";
+import { useStats } from "@/lib/data";
 import { LogoMark } from "./LogoMark";
 import { ThemeToggle } from "./ThemeToggle";
+import { ConnectWallet } from "./wallet/ConnectWallet";
 
 const nav = [
   { href: "/", label: "Coins" },
@@ -29,6 +30,7 @@ export function Logo() {
 
 export function Header() {
   const pathname = usePathname();
+  const demo = useStats().data?.demo;
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => setOpen(false), [pathname]);
@@ -50,7 +52,15 @@ export function Header() {
     >
       <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 sm:px-6">
         <Logo />
-        <nav className="ml-6 hidden items-center rounded-full border border-line bg-elev/60 p-1 lg:flex">
+        {demo && (
+          <span
+            title="Demo mode: trades are simulated by the backend, nothing touches the chain"
+            className="hidden rounded-full border border-dashed border-line-strong px-2 py-0.5 text-[10px] font-semibold tracking-wider text-muted uppercase sm:inline"
+          >
+            Demo
+          </span>
+        )}
+        <nav className="ml-4 hidden items-center rounded-full border border-line bg-elev/60 p-1 lg:flex">
           {nav.map((n) => (
             <Link
               key={n.href}
@@ -74,7 +84,7 @@ export function Header() {
             <Plus size={15} strokeWidth={2.5} /> Launch
           </Link>
           <ThemeToggle />
-          <ConnectButton chainStatus="icon" accountStatus="avatar" showBalance={false} label="Connect" />
+          <ConnectWallet />
           <button
             aria-label="Menu"
             onClick={() => setOpen((o) => !o)}

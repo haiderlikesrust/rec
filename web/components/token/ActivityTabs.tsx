@@ -5,7 +5,8 @@ import { useState, type ReactNode } from "react";
 import type { Coin } from "@cook/shared";
 import { useHolders, useTrades } from "@/lib/data";
 import { explorerAddress, explorerTx } from "@/lib/explorer";
-import { age, pct, price, short, tokens } from "@/lib/format";
+import { age, pct, price, short, tokens, units, usd } from "@/lib/format";
+import { TinyPrice } from "./TinyPrice";
 import { Badge, EmptyState, ErrorState, Segmented, Skeleton } from "@/components/ui";
 
 const th = "py-3 font-medium text-[11px] tracking-wider text-faint uppercase";
@@ -66,7 +67,7 @@ function Trades({ coin }: { coin: Coin }) {
           <tr className="border-y border-line">
             <th className={clsx(th, "pl-5")}>Age</th>
             <th className={clsx(th, "px-3")}>Type</th>
-            <th className={clsx(th, "px-3 text-right")}>{q.symbol}</th>
+            <th className={clsx(th, "px-3 text-right")}>Value</th>
             <th className={clsx(th, "px-3 text-right")}>{coin.symbol}</th>
             <th className={clsx(th, "px-3 text-right")}>Price</th>
             <th className={clsx(th, "pr-5 text-right")}>Trader</th>
@@ -75,6 +76,7 @@ function Trades({ coin }: { coin: Coin }) {
         <tbody>
           {data.map((t) => {
             const tone = t.kind === "buyback" ? "text-accent" : t.isBuy ? "text-up" : "text-down";
+            const valueUsd = units(t.quoteAmount, q.decimals) * q.usdPerUnit;
             return (
               <tr key={t.id} className="border-b border-line transition-colors last:border-0 hover:bg-elev-2">
                 <td className="num py-3 pl-5 text-xs text-muted">
@@ -85,15 +87,28 @@ function Trades({ coin }: { coin: Coin }) {
                 <td className="px-3 py-3">
                   {t.kind === "buyback" ? (
                     <Badge tone="accent">Buyback</Badge>
+                  ) : t.kind === "otc" ? (
+                    <Badge tone="outline">OTC {t.isBuy ? "buy" : "sell"}</Badge>
                   ) : t.isBuy ? (
                     <Badge tone="up">Buy</Badge>
                   ) : (
                     <Badge tone="down">Sell</Badge>
                   )}
                 </td>
-                <td className={clsx("num px-3 py-3 text-right", tone)}>{tokens(t.quoteAmount, q.decimals)}</td>
-                <td className="num px-3 py-3 text-right">{tokens(t.tokenAmount, 18)}</td>
-                <td className="num px-3 py-3 text-right text-muted">{price(t.price)}</td>
+                <td className={clsx("num px-3 py-3 text-right", tone)}>
+                  {q.usdPerUnit > 0 ? usd(valueUsd) : tokens(t.quoteAmount, q.decimals)}
+                  <div className="text-[11px] text-faint">{tokens(t.quoteAmount, q.decimals, q.symbol)}</div>
+                </td>
+                <td className="num px-3 py-3 text-right">{tokens(t.tokenAmount, coin.decimals)}</td>
+                <td className="num px-3 py-3 text-right text-muted">
+                  {q.usdPerUnit > 0 ? (
+                    <>
+                      $<TinyPrice value={t.price * q.usdPerUnit} />
+                    </>
+                  ) : (
+                    price(t.price)
+                  )}
+                </td>
                 <td className="num py-3 pr-5 text-right text-xs">
                   <MaybeLink href={explorerAddress(t.trader)} className="text-muted hover:text-fg">
                     {short(t.trader)}
@@ -138,7 +153,7 @@ function Holders({ coin }: { coin: Coin }) {
                   <MaybeLink href={explorerAddress(h.address)} className="hover:text-accent">
                     {short(h.address)}
                   </MaybeLink>
-                  {h.address.toLowerCase() === coin.creator.toLowerCase() && (
+                  {h.address === coin.creator && (
                     <Badge tone="outline" className="ml-2">
                       creator
                     </Badge>
@@ -152,7 +167,17 @@ function Holders({ coin }: { coin: Coin }) {
                     <span className="num text-xs">{pct(h.share * 100, { digits: 2 })}</span>
                   </div>
                 </td>
-                <td className="num px-3 py-3 text-right text-muted">{h.avgEntry > 0 ? price(h.avgEntry) : "transfer"}</td>
+                <td className="num px-3 py-3 text-right text-muted">
+                  {h.avgEntry <= 0 ? (
+                    "transfer"
+                  ) : coin.quote.usdPerUnit > 0 ? (
+                    <>
+                      $<TinyPrice value={h.avgEntry * coin.quote.usdPerUnit} />
+                    </>
+                  ) : (
+                    price(h.avgEntry)
+                  )}
+                </td>
                 <td className="px-3 py-3 text-right">
                   {delta === null ? (
                     <span className="text-faint">—</span>

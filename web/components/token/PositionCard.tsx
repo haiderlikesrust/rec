@@ -3,23 +3,23 @@
 import clsx from "clsx";
 import { Gift, ShieldCheck, Wallet } from "lucide-react";
 import Link from "next/link";
-import { useAccount } from "wagmi";
 import { coverageBpsForHold, protectionTiers, RUG_COVERAGE_BPS, type CoinDetail } from "@cook/shared";
 import { bucketColor } from "@/lib/buckets";
-import { useWallet } from "@/lib/data";
-import { bps, duration, num, tokens, units } from "@/lib/format";
+import { useWalletSummary } from "@/lib/data";
+import { bps, duration, tokens, units, usd } from "@/lib/format";
+import { useAddress } from "@/lib/wallet";
 import { IconTile, Row, Skeleton } from "@/components/ui";
 import { TinyPrice } from "./TinyPrice";
 
 export function PositionCard({ coin }: { coin: CoinDetail }) {
-  const { address } = useAccount();
-  const { data, isLoading } = useWallet(address);
+  const address = useAddress();
+  const { data, isLoading } = useWalletSummary(address);
   if (!address) return null;
-  const pos = data?.positions.find((p) => p.coin.address.toLowerCase() === coin.address.toLowerCase());
+  const pos = data?.positions.find((p) => p.coin.address === coin.address);
   const q = coin.quote;
 
   if (isLoading) return <Skeleton className="h-44 rounded-[22px]" />;
-  if (!pos || units(pos.balance) === 0) {
+  if (!pos || units(pos.balance, coin.decimals) === 0) {
     return (
       <section className="surface flex items-start gap-3 rounded-[22px] p-5">
         <IconTile size={36}>
@@ -28,7 +28,7 @@ export function PositionCard({ coin }: { coin: CoinDetail }) {
         <div>
           <h3 className="text-[15px] font-semibold tracking-tight">Your position</h3>
           <p className="mt-1 text-xs leading-relaxed text-muted">
-            You don&apos;t hold ${coin.symbol} yet. Buys through any router count toward your entry price.
+            You don&apos;t hold ${coin.symbol} yet. Buys through any app count toward your entry price.
           </p>
         </div>
       </section>
@@ -42,7 +42,7 @@ export function PositionCard({ coin }: { coin: CoinDetail }) {
   const nextTier = protectionTiers.find((t) => t.minHold > hold);
   const basis = units(pos.costBasis, q.decimals);
   const pnlPct = basis > 0 ? (pos.unrealized / basis) * 100 : 0;
-  const up = pos.unrealized >= 0;
+  const up = pos.unrealizedUsd >= 0;
 
   return (
     <section className="surface rounded-[22px] p-5">
@@ -54,14 +54,14 @@ export function PositionCard({ coin }: { coin: CoinDetail }) {
       </div>
       <div className="mt-4 flex items-end justify-between gap-3">
         <div className="min-w-0">
-          <div className="num truncate text-2xl font-medium">{tokens(pos.balance, 18)}</div>
+          <div className="num truncate text-2xl font-medium">{tokens(pos.balance, coin.decimals)}</div>
           <div className="num text-xs text-muted">
-            ${coin.symbol} ≈ {num(pos.value)} {q.symbol}
+            ${coin.symbol} ≈ {usd(pos.valueUsd)}
           </div>
         </div>
         <div className={clsx("num shrink-0 rounded-xl px-2.5 py-1.5 text-right text-sm", up ? "bg-up-soft text-up" : "bg-down-soft text-down")}>
           {up ? "+" : ""}
-          {num(pos.unrealized)} {q.symbol}
+          {usd(pos.unrealizedUsd)}
           <div className="text-[11px]">
             {pnlPct >= 0 ? "+" : ""}
             {pnlPct.toFixed(1)}%
@@ -69,8 +69,21 @@ export function PositionCard({ coin }: { coin: CoinDetail }) {
         </div>
       </div>
       <div className="mt-4 divide-y divide-line border-t border-line">
-        <Row label="Avg entry" value={<><TinyPrice value={pos.avgEntry} /> {q.symbol}</>} />
-        <Row label="Realized P/L" value={`${num(pos.realizedPnl)} ${q.symbol}`} />
+        <Row
+          label="Avg entry"
+          value={
+            q.usdPerUnit > 0 ? (
+              <>
+                $<TinyPrice value={pos.avgEntry * q.usdPerUnit} />
+              </>
+            ) : (
+              <>
+                <TinyPrice value={pos.avgEntry} /> {q.symbol}
+              </>
+            )
+          }
+        />
+        <Row label="Realized P/L" value={usd(pos.realizedPnlUsd)} />
         <Row label="Tax paid" value={tokens(pos.taxPaid, q.decimals, q.symbol)} />
         <Row label="Airdrops received" value={tokens(pos.airdropsReceived, q.decimals, q.symbol)} />
       </div>

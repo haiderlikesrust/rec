@@ -4,9 +4,9 @@ import clsx from "clsx";
 import { ArrowLeft, Check, Copy, ExternalLink, Globe, GraduationCap, Send } from "lucide-react";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
-import { isAddress } from "viem";
+import { isSolanaAddress } from "@cook/shared";
 import { useCoin, useStats } from "@/lib/data";
-import { explorerAddress } from "@/lib/explorer";
+import { explorerAddress, explorerToken } from "@/lib/explorer";
 import { age, num, short, tokens, units, usd } from "@/lib/format";
 import { CoinAvatar } from "@/components/CoinAvatar";
 import { GraduationBar } from "@/components/GraduationBar";
@@ -76,10 +76,10 @@ function TokenSkeleton() {
 }
 
 export function TokenView({ address }: { address: string }) {
-  const valid = isAddress(address);
+  const valid = isSolanaAddress(address);
   const { data: coin, isLoading, isError, error } = useCoin(valid ? address : undefined);
   const { data: stats } = useStats();
-  const ethUsd = stats?.ethUsd ?? 0;
+  const solUsd = stats?.solUsd ?? 0;
   const [copied, setCopied] = useState(false);
 
   if (!valid) return <EmptyState title="That's not a coin address" action={<ButtonLink href="/">Back to coins</ButtonLink>} />;
@@ -92,7 +92,7 @@ export function TokenView({ address }: { address: string }) {
     );
 
   const q = coin.quote;
-  const burnedPct = (units(coin.burned) / 1e9) * 100;
+  const burnedPct = (units(coin.burned, coin.decimals) / 1e9) * 100;
   const copy = () => {
     navigator.clipboard?.writeText(coin.address).then(
       () => {
@@ -136,7 +136,7 @@ export function TokenView({ address }: { address: string }) {
                     <span className="font-display text-xl text-muted">${coin.symbol}</span>
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    <QuoteChip symbol={q.symbol} pair={coin.symbol} />
+                    <QuoteChip symbol={q.symbol} logo={q.logo} pair={coin.symbol} />
                     {coin.isMain && <Badge tone="accent">Platform token</Badge>}
                     {coin.graduated && (
                       <Badge tone="up">
@@ -147,13 +147,9 @@ export function TokenView({ address }: { address: string }) {
                   <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted">
                     <span>
                       by{" "}
-                      {explorerAddress(coin.creator) ? (
-                        <a href={explorerAddress(coin.creator)} target="_blank" rel="noreferrer" className="num text-fg/80 hover:text-fg">
-                          {short(coin.creator)}
-                        </a>
-                      ) : (
-                        <span className="num text-fg/80">{short(coin.creator)}</span>
-                      )}
+                      <a href={explorerAddress(coin.creator)} target="_blank" rel="noreferrer" className="num text-fg/80 hover:text-fg">
+                        {short(coin.creator)}
+                      </a>
                     </span>
                     <span className="text-faint">·</span>
                     <span>{age(coin.createdAt)} ago</span>
@@ -178,7 +174,7 @@ export function TokenView({ address }: { address: string }) {
                 <SocialButton href={telegram} label="Telegram">
                   <Send size={14} />
                 </SocialButton>
-                <SocialButton href={explorerAddress(coin.address)} label="Explorer">
+                <SocialButton href={explorerToken(coin.address)} label="Solscan">
                   <ExternalLink size={14} />
                 </SocialButton>
               </div>
@@ -189,13 +185,25 @@ export function TokenView({ address }: { address: string }) {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
             <StatTile
               label="Market cap"
-              value={usd(coin.marketCapEth * ethUsd)}
+              value={usd(coin.marketCapUsd)}
               sub={<Change value={coin.change24h} pill className="text-[11px]" />}
             />
-            <StatTile label="Price" value={<TinyPrice value={coin.price} />} sub={`${q.symbol} per ${coin.symbol}`} />
-            <StatTile label="24h volume" value={usd(coin.volume24hEth * ethUsd)} sub={`${coin.trades24h} trades`} />
+            <StatTile
+              label="Price"
+              value={
+                <>
+                  $<TinyPrice value={coin.priceUsd} />
+                </>
+              }
+              sub={
+                <>
+                  <TinyPrice value={coin.price} /> {q.symbol}
+                </>
+              }
+            />
+            <StatTile label="24h volume" value={usd(coin.volume24hUsd)} sub={`${coin.trades24h} trades`} />
             <StatTile label="Holders" value={num(coin.holders)} sub="wallets holding" />
-            <StatTile className="col-span-2 sm:col-span-1" label="Burned" value={`${burnedPct.toFixed(2)}%`} sub={`${tokens(coin.burned, 18)} ${coin.symbol}`} />
+            <StatTile className="col-span-2 sm:col-span-1" label="Burned" value={`${burnedPct.toFixed(2)}%`} sub={`${tokens(coin.burned, coin.decimals)} ${coin.symbol}`} />
           </div>
 
           <div className="surface flex flex-col gap-3 rounded-2xl px-4 py-3.5 sm:flex-row sm:items-center sm:gap-5">
@@ -203,11 +211,13 @@ export function TokenView({ address }: { address: string }) {
               <GraduationCap size={16} className={clsx(coin.graduated ? "text-up" : "text-accent")} />
               <span className="font-medium">{coin.graduated ? "Graduated" : "Graduation"}</span>
               <span className="num text-xs text-muted">
-                {num(coin.quoteInPool)} / {num(q.graduationThreshold)} {q.symbol} in pool
+                {num(coin.quoteInPool)} / {num(coin.graduationThreshold)} {q.symbol} in the curve
               </span>
             </div>
             <GraduationBar className="flex-1" progress={coin.graduationProgress} graduated={coin.graduated} />
-            <span className="shrink-0 text-[11px] text-faint">milestone only · liquidity never moves</span>
+            <span className="shrink-0 text-[11px] text-faint">
+              {coin.graduated ? "trading on Meteora DAMM v2 · LP locked" : `moves to Meteora DAMM v2 at ${usd(q.graduationMcapUsd)}`}
+            </span>
           </div>
         </div>
 
@@ -215,12 +225,12 @@ export function TokenView({ address }: { address: string }) {
         <aside className="no-scrollbar space-y-4 lg:sticky lg:top-20 lg:col-start-2 lg:row-span-3 lg:row-start-1 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto lg:pb-2">
           <TradePanel coin={coin} />
           <PositionCard coin={coin} />
-          <FeesPanel coin={coin} ethUsd={ethUsd} />
-          <OtcPanel coin={coin} ethUsd={ethUsd} />
+          <FeesPanel coin={coin} solUsd={solUsd} />
+          <OtcPanel coin={coin} solUsd={solUsd} />
         </aside>
 
         <div className="min-w-0 lg:col-start-1 lg:row-start-2">
-          <PriceChart coin={coin} ethUsd={ethUsd} />
+          <PriceChart coin={coin} />
         </div>
         <div className="min-w-0 lg:col-start-1 lg:row-start-3">
           <ActivityTabs coin={coin} />

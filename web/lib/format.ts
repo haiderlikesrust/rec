@@ -1,5 +1,3 @@
-import { formatUnits } from "viem";
-
 const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 const compact2 = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 });
 
@@ -32,33 +30,38 @@ export function sig(value: number, digits = 3): string {
   return value.toFixed(decimals).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
 }
 
-/** ETH amount from a number of whole ETH. */
-export function eth(value: number | null | undefined, suffix = true): string {
+/** SOL amount from a number of whole SOL (for inputs and secondary labels; the UI leads with USD). */
+export function sol(value: number | null | undefined, suffix = true): string {
   if (value == null || !Number.isFinite(value)) return "—";
   const s = Math.abs(value) >= 1000 ? compact2.format(value) : num(value);
-  return suffix ? `${s} ETH` : s;
+  return suffix ? `${s} SOL` : s;
 }
 
-/** Raw (wei-like) decimal string or bigint → number of whole units. */
-export function units(raw: string | bigint | null | undefined, decimals = 18): number {
+/** Exact decimal string of a raw integer amount (bigint-safe, no float rounding). */
+export function formatRaw(raw: bigint, decimals: number): string {
+  const neg = raw < 0n;
+  const v = neg ? -raw : raw;
+  const base = 10n ** BigInt(decimals);
+  const whole = v / base;
+  const frac = decimals > 0 ? (v % base).toString().padStart(decimals, "0").replace(/0+$/, "") : "";
+  return `${neg ? "-" : ""}${whole}${frac ? `.${frac}` : ""}`;
+}
+
+/** Raw base-unit decimal string or bigint → number of whole units. */
+export function units(raw: string | bigint | null | undefined, decimals = 9): number {
   if (raw == null || raw === "") return 0;
   try {
-    return Number(formatUnits(typeof raw === "bigint" ? raw : BigInt(raw), decimals));
+    return Number(formatRaw(typeof raw === "bigint" ? raw : BigInt(raw), decimals));
   } catch {
     return 0;
   }
 }
 
 /** Raw token amount → display string. */
-export function tokens(raw: string | bigint | null | undefined, decimals = 18, symbol?: string): string {
+export function tokens(raw: string | bigint | null | undefined, decimals = 6, symbol?: string): string {
   const v = units(raw, decimals);
   const s = Math.abs(v) >= 1000 ? compact2.format(v) : num(v);
   return symbol ? `${s} ${symbol}` : s;
-}
-
-/** Raw wei → "0.42 ETH" */
-export function wei(raw: string | bigint | null | undefined, suffix = true): string {
-  return eth(units(raw, 18), suffix);
 }
 
 export function pct(value: number | null | undefined, opts: { sign?: boolean; digits?: number } = {}): string {
@@ -95,9 +98,11 @@ export function duration(seconds: number): string {
   return `${s}s`;
 }
 
+/** Base58 address → Ab12…xY9z */
 export function short(address?: string | null, chars = 4): string {
   if (!address) return "—";
-  return `${address.slice(0, 2 + chars)}…${address.slice(-chars)}`;
+  if (address.length <= chars * 2 + 1) return address;
+  return `${address.slice(0, chars)}…${address.slice(-chars)}`;
 }
 
 /** Price of one coin in its quote; tiny prices get significant digits. */

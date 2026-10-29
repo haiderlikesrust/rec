@@ -1,30 +1,41 @@
 "use client";
 
-import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
 import { ArrowDown, Loader2, Settings2, Zap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { erc20Abi, formatUnits, zeroAddress, type Address } from "viem";
-import { useAccount, useBalance, usePublicClient, useReadContract } from "wagmi";
-import type { Coin } from "@cook/shared";
-import { TAX_BPS } from "@cook/shared";
-import { CHAIN_ID, abis, addresses, errorMessage, isNative } from "@/lib/contracts";
-import { bps, num, toRaw, tokens } from "@/lib/format";
-import { useEnsureAllowance, useTx, useWrongChain } from "@/lib/tx";
+import { buyTaxBpsAt, NATIVE_MINT, SNIPE, TAX_BPS, type Coin } from "@cook/shared";
+import { client, useBalances } from "@/lib/data";
+import { bps, formatRaw, num, pct, sig, toRaw, tokens, units, usd } from "@/lib/format";
+import { errorMessage, useSolanaTx } from "@/lib/tx";
+import { useAddress } from "@/lib/wallet";
 import { CoinAvatar } from "@/components/CoinAvatar";
+import { QuoteLogo } from "@/components/QuoteChip";
 import { Button } from "@/components/ui";
 import { TxStatus } from "@/components/TxStatus";
+import { useWalletModal } from "@/components/wallet/WalletModal";
 
-const GAS_BUFFER = 2_000_000_000_000_000n; // 0.002 ETH kept for gas on "max"
+const SOL_RESERVE = 20_000_000n; // 0.02 SOL kept back on "max" for fees and token-account rent
 
-function AssetPill({ symbol, image, seed }: { symbol: string; image?: string; seed: string }) {
+function AssetPill({ symbol, image, seed, logo }: { symbol: string; image?: string; seed: string; logo?: string }) {
   return (
     <span className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-elev py-1 pr-3 pl-1 shadow-card">
-      <CoinAvatar src={image} symbol={symbol} seed={seed} size={26} />
+      {logo !== undefined ? <QuoteLogo symbol={symbol} logo={logo} size={26} /> : <CoinAvatar src={image} symbol={symbol} seed={seed} size={26} />}
       <span className="text-sm font-semibold">{symbol}</span>
     </span>
   );
+}
+
+/** Ticks once a second while the launch anti-snipe fee is still decaying, so the fee row stays honest. */
+function useSnipeFee(createdAt: number) {
+  const [now, setNow] = useState(() => Date.now() / 1000);
+  const live = now - createdAt < SNIPE.seconds + 1;
+  useEffect(() => {
+    if (!live) return;
+    const t = setInterval(() => setNow(Date.now() / 1000), 500);
+    return () => clearInterval(t);
+  }, [live]);
+  return buyTaxBpsAt(Math.max(0, now - createdAt));
 }
 
 export function TradePanel({ coin }: { coin: Coin }) {
@@ -34,20 +45,20 @@ export function TradePanel({ coin }: { coin: Coin }) {
   const [showSettings, setShowSettings] = useState(false);
   const [debounced, setDebounced] = useState("");
   const settingsRef = useRef<HTMLDivElement>(null);
-  const { address } = useAccount();
-  const publicClient = usePublicClient({ chainId: CHAIN_ID });
-  const { wrong, switchToApp, switching } = useWrongChain();
-  const tx = useTx();
-  const allowance = useEnsureAllowance();
+  const address = useAddress();
+  const { open: openWallet } = useWalletModal();
+  const tx = useSolanaTx();
+  const balances = useBalances(address);
 
-  const token = coin.address as Address;
   const quote = coin.quote;
-  const quoteIsNative = isNative(quote.address);
+  const quoteIsSol = quote.address === NATIVE_MINT;
   const isBuy = side === "buy";
-  const inDecimals = isBuy ? quote.decimals : 18;
-  const outDecimals = isBuy ? 18 : quote.decimals;
+  const inDecimals = isBuy ? quote.decimals : coin.decimals;
+  const outDecimals = isBuy ? coin.decimals : quote.decimals;
   const inSymbol = isBuy ? quote.symbol : coin.symbol;
   const outSymbol = isBuy ? coin.symbol : quote.symbol;
+  const inUsd = isBuy ? quote.usdPerUnit : coin.priceUsd;
+  const outUsd = isBuy ? coin.priceUsd : quote.usdPerUnit;
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(amount), 300);
@@ -67,100 +78,60 @@ export function TradePanel({ coin }: { coin: Coin }) {
     return () => document.removeEventListener("mousedown", close);
   }, [showSettings]);
 
-  const ethBal = useBalance({ address, chainId: CHAIN_ID, query: { enabled: !!address && quoteIsNative && isBuy } });
-  const ercBal = useReadContract({
-    address: (isBuy ? quote.address : token) as Address,
-    abi: erc20Abi,
-    functionName: "balanceOf",
-    args: [address ?? zeroAddress],
-    chainId: CHAIN_ID,
-    query: { enabled: !!address && !(isBuy && quoteIsNative), refetchInterval: 10_000 },
-  });
-  const balance = isBuy && quoteIsNative ? ethBal.data?.value : ercBal.data;
+  const b = balances.data;
+  const rawBalance = !b ? undefined : isBuy ? (quoteIsSol ? b.sol : b.tokens[quote.address] ?? "0") : b.tokens[coin.address] ?? "0";
+  const balance = rawBalance !== undefined ? BigInt(rawBalance) : undefined;
 
-  const taxQuery = useReadContract({
-    address: addresses.hook,
-    abi: abis.hook,
-    functionName: "currentTaxBps",
-    args: [token, address ?? zeroAddress, isBuy],
-    chainId: CHAIN_ID,
-    query: { enabled: !!addresses.hook, refetchInterval: 2_000 },
-  });
-  const taxBps = taxQuery.data !== undefined ? Number(taxQuery.data) : TAX_BPS;
-  const sniping = taxBps > TAX_BPS;
-
+  const scheduleBps = useSnipeFee(coin.createdAt);
   const amountRaw = toRaw(debounced, inDecimals);
   const quoteQuery = useQuery({
-    queryKey: ["tradeQuote", token, side, amountRaw.toString(), address],
-    enabled: amountRaw > 0n && !!publicClient && !!addresses.router,
-    queryFn: async () => {
-      const { result } = await publicClient!.simulateContract({
-        address: addresses.router!,
-        abi: abis.router,
-        functionName: "quote",
-        args: [token, isBuy, amountRaw],
-        account: address ?? zeroAddress,
-      });
-      return result as bigint;
-    },
+    queryKey: ["swapQuote", coin.address, side, amountRaw.toString(), slippage, address],
+    enabled: amountRaw > 0n,
+    queryFn: () =>
+      client.swapQuote({ coin: coin.address, side, amount: amountRaw.toString(), wallet: address, slippageBps: slippage * 100 }),
     refetchInterval: 8_000,
     retry: false,
   });
-  const out = quoteQuery.data ?? 0n;
-  const minOut = (out * BigInt(Math.round((100 - slippage) * 100))) / 10_000n;
+  const q = quoteQuery.data;
+  const out = q ? BigInt(q.amountOut) : 0n;
+  const minOut = q ? BigInt(q.minOut) : 0n;
+  const feeBps = q?.feeBps ?? scheduleBps;
+  const sniping = feeBps > TAX_BPS;
 
-  const insufficient = balance !== undefined && toRaw(amount, inDecimals) > balance;
   const inputRaw = toRaw(amount, inDecimals);
+  const insufficient = balance !== undefined && inputRaw > balance;
 
   const setMax = () => {
     if (balance === undefined) return;
-    const v = isBuy && quoteIsNative ? (balance > GAS_BUFFER ? balance - GAS_BUFFER : 0n) : balance;
-    setAmount(formatUnits(v, inDecimals));
+    const v = isBuy && quoteIsSol ? (balance > SOL_RESERVE ? balance - SOL_RESERVE : 0n) : balance;
+    setAmount(formatRaw(v, inDecimals));
   };
 
   const presets: { label: string; apply: () => void }[] = isBuy
-    ? (quoteIsNative ? ["0.1", "0.5", "1"] : quote.decimals <= 8 ? ["100", "500", "1000"] : ["1", "5", "10"]).map((p) => ({
-        label: p,
-        apply: () => setAmount(p),
-      }))
+    ? quote.usdPerUnit > 0
+      ? [10, 50, 100, 500].map((d) => ({ label: `$${d}`, apply: () => setAmount(sig(d / quote.usdPerUnit, 4)) }))
+      : ["1", "5", "10"].map((p) => ({ label: `${p} ${quote.symbol}`, apply: () => setAmount(p) }))
     : [25, 50, 75, 100].map((p) => ({
         label: `${p}%`,
-        apply: () => balance !== undefined && setAmount(formatUnits((balance * BigInt(p)) / 100n, 18)),
+        apply: () => balance !== undefined && setAmount(formatRaw((balance * BigInt(p)) / 100n, coin.decimals)),
       }));
 
   async function submit() {
-    if (!address || !addresses.router || inputRaw === 0n) return;
-    const deadline = BigInt(Math.floor(Date.now() / 1000) + 20 * 60);
-    if (isBuy) {
-      if (!quoteIsNative) {
-        const ok = await allowance.ensure(quote.address as Address, addresses.router, inputRaw, `Approve ${quote.symbol}`);
-        if (!ok) return;
-      }
-      const r = await tx.send(`Buy ${coin.symbol}`, {
-        address: addresses.router,
-        abi: abis.router,
-        functionName: "buy",
-        args: [token, inputRaw, minOut, address, deadline],
-        value: quoteIsNative ? inputRaw : 0n,
-      });
-      if (r) setAmount("");
-    } else {
-      const ok = await allowance.ensure(token, addresses.router, inputRaw, `Approve ${coin.symbol}`);
-      if (!ok) return;
-      const r = await tx.send(`Sell ${coin.symbol}`, {
-        address: addresses.router,
-        abi: abis.router,
-        functionName: "sell",
-        args: [token, inputRaw, minOut, address, deadline],
-      });
-      if (r) setAmount("");
-    }
+    if (!address || inputRaw === 0n) return;
+    const r = await tx.run(`${isBuy ? "Buy" : "Sell"} ${coin.symbol}`, () =>
+      client.swap({ wallet: address, coin: coin.address, side, amount: inputRaw.toString(), slippageBps: slippage * 100 }),
+    );
+    if (r) setAmount("");
   }
 
-  const busy = tx.busy || allowance.busy;
-  const status = allowance.state.status === "error" || allowance.busy ? allowance.state : tx.state;
-  const inAsset = isBuy ? { symbol: quote.symbol, image: undefined, seed: quote.symbol } : { symbol: coin.symbol, image: coin.image, seed: coin.address };
-  const outAsset = isBuy ? { symbol: coin.symbol, image: coin.image, seed: coin.address } : { symbol: quote.symbol, image: undefined, seed: quote.symbol };
+  const inAsset = isBuy
+    ? { symbol: quote.symbol, seed: quote.symbol, logo: quote.logo }
+    : { symbol: coin.symbol, image: coin.image, seed: coin.address };
+  const outAsset = isBuy
+    ? { symbol: coin.symbol, image: coin.image, seed: coin.address }
+    : { symbol: quote.symbol, seed: quote.symbol, logo: quote.logo };
+  const inValue = units(inputRaw, inDecimals) * inUsd;
+  const outValue = units(out, outDecimals) * outUsd;
 
   return (
     <section className="ring-spectrum shadow-pop relative rounded-[22px] p-4 sm:p-5">
@@ -199,7 +170,7 @@ export function TradePanel({ coin }: { coin: Coin }) {
           {showSettings && (
             <div className="surface shadow-pop absolute top-12 right-0 z-20 w-60 rounded-2xl p-4">
               <div className="text-xs font-medium">Max slippage</div>
-              <p className="mt-1 text-[11px] leading-relaxed text-faint">The trade reverts if the price moves more than this before it lands.</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-faint">The trade fails if the price moves more than this before it lands.</p>
               <div className="mt-3 grid grid-cols-4 gap-1.5">
                 {[1, 3, 5, 10].map((s) => (
                   <button
@@ -244,17 +215,19 @@ export function TradePanel({ coin }: { coin: Coin }) {
           />
           <AssetPill {...inAsset} />
         </div>
-        <div className="mt-3 flex gap-1.5">
-          {presets.map((p) => (
-            <button
-              key={p.label}
-              onClick={p.apply}
-              className="num rounded-full border border-line bg-elev/60 px-2.5 py-1 text-[11px] text-muted transition-colors hover:border-line-strong hover:text-fg"
-            >
-              {p.label}
-              {isBuy && ` ${quote.symbol}`}
-            </button>
-          ))}
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <div className="flex gap-1.5">
+            {presets.map((p) => (
+              <button
+                key={p.label}
+                onClick={p.apply}
+                className="num rounded-full border border-line bg-elev/60 px-2.5 py-1 text-[11px] text-muted transition-colors hover:border-line-strong hover:text-fg"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <span className="num shrink-0 text-xs text-faint">{inputRaw > 0n && inUsd > 0 ? `≈ ${usd(inValue)}` : ""}</span>
         </div>
       </div>
 
@@ -272,14 +245,18 @@ export function TradePanel({ coin }: { coin: Coin }) {
       <div className="rounded-2xl border border-line bg-sunk/50 p-4">
         <div className="flex items-center justify-between text-xs text-muted">
           <span>You receive</span>
-          {quoteQuery.isFetching && <Loader2 size={12} className="animate-spin text-faint" />}
+          {quoteQuery.isFetching ? (
+            <Loader2 size={12} className="animate-spin text-faint" />
+          ) : (
+            <span className="num text-faint">{out > 0n && outUsd > 0 ? `≈ ${usd(outValue)}` : ""}</span>
+          )}
         </div>
         <div className="mt-2 flex items-center gap-3">
           <div className="num min-w-0 flex-1 truncate text-[32px] leading-none font-medium">
             {amountRaw > 0n ? (
               quoteQuery.isError ? (
                 <span className="text-sm text-down">{errorMessage(quoteQuery.error)}</span>
-              ) : quoteQuery.data !== undefined ? (
+              ) : q ? (
                 tokens(out, outDecimals)
               ) : (
                 <span className="text-faint">…</span>
@@ -294,18 +271,19 @@ export function TradePanel({ coin }: { coin: Coin }) {
 
       <dl className="mt-4 space-y-2 px-1 text-xs">
         <div className="flex items-center justify-between">
-          <dt className="text-muted">Trade tax</dt>
-          <dd
-            className={clsx(
-              "num inline-flex items-center gap-1.5",
-              sniping && "rounded-full bg-down-soft px-2 py-0.5 font-medium text-down",
-            )}
-          >
+          <dt className="text-muted">Trade fee</dt>
+          <dd className={clsx("num inline-flex items-center gap-1.5", sniping && "rounded-full bg-down-soft px-2 py-0.5 font-medium text-down")}>
             {sniping && <Zap size={11} />}
-            {bps(taxBps)}
+            {bps(feeBps)}
             {sniping && " · anti-snipe"}
           </dd>
         </div>
+        {q && q.priceImpact > 0.005 && (
+          <div className="flex items-center justify-between">
+            <dt className="text-muted">Price impact</dt>
+            <dd className={clsx("num", q.priceImpact > 0.05 && "text-down")}>{pct(q.priceImpact * 100, { digits: 2 })}</dd>
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <dt className="text-muted">Minimum received</dt>
           <dd className="num">{amountRaw > 0n && out > 0n ? `${tokens(minOut, outDecimals)} ${outSymbol}` : "—"}</dd>
@@ -318,34 +296,26 @@ export function TradePanel({ coin }: { coin: Coin }) {
 
       <div className="mt-4">
         {!address ? (
-          <ConnectButton.Custom>
-            {({ openConnectModal }) => (
-              <Button className="h-14 w-full rounded-2xl text-base" size="lg" onClick={openConnectModal}>
-                Connect wallet
-              </Button>
-            )}
-          </ConnectButton.Custom>
-        ) : wrong ? (
-          <Button className="h-14 w-full rounded-2xl text-base" size="lg" onClick={switchToApp} disabled={switching}>
-            Switch network
+          <Button className="h-14 w-full rounded-2xl text-base" size="lg" onClick={openWallet}>
+            Connect wallet
           </Button>
         ) : (
           <Button
             className="h-14 w-full rounded-2xl text-base"
             size="lg"
             variant={isBuy ? "up" : "down"}
-            disabled={busy || inputRaw === 0n || insufficient || !addresses.router}
+            disabled={tx.busy || inputRaw === 0n || insufficient}
             onClick={submit}
           >
-            {busy && <Loader2 size={16} className="animate-spin" />}
-            {insufficient ? `Not enough ${inSymbol}` : busy ? "Working…" : `${isBuy ? "Buy" : "Sell"} $${coin.symbol}`}
+            {tx.busy && <Loader2 size={16} className="animate-spin" />}
+            {insufficient ? `Not enough ${inSymbol}` : tx.busy ? "Working…" : `${isBuy ? "Buy" : "Sell"} $${coin.symbol}`}
           </Button>
         )}
       </div>
-      <TxStatus state={status} className="mt-3" />
+      <TxStatus state={tx.state} className="mt-3" />
       <p className="mt-3 px-1 text-[11px] leading-relaxed text-faint">
-        3% of the {quote.symbol} side funds burns, the OTC reserve, the protection fund and high-entry airdrops. None goes to
-        the creator or the team.
+        3% of the {quote.symbol} side goes to burns, the OTC reserve, the protection fund and high-entry airdrops, after
+        Meteora&apos;s protocol share. None goes to the creator or the team.
       </p>
     </section>
   );

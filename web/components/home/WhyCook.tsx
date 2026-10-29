@@ -18,7 +18,7 @@ const features = [
     color: bucketColor.otcReserve,
     pct: "30%",
     title: "OTC exit reserve",
-    body: "An ETH pool you can sell into with zero slippage. Coins that pay more fees earn bigger limits; dead coins fade to almost nothing.",
+    body: "A SOL reserve you can sell into with zero slippage. Coins that pay more fees earn bigger limits; dead coins fade to almost nothing.",
     href: "/otc",
   },
   {
@@ -40,7 +40,7 @@ const features = [
 ];
 
 const compare = [
-  { name: brand.name, pct: 100, note: "burns, exit reserve, loss cover, airdrops", highlight: true },
+  { name: brand.name, pct: 80, note: "80–84% after Meteora's protocol share: burns, exit reserve, loss cover, airdrops", highlight: true },
   { name: "pump.fun · Holder Rewards", pct: 62, note: "buybacks + creator share streamed to holders by balance" },
   { name: "Pons", pct: 24, note: "PONS buybacks; 70% goes to the creator" },
 ];
@@ -55,7 +55,7 @@ export function WhyCook() {
             One tax, five ways <span className="text-spectrum">back to you</span>
           </>
         }
-        sub="No creator fees and no team cut. The hook splits every unit of tax on-chain the moment it's paid, then a keeper turns it into ETH, burns and airdrops."
+        sub="No creator fees and no team cut. Meteora keeps its protocol share; Recur's fee wallet claims the rest from every pool and splits it into SOL reserves, burns and airdrops."
       />
       <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {features.map((f) => (
@@ -89,7 +89,7 @@ export function WhyCook() {
             <h3 className="font-display mt-3 text-2xl font-semibold sm:text-3xl">Share of fees that comes back to traders and holders</h3>
             <p className="mt-3 text-sm leading-relaxed text-muted">
               Same trading volume, different destinations. Elsewhere most fees go to creators and the platform, and dividends
-              go to the biggest wallets. Here, all of it comes back, aimed at the people who need it.
+              go to the biggest wallets. Here, everything Recur collects comes back, aimed at the people who need it.
             </p>
             <Link href="/docs#compare" className="mt-5 inline-flex items-center gap-1 text-sm font-medium text-accent">
               Full comparison with sources <ArrowUpRight size={14} />

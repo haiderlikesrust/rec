@@ -8,7 +8,7 @@ import {
   RUG_COVERAGE_BPS,
   brand,
   buyTaxBpsAt,
-  coinAllocationEth,
+  coinAllocationSol,
   protectionTiers,
 } from "@cook/shared";
 import { buckets, bucketColor } from "@/lib/buckets";
@@ -250,7 +250,7 @@ export function RuleCard({ icon: Icon, color, title, children }: { icon: LucideI
 
 /** Buy tax by second after launch, as bars. */
 export function SnipeChart() {
-  const rates = Array.from({ length: 7 }, (_, s) => buyTaxBpsAt(s) / 100);
+  const rates = Array.from({ length: 7 }, (_, s) => Math.round(buyTaxBpsAt(s) / 100));
   return (
     <div className="mt-5 grid grid-cols-7 items-end gap-1.5 sm:gap-2.5">
       {rates.map((r, s) => (
@@ -313,16 +313,16 @@ export function FundingRatio({ className }: { className?: string }) {
   const fund = 20;
   const coinA = 2;
   const budget = (fund * PROTECTION_EPOCH_BPS) / 10_000;
-  const slice = coinAllocationEth(budget, coinA, fund);
+  const slice = coinAllocationSol(budget, coinA, fund);
   const requested = slice * 2;
   return (
     <div className={clsx("my-6 rounded-[22px] border border-line bg-sunk/60 p-5 sm:p-6", className)}>
       <span className="eyebrow">Funding ratio, worked through</span>
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
         {[
-          { k: "Coin A paid in", v: `${coinA} ETH`, s: `of the ${fund} ETH ever paid into the fund` },
+          { k: "Coin A paid in", v: `${coinA * 10} SOL`, s: `of the ${fund * 10} SOL ever paid into the fund` },
           { k: "So it can draw", v: `${((coinA / fund) * 100).toFixed(0)}%`, s: `of each epoch's budget (${PROTECTION_EPOCH_BPS / 100}% of the fund)` },
-          { k: "This epoch", v: `${slice.toFixed(2)} ETH`, s: `for coin A's traders, out of a ${budget.toFixed(1)} ETH budget` },
+          { k: "This epoch", v: `${(slice * 10).toFixed(1)} SOL`, s: `for coin A's traders, out of a ${(budget * 10).toFixed(0)} SOL budget` },
         ].map((x) => (
           <div key={x.k} className="rounded-2xl border border-line bg-elev p-4">
             <div className="text-xs text-muted">{x.k}</div>
@@ -332,7 +332,7 @@ export function FundingRatio({ className }: { className?: string }) {
         ))}
       </div>
       <p className="!mt-4 text-[13px]">
-        If coin A&apos;s traders request {requested.toFixed(2)} ETH of cover that epoch, each is paid{" "}
+        If coin A&apos;s traders request {(requested * 10).toFixed(1)} SOL of cover that epoch, each is paid{" "}
         {((slice / requested) * 100).toFixed(0)}% of their request. A coin that paid almost nothing into the fund can cover
         almost nothing, however big the fund is.
       </p>
@@ -373,7 +373,8 @@ export function RiskCallout({ children }: { children: ReactNode }) {
       </div>
       {children}
       <p className="!mt-4 text-xs">
-        {brand.name} is {brand.chainLabel.toLowerCase()} and is not affiliated with Robinhood Markets, Inc.
+        {brand.name} is {brand.chainLabel.toLowerCase()} and uses Meteora&apos;s pool programs. It is not affiliated with Meteora or
+        with any tokenized-stock issuer.
       </p>
     </div>
   );

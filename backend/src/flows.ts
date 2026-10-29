@@ -1,0 +1,155 @@
+import { randomUUID } from "node:crypto";
+import { otcPolicy, type ClaimResponse, type OtcQuote, type OtcQuoteRequest } from "@cook/shared";
+import { big, one, run, type ClaimRow, type OtcQuoteRow } from "./db";
+import { UserError, memoFor, type Engine } from "./engine";
+import { settleClaim, settleOtc } from "./jobs";
+import { getCoin } from "./ledger";
+import { now, otcCoin, treasury, walletDailyCapSol, walletSoldToday } from "./services";
+import { toUnits } from "./prices";
+
+const LAMPORTS = 1_000_000_000;
+
+/**
+ * OTC: the reserve quotes a fixed price, reserves the limit, and co-signs one transaction that moves both legs
+ * (coins one way, SOL the other, the 3% to the fee wallet). It settles atomically or not at all.
+ */
+export async function otcQuote(engine: Engine, req: OtcQuoteRequest): Promise<OtcQuote> {
+  const c = getCoin(req.coin);
+  if (!c) throw new UserError("Unknown coin.");
+  const amount = big(req.amount);
+  if (amount <= 0n) throw new UserError("Enter an amount.");
+  const info = otcCoin(c);
+  if (!info.twapReady) throw new UserError("OTC opens once the coin has 30 minutes of price history.");
+  const spread = otcPolicy.spreadBps / 10_000;
+  const at = now();
+
+  let amountOut: bigint;
+  let solGross: number;
+  let tax: bigint;
+  if (req.side === "sell") {
+    // coins in, SOL out at min(spot, TWAP) minus the spread
+    const coins = toUnits(amount, c.decimals);
+    const fair = coins * (info.sellPriceSol / (1 - spread));
+    solGross = fair;
+    tax = BigInt(Math.floor(fair * spread * LAMPORTS));
+    amountOut = BigInt(Math.floor(fair * LAMPORTS)) - tax;
+    if (fair > info.sellLimitSol) throw new UserError("That's above this coin's current OTC limit.");
+    if (walletSoldToday(c.mint, req.wallet, at) + fair > walletDailyCapSol())
+      throw new UserError("That's above your daily OTC cap for this coin.");
+  } else {
+    // SOL in (3% of it is the tax), coins out at max(spot, TWAP)
+    const sol = Number(amount) / LAMPORTS;
+    solGross = sol;
+    tax = BigInt(Math.floor(sol * spread * LAMPORTS));
+    const pricePerCoin = info.buyPriceSol * (1 - spread);
+    amountOut = BigInt(Math.floor(((sol * (1 - spread)) / pricePerCoin) * 10 ** c.decimals));
+    if (amountOut > big(c.otc_inventory)) throw new UserError("The reserve doesn't hold that many coins right now.");
+  }
+  if (amountOut <= 0n) throw new UserError("Amount too small.");
+  if (req.side === "sell" && solGross > treasury.otcSol * 0.95) throw new UserError("The reserve can't cover that right now.");
+
+  const id = randomUUID();
+  const row: OtcQuoteRow = {
+    id,
+    coin: c.mint,
+    wallet: req.wallet,
+    side: req.side,
+    amount_in: amount.toString(),
+    amount_out: amountOut.toString(),
+    tax: tax.toString(),
+    sol_gross: solGross,
+    price_sol: req.side === "sell" ? info.sellPriceSol : info.buyPriceSol,
+    created_at: at,
+    expires_at: at + otcPolicy.quoteTtlSeconds,
+    last_valid_height: 0,
+    status: "issued",
+    signature: null,
+  };
+  run(
+    `INSERT INTO otc_quote (id, coin, wallet, side, amount_in, amount_out, tax, sol_gross, price_sol, created_at, expires_at, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'issued')`,
+    row.id,
+    row.coin,
+    row.wallet,
+    row.side,
+    row.amount_in,
+    row.amount_out,
+    row.tax,
+    row.sol_gross,
+    row.price_sol,
+    row.created_at,
+    row.expires_at,
+  );
+  try {
+    const env = await engine.otcTx(row, c);
+    if (env.demo && env.signature) settleOtc(id, env.signature, at);
+    else run("UPDATE otc_quote SET last_valid_height = ? WHERE id = ?", env.lastValidBlockHeight ?? 0, id);
+    return {
+      ...env,
+      id,
+      side: req.side,
+      coin: c.mint,
+      amountIn: row.amount_in,
+      amountOut: row.amount_out,
+      taxLamports: row.tax,
+      priceSol: row.price_sol,
+      expiresAt: row.expires_at,
+    };
+  } catch (e) {
+    run("UPDATE otc_quote SET status = 'expired' WHERE id = ?", id);
+    throw e;
+  }
+}
+
+export async function otcConfirm(engine: Engine, id: string, signature: string) {
+  const q = one<OtcQuoteRow>("SELECT * FROM otc_quote WHERE id = ?", id);
+  if (!q) throw new UserError("Unknown OTC quote.");
+  if (q.status === "done") return { ok: true };
+  run("UPDATE otc_quote SET signature = ? WHERE id = ?", signature, id);
+  const s = await engine.verify(signature, memoFor("otc", id), "otc");
+  if (s === "failed") {
+    run("UPDATE otc_quote SET status = 'expired' WHERE id = ?", id);
+    throw new UserError("The OTC transaction failed on-chain.");
+  }
+  if (s === "ok") settleOtc(id, signature);
+  return { ok: s === "ok" };
+}
+
+/**
+ * Protection claims: the protection wallet co-signs a payout transaction the claimant sends (and pays the network
+ * fee for). Only one transaction per claim is outstanding at a time, so a claim can't be paid twice.
+ */
+export async function claim(engine: Engine, wallet: string, epoch: number): Promise<ClaimResponse> {
+  const c = one<ClaimRow>("SELECT * FROM protection_claim WHERE epoch = ? AND wallet = ?", epoch, wallet);
+  if (!c) throw new UserError("Nothing to claim for this epoch.");
+  if (c.status === "claimed") throw new UserError("Already claimed.");
+  if (c.status === "expired" || c.expires_at < now()) throw new UserError("This epoch's claim window has closed.");
+  if (c.status === "pending" && c.claimed_at && now() < c.claimed_at + 90)
+    throw new UserError("A claim transaction is already in flight. Try again in a minute if it doesn't land.");
+  if (toUnits(c.amount, 9) > treasury.protectionSol) throw new UserError("The protection wallet is short right now. Try again later.");
+  // claimed_at doubles as the issue time while pending
+  run("UPDATE protection_claim SET status = 'pending', signature = NULL, claimed_at = ? WHERE id = ?", now(), c.id);
+  try {
+    const env = await engine.claimTx(c);
+    if (env.demo && env.signature) settleClaim(c.id, env.signature);
+    else run("UPDATE protection_claim SET last_valid_height = ? WHERE id = ?", env.lastValidBlockHeight ?? 0, c.id);
+    return { ...env, claimId: c.id, amount: c.amount };
+  } catch (e) {
+    run("UPDATE protection_claim SET status = 'open' WHERE id = ?", c.id);
+    throw e;
+  }
+}
+
+export async function claimConfirm(engine: Engine, claimId: string, signature: string) {
+  const c = one<ClaimRow>("SELECT * FROM protection_claim WHERE id = ?", claimId);
+  if (!c) throw new UserError("Unknown claim.");
+  if (c.status === "claimed") return { ok: true };
+  run("UPDATE protection_claim SET signature = ? WHERE id = ?", signature, claimId);
+  const s = await engine.verify(signature, memoFor("claim", claimId), "protection");
+  if (s === "failed") {
+    run("UPDATE protection_claim SET status = 'open', signature = NULL WHERE id = ?", claimId);
+    throw new UserError("The claim transaction failed on-chain.");
+  }
+  if (s === "ok") settleClaim(claimId, signature);
+  return { ok: s === "ok" };
+}

@@ -1,13 +1,10 @@
 node_modules
 .next
-.ponder
 dist
 .env
 .env.local
-contracts/out
-contracts/cache
-contracts/broadcast
-keeper/data
+backend/data
 *.log
 web/tsconfig.tsbuildinfo
 web/public/uploads
+marketing/

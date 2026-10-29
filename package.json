@@ -3,17 +3,15 @@
   "private": true,
   "packageManager": "pnpm@10.11.0",
   "scripts": {
-    "gen": "pnpm --filter @cook/shared gen",
-    "test:contracts": "cd contracts && forge test",
+    "dev:backend": "pnpm --filter @cook/backend dev",
     "dev:web": "pnpm --filter @cook/web dev",
-    "dev:indexer": "pnpm --filter @cook/indexer dev",
-    "keeper": "pnpm --filter @cook/keeper start",
-    "seed": "pnpm --filter @cook/keeper seed"
+    "demo": "pnpm --filter @cook/backend demo",
+    "test": "pnpm --filter @cook/backend test",
+    "typecheck": "pnpm -r typecheck"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild",
-      "keccak",
       "bufferutil",
       "utf-8-validate",
       "@tailwindcss/oxide",

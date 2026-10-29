@@ -1,19 +1,15 @@
 "use client";
 
-import { ConnectButton } from "@rainbow-me/rainbowkit";
 import clsx from "clsx";
-import { Check, ChevronDown, Globe, ImagePlus, Loader2, Lock, Rocket, Send, ShieldOff, Zap } from "lucide-react";
+import { GraduationCap, Globe, ImagePlus, Loader2, Lock, Rocket, Send, Zap } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
-import { decodeEventLog, erc20Abi, isAddress, zeroAddress, type Address } from "viem";
-import { useAccount, useBalance, useReadContract } from "wagmi";
-import { brand, buyTaxBpsAt } from "@cook/shared";
-import { CHAIN_ID, abis, addresses, isNative } from "@/lib/contracts";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { brand, buyTaxBpsAt, GRADUATION_MCAP_USD, LAUNCH_FEE_SOL, NATIVE_MINT, SNIPE, START_MCAP_USD, type QuoteAsset } from "@cook/shared";
 import { buckets } from "@/lib/buckets";
-import { useQuotes, useStats } from "@/lib/data";
-import { bps, num, toRaw, tokens, units, usd, wei } from "@/lib/format";
-import { useOnchainQuotes, type OnchainQuote } from "@/lib/quotes";
-import { useEnsureAllowance, useTx, useWrongChain } from "@/lib/tx";
+import { client, useBalances, useQuotes, useStats } from "@/lib/data";
+import { bps, formatRaw, sol, toRaw, tokens, units, usd } from "@/lib/format";
+import { useSolanaTx } from "@/lib/tx";
+import { useAddress } from "@/lib/wallet";
 import { CoinAvatar } from "@/components/CoinAvatar";
 import { FeeSplitBar } from "@/components/FeeSplitBar";
 import { GraduationBar } from "@/components/GraduationBar";
@@ -21,11 +17,14 @@ import { QuoteChip } from "@/components/QuoteChip";
 import { Sparkline } from "@/components/Sparkline";
 import { TxStatus } from "@/components/TxStatus";
 import { Badge, Button, Field, Input } from "@/components/ui";
-
-const MAX_EXEMPT = 32;
+import { useWalletModal } from "@/components/wallet/WalletModal";
+import { QuotePicker } from "./QuotePicker";
 
 const textareaClass =
   "w-full resize-none rounded-2xl border border-line bg-sunk px-4 py-3 text-sm outline-none transition-all placeholder:text-faint hover:border-line-strong focus:border-accent focus:bg-elev focus:shadow-[0_0_0_4px_var(--accent-soft)]";
+
+const LAUNCH_FEE_LAMPORTS = BigInt(Math.round(LAUNCH_FEE_SOL * 1e9));
+const SOL_RESERVE = 30_000_000n; // ~0.03 SOL for rent and network fees on top of the launch fee
 
 function XIcon({ size = 14 }: { size?: number }) {
   return (
@@ -76,67 +75,12 @@ function IconInput({ icon, ...props }: { icon: ReactNode } & React.InputHTMLAttr
   );
 }
 
-function QuoteCard({
-  q,
-  selected,
-  onSelect,
-  toUsd,
-}: {
-  q: OnchainQuote;
-  selected: boolean;
-  onSelect: () => void;
-  toUsd: (quoteUnits: number, quote: OnchainQuote) => string | null;
-}) {
-  const start = units(q.startFdv, q.decimals);
-  const grad = units(q.graduationThreshold, q.decimals);
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-pressed={selected}
-      className={clsx(
-        "relative rounded-2xl border p-4 text-left transition-all duration-200",
-        selected
-          ? "border-accent bg-accent-soft shadow-[0_0_0_4px_var(--accent-soft)]"
-          : "border-line bg-sunk/60 hover:border-line-strong hover:bg-elev-2",
-      )}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex items-center gap-2">
-          <CoinAvatar symbol={q.symbol} seed={q.symbol} size={26} />
-          <span className="text-[15px] font-semibold">{q.symbol}</span>
-        </span>
-        <span
-          className={clsx(
-            "flex h-5 w-5 items-center justify-center rounded-full transition-all",
-            selected ? "bg-accent text-white" : "border border-line-strong",
-          )}
-        >
-          {selected && <Check size={12} strokeWidth={3} />}
-        </span>
-      </div>
-      <div className="mt-4 space-y-1.5 text-[11px]">
-        <div className="flex justify-between gap-2">
-          <span className="text-muted">Starts at</span>
-          <span className="num text-fg">{toUsd(start, q) ?? `${num(start)} ${q.symbol}`}</span>
-        </div>
-        <div className="flex justify-between gap-2">
-          <span className="text-muted">Graduates at</span>
-          <span className="num text-fg">
-            {num(grad)} {q.symbol}
-          </span>
-        </div>
-      </div>
-    </button>
-  );
-}
-
 function AntiSnipeChart() {
-  const steps = Array.from({ length: 7 }, (_, s) => buyTaxBpsAt(s));
+  const steps = Array.from({ length: SNIPE.seconds + 1 }, (_, s) => buyTaxBpsAt(s));
   return (
     <div className="grid grid-cols-7 items-end gap-1.5">
       {steps.map((t, s) => {
-        const base = s === 6;
+        const base = s === SNIPE.seconds;
         return (
           <div key={s} className="text-center">
             <div className="flex h-24 items-end justify-center rounded-xl bg-sunk p-1">
@@ -152,7 +96,7 @@ function AntiSnipeChart() {
               />
             </div>
             <div className={clsx("num mt-1.5 text-[11px] font-medium", base ? "text-accent" : "text-fg")}>{bps(t)}</div>
-            <div className="text-[10px] text-faint">{base ? "6s+" : `${s}s`}</div>
+            <div className="text-[10px] text-faint">{base ? `${SNIPE.seconds}s+` : `${s}s`}</div>
           </div>
         );
       })}
@@ -160,15 +104,25 @@ function AntiSnipeChart() {
   );
 }
 
+/** Wallets and explorers need an absolute image URL in token metadata. */
+const absoluteImage = (src: string) => {
+  const s = src.trim();
+  if (!s || /^(https?:|ipfs:|ar:|data:)/.test(s)) return s;
+  try {
+    return new URL(s, window.location.origin).href;
+  } catch {
+    return s;
+  }
+};
+
 export function LaunchForm() {
   const router = useRouter();
-  const { address } = useAccount();
-  const { wrong, switchToApp } = useWrongChain();
-  const { quotes, isLoading: quotesLoading, isError: quotesError } = useOnchainQuotes();
-  const { data: indexedQuotes } = useQuotes();
+  const address = useAddress();
+  const { open: openWallet } = useWalletModal();
+  const { data: allQuotes, isLoading: quotesLoading, isError: quotesError } = useQuotes();
   const { data: stats } = useStats();
-  const tx = useTx();
-  const allowance = useEnsureAllowance();
+  const balances = useBalances(address);
+  const tx = useSolanaTx();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [name, setName] = useState("");
@@ -183,60 +137,28 @@ export function LaunchForm() {
   const [telegram, setTelegram] = useState("");
   const [quoteAddr, setQuoteAddr] = useState<string>("");
   const [initialBuy, setInitialBuy] = useState("");
-  const [exemptText, setExemptText] = useState("");
-  const [showAdvanced, setShowAdvanced] = useState(false);
 
-  const quote = quotes.find((q) => q.address.toLowerCase() === quoteAddr.toLowerCase()) ?? quotes[0];
-  const native = quote ? isNative(quote.address) : true;
-  const fee = useReadContract({
-    address: addresses.launchpad,
-    abi: abis.launchpad,
-    functionName: "launchFee",
-    chainId: CHAIN_ID,
-    query: { enabled: !!addresses.launchpad },
-  });
-  const launchFee = (fee.data as bigint | undefined) ?? 0n;
+  const quotes = useMemo(() => (allQuotes ?? []).filter((q) => q.available), [allQuotes]);
+  const quote: QuoteAsset | undefined =
+    quotes.find((q) => q.address === quoteAddr) ?? quotes.find((q) => q.address === NATIVE_MINT) ?? quotes[0];
+  useEffect(() => setInitialBuy(""), [quote?.address]);
 
-  const ethBal = useBalance({ address, chainId: CHAIN_ID, query: { enabled: !!address && native } });
-  const ercBal = useReadContract({
-    address: (quote?.address ?? zeroAddress) as Address,
-    abi: erc20Abi,
-    functionName: "balanceOf",
-    args: [address ?? zeroAddress],
-    chainId: CHAIN_ID,
-    query: { enabled: !!address && !!quote && !native, refetchInterval: 10_000 },
-  });
-  const quoteBalance = native ? ethBal.data?.value : ercBal.data;
+  const native = quote?.address === NATIVE_MINT;
+  const solUsd = stats?.solUsd ?? 0;
+  const b = balances.data;
+  const quoteBalance = !b || !quote ? undefined : BigInt(native ? b.sol : b.tokens[quote.address] ?? "0");
+  const solBalance = b ? BigInt(b.sol) : undefined;
 
-  const exempt = useMemo(
-    () =>
-      exemptText
-        .split(/[\s,]+/)
-        .map((s) => s.trim())
-        .filter(Boolean),
-    [exemptText],
-  );
-  const badExempt = exempt.filter((a) => !isAddress(a));
-
-  const ethUsd = stats?.ethUsd;
-  const ethPerUnitOf = (q?: OnchainQuote) =>
-    q ? indexedQuotes?.find((iq) => iq.address.toLowerCase() === q.address.toLowerCase())?.ethPerUnit : undefined;
-  const toUsdFor = (quoteUnits: number, q?: OnchainQuote) => {
-    const e = ethPerUnitOf(q);
-    return e !== undefined && e > 0 && ethUsd ? usd(quoteUnits * e * ethUsd) : null;
-  };
-  const toUsd = (quoteUnits: number) => toUsdFor(quoteUnits, quote);
-
-  const startFdv = quote ? units(quote.startFdv, quote.decimals) : 0;
-  const gradTarget = quote ? units(quote.graduationThreshold, quote.decimals) : 0;
   const initialRaw = quote ? toRaw(initialBuy, quote.decimals) : 0n;
+  const initialUsd = quote ? units(initialRaw, quote.decimals) * quote.usdPerUnit : 0;
+  const totalLamports = LAUNCH_FEE_LAMPORTS + (native ? initialRaw : 0n);
+  const insufficient = (solBalance !== undefined && solBalance < totalLamports) || (!native && quoteBalance !== undefined && initialRaw > quoteBalance);
 
   const errors: string[] = [];
   if (!name.trim()) errors.push("Name your coin");
   if (!symbol.trim()) errors.push("Pick a ticker");
-  if (exempt.length > MAX_EXEMPT) errors.push(`At most ${MAX_EXEMPT} snipe-exempt wallets`);
-  if (badExempt.length) errors.push(`Not an address: ${badExempt[0]}`);
   if (!quote) errors.push("No quote asset available");
+  if (address && insufficient) errors.push("Not enough balance");
 
   async function upload(file: File) {
     setUploadError("");
@@ -262,52 +184,33 @@ export function LaunchForm() {
     if (file) upload(file);
   }
 
-  async function submit() {
-    if (!address || !quote || !addresses.launchpad || errors.length) return;
-    if (!native && initialRaw > 0n) {
-      const ok = await allowance.ensure(quote.address, addresses.launchpad, initialRaw, `Approve ${quote.symbol}`);
-      if (!ok) return;
-    }
-    const receipt = await tx.send(`Launch ${symbol.toUpperCase()}`, {
-      address: addresses.launchpad,
-      abi: abis.launchpad,
-      functionName: "createLaunch",
-      args: [
-        {
-          name: name.trim(),
-          symbol: symbol.trim().toUpperCase(),
-          meta: {
-            image: image.trim(),
-            description: description.trim(),
-            website: website.trim(),
-            twitter: twitter.trim(),
-            telegram: telegram.trim(),
-          },
-          quote: quote.address,
-          initialBuy: initialRaw,
-          minTokensOut: 0n, // pool is created in this same transaction, so the first buy can't be front-run
-          snipeExempt: exempt as Address[],
-        },
-      ],
-      value: launchFee + (native ? initialRaw : 0n),
-    });
-    if (!receipt) return;
-    for (const log of receipt.logs) {
-      if (log.address.toLowerCase() !== addresses.launchpad.toLowerCase()) continue;
-      try {
-        const ev = decodeEventLog({ abi: abis.launchpad, data: log.data, topics: log.topics });
-        if (ev.eventName === "TokenLaunched") {
-          router.push(`/token/${(ev.args as { token: Address }).token}`);
-          return;
-        }
-      } catch {}
-    }
+  function maxBuy() {
+    if (!quote || quoteBalance === undefined) return;
+    const v = native ? (quoteBalance > LAUNCH_FEE_LAMPORTS + SOL_RESERVE ? quoteBalance - LAUNCH_FEE_LAMPORTS - SOL_RESERVE : 0n) : quoteBalance;
+    setInitialBuy(formatRaw(v, quote.decimals));
   }
 
-  const busy = tx.busy || allowance.busy;
-  const status = allowance.state.status === "error" || allowance.busy ? allowance.state : tx.state;
+  async function submit() {
+    if (!address || !quote || errors.length) return;
+    const r = await tx.run(`Launch ${symbol.toUpperCase()}`, () =>
+      client.launch({
+        wallet: address,
+        name: name.trim(),
+        symbol: symbol.trim().toUpperCase(),
+        description: description.trim(),
+        image: absoluteImage(image),
+        website: website.trim(),
+        twitter: twitter.trim(),
+        telegram: telegram.trim(),
+        quote: quote.address,
+        initialBuy: initialRaw.toString(),
+      }),
+    );
+    if (r) router.push(`/token/${r.res.mint}`);
+  }
+
+  const busy = tx.busy;
   const ticker = symbol || "TICKER";
-  const totalEth = launchFee + (native ? initialRaw : 0n);
 
   return (
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-8">
@@ -405,36 +308,41 @@ export function LaunchForm() {
         <StepCard
           n={3}
           title="Market"
-          sub="Pick what your coin trades against. Whatever the pair, the protection fund and OTC reserve always receive ETH."
+          sub="Pick what your coin trades against: SOL, a stablecoin or a tokenized stock. Whatever the pair, the protection fund and OTC reserve always receive SOL."
         >
-          {quotesLoading && <p className="text-xs text-muted">Loading quote assets…</p>}
-          {quotesError && <p className="text-xs text-down">Couldn&apos;t read quote assets from the chain.</p>}
-          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-            {quotes.map((q) => (
-              <QuoteCard
-                key={q.address}
-                q={q}
-                selected={quote?.address === q.address}
-                onSelect={() => setQuoteAddr(q.address)}
-                toUsd={toUsdFor}
-              />
-            ))}
+          {quotesLoading && <p className="mb-3 text-xs text-muted">Loading pairs…</p>}
+          {quotesError && <p className="mb-3 text-xs text-down">Couldn&apos;t load pairs from the Recur API.</p>}
+          <QuotePicker quotes={quotes} value={quote} onChange={(q) => setQuoteAddr(q.address)} />
+
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="rounded-2xl bg-sunk px-4 py-3">
+              <div className="text-[11px] tracking-wider text-faint uppercase">Starts at</div>
+              <div className="num mt-1 text-lg font-medium">{usd(quote?.startMcapUsd ?? START_MCAP_USD)}</div>
+              <div className="text-[11px] text-faint">market cap</div>
+            </div>
+            <div className="rounded-2xl bg-sunk px-4 py-3">
+              <div className="flex items-center gap-1.5 text-[11px] tracking-wider text-faint uppercase">
+                <GraduationCap size={12} /> Graduates at
+              </div>
+              <div className="num mt-1 text-lg font-medium">{usd(quote?.graduationMcapUsd ?? GRADUATION_MCAP_USD)}</div>
+              <div className="text-[11px] text-faint">then trades on Meteora DAMM v2</div>
+            </div>
           </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-faint">
+            Same USD targets for every pair, converted into {quote?.symbol ?? "the quote"} at its live price when the pair&apos;s curve is
+            set up.
+          </p>
 
           <div className="mt-6">
             <Field
-              label={`Your first buy (optional)`}
+              label="Your first buy (optional)"
               hint={
                 address && quoteBalance !== undefined && quote ? (
-                  <button
-                    type="button"
-                    onClick={() => setInitialBuy(String(units(quoteBalance, quote.decimals)))}
-                    className="num transition-colors hover:text-fg"
-                  >
+                  <button type="button" onClick={maxBuy} className="num transition-colors hover:text-fg">
                     Balance {tokens(quoteBalance, quote.decimals)} {quote.symbol}
                   </button>
                 ) : (
-                  "pays the normal 3%, no snipe tax"
+                  "skips the anti-snipe fee"
                 )
               }
             >
@@ -444,53 +352,19 @@ export function LaunchForm() {
                   value={initialBuy}
                   onChange={(e) => setInitialBuy(e.target.value.replace(/[^\d.]/g, ""))}
                   placeholder="0.0"
-                  className="num h-14 pr-24 text-lg"
+                  className="num h-14 pr-28 text-lg"
                 />
                 <span className="absolute top-1/2 right-3 -translate-y-1/2">
-                  {quote && <QuoteChip symbol={quote.symbol} />}
+                  {quote && <QuoteChip symbol={quote.symbol} logo={quote.logo} />}
                 </span>
               </div>
             </Field>
-            <p className="mt-2 text-[11px] text-faint">You buy first, in the same transaction, paying the normal 3% and no anti-snipe surcharge.</p>
+            <p className="mt-2 text-[11px] text-faint">
+              {initialRaw > 0n && quote && quote.usdPerUnit > 0 ? <span className="num text-muted">≈ {usd(initialUsd)} · </span> : null}
+              You buy first, in the launch transaction itself, at the normal 3% with no anti-snipe surcharge.
+            </p>
           </div>
         </StepCard>
-
-        <section className="surface rounded-[22px]">
-          <button
-            type="button"
-            onClick={() => setShowAdvanced((v) => !v)}
-            aria-expanded={showAdvanced}
-            className="flex w-full items-start justify-between gap-4 p-5 text-left sm:p-7"
-          >
-            <span className="flex items-start gap-3.5">
-              <span className="num flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-xs font-semibold text-accent shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--accent)_25%,transparent)]">
-                04
-              </span>
-              <span>
-                <span className="font-display block text-xl font-semibold">Launch protection</span>
-                <span className="mt-1 block text-[13px] leading-relaxed text-muted">
-                  Wallets that skip the 6-second anti-snipe tax (team, partners, friends).
-                  {exempt.length > 0 && <span className="num text-fg"> {exempt.length} added.</span>}
-                </span>
-              </span>
-            </span>
-            <ChevronDown size={18} className={clsx("mt-1.5 shrink-0 text-muted transition-transform", showAdvanced && "rotate-180")} />
-          </button>
-          {showAdvanced && (
-            <div className="px-5 pb-6 sm:px-7">
-              <Field label={<span className="inline-flex items-center gap-1.5"><ShieldOff size={13} /> Snipe-exempt wallets</span>} hint={`${exempt.length}/${MAX_EXEMPT}`}>
-                <textarea
-                  value={exemptText}
-                  onChange={(e) => setExemptText(e.target.value)}
-                  rows={4}
-                  placeholder="0x… one per line"
-                  className={clsx(textareaClass, "num text-xs")}
-                />
-              </Field>
-              {badExempt.length > 0 && <p className="mt-2 text-xs text-down">Not an address: {badExempt[0]}</p>}
-            </div>
-          )}
-        </section>
 
         {/* sticky summary + CTA */}
         <div className="glass ring-spectrum shadow-pop sticky bottom-4 z-20 rounded-[22px] p-4 sm:p-5">
@@ -502,29 +376,23 @@ export function LaunchForm() {
                   {name || "Your coin"} <span className="text-muted">${ticker}</span>
                 </div>
                 <div className="num mt-0.5 text-muted">
-                  Fee {fee.data === undefined ? "…" : wei(launchFee)}
+                  Fee {sol(LAUNCH_FEE_SOL)}
+                  {solUsd > 0 && <> ({usd(LAUNCH_FEE_SOL * solUsd)})</>}
                   {initialRaw > 0n && quote && (
                     <>
                       {" "}
                       · first buy {initialBuy} {quote.symbol}
+                      {quote.usdPerUnit > 0 && <> ({usd(initialUsd)})</>}
                     </>
                   )}
-                  {native && totalEth > 0n && <> · total {wei(totalEth)}</>}
+                  {native && initialRaw > 0n && <> · total {sol(units(totalLamports, 9))}</>}
                 </div>
               </div>
             </div>
             <div className="w-full sm:w-auto">
               {!address ? (
-                <ConnectButton.Custom>
-                  {({ openConnectModal }) => (
-                    <Button className="w-full sm:min-w-56" size="lg" onClick={openConnectModal}>
-                      Connect wallet
-                    </Button>
-                  )}
-                </ConnectButton.Custom>
-              ) : wrong ? (
-                <Button className="w-full sm:min-w-56" size="lg" onClick={switchToApp}>
-                  Switch network
+                <Button className="w-full sm:min-w-56" size="lg" onClick={openWallet}>
+                  Connect wallet
                 </Button>
               ) : (
                 <Button className="w-full sm:min-w-56" size="lg" disabled={busy || errors.length > 0} onClick={submit}>
@@ -534,7 +402,7 @@ export function LaunchForm() {
               )}
             </div>
           </div>
-          <TxStatus state={status} className="mt-3" />
+          <TxStatus state={tx.state} className="mt-3" />
         </div>
       </div>
 
@@ -564,18 +432,18 @@ export function LaunchForm() {
             <Sparkline data={[1, 1.02, 1.01, 1.08, 1.12, 1.1, 1.22, 1.31]} width={340} height={46} strokeWidth={2} className="mt-4 w-full" />
             <div className="mt-3 flex items-end justify-between gap-2">
               <div>
-                <div className="num text-lg font-medium">{toUsd(startFdv) ?? (quote ? `${num(startFdv)} ${quote.symbol}` : "—")}</div>
-                <div className="mt-1">{quote && <QuoteChip symbol={quote.symbol} pair={ticker} />}</div>
+                <div className="num text-lg font-medium">{usd(START_MCAP_USD)}</div>
+                <div className="mt-1">{quote && <QuoteChip symbol={quote.symbol} logo={quote.logo} pair={ticker} />}</div>
               </div>
               <Badge tone="accent">New</Badge>
             </div>
             <div className="mt-4 border-t border-line pt-4">
               <div className="mb-2 flex justify-between text-[11px] text-muted">
                 <span className="flex items-center gap-1.5">
-                  <Lock size={11} /> 1B supply, all locked as liquidity
+                  <Lock size={11} /> 1B supply on a Meteora curve
                 </span>
                 <span className="num">
-                  0 / {num(gradTarget)} {quote?.symbol}
+                  {usd(START_MCAP_USD)} → {usd(GRADUATION_MCAP_USD)}
                 </span>
               </div>
               <GraduationBar progress={0} graduated={false} />
@@ -586,7 +454,8 @@ export function LaunchForm() {
         <section className="surface rounded-[22px] p-5">
           <h3 className="text-[15px] font-semibold tracking-tight">Where this coin&apos;s fees go</h3>
           <p className="mt-1 text-xs leading-relaxed text-muted">
-            3% of every buy and sell, split the same way for every coin. You earn by holding, not by taxing.
+            3% of every buy and sell. Meteora keeps its protocol share; the rest is split the same way for every coin. You
+            earn by holding, not by taxing.
           </p>
           <FeeSplitBar legend={false} className="mt-4" />
           <ul className="mt-4 space-y-3">
@@ -602,9 +471,7 @@ export function LaunchForm() {
               </li>
             ))}
           </ul>
-          <p className="mt-4 border-t border-line pt-3 text-[11px] text-faint">
-            The launch fee buys back and burns ${brand.mainTicker}.
-          </p>
+          <p className="mt-4 border-t border-line pt-3 text-[11px] text-faint">The launch fee buys back and burns ${brand.mainTicker}.</p>
         </section>
 
         <section className="surface rounded-[22px] p-5">
@@ -613,8 +480,8 @@ export function LaunchForm() {
             <h3 className="text-[15px] font-semibold tracking-tight">Anti-snipe window</h3>
           </div>
           <p className="mt-1 text-xs leading-relaxed text-muted">
-            Buys in the first seconds pay a decaying surcharge that funds this coin&apos;s own buyback. You and exempt wallets
-            only pay 3%.
+            For the first {SNIPE.seconds} seconds the pool&apos;s fee starts at 99% and decays to 3%, so bots that buy in the launch
+            block pay for it. Your own first buy, bundled into the launch, pays only 3%.
           </p>
           <div className="mt-5">
             <AntiSnipeChart />

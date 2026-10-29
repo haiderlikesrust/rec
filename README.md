@@ -1,125 +1,139 @@
-# Recur: a Robinhood Chain launchpad where every fee comes back
+# Recur: a Solana launchpad where every fee comes back
 
-Pons-style token launchpad on Robinhood Chain. Every coin trades in its own Uniswap v4 pool from block one,
-with the whole 1B supply locked as single-sided liquidity. A v4 hook takes a **3% tax on the quote side of every
-buy and sell**, and 100% of it goes back to the community. Creators and the team take nothing.
+Every Recur coin is a [Meteora](https://meteora.ag) pool: a Dynamic Bonding Curve from launch, then a DAMM v2 pool
+once it graduates. A coin can pair with SOL, a stablecoin or any of 120+ tokenized stocks (xStocks, Backpack stocks,
+PreStocks, Tessera). The quote list is the set stonk.fun offers. Every coin starts at a **$2.5k** market cap and
+graduates at **$30k**, whatever its pair.
+
+The pool charges **3% on the quote side of every buy and sell**. Creators and the team take nothing. Meteora keeps
+its protocol share: 20% of the fee, or 16% on trades Recur builds, because the fee wallet is the referral. Recur's
+fee wallet claims the rest and splits it:
 
 | Bucket | Share | Paid in | Goes to |
 |---|---|---|---|
-| Protection fund | 40% | ETH (converted) | Loss coverage claims, tiered by hold time, up to 100% on rugs |
-| OTC reserve | 30% | ETH (converted) | ETH pool you can sell coins into with no slippage; limits follow each coin's contributions |
-| Platform buyback & burn | 10% | quote → ETH → platform token | burned |
+| Protection fund | 40% | SOL (converted) | Loss coverage claims, up to 60% by hold time (70% on rugs), scaled by the coin's funding |
+| OTC reserve | 30% | SOL (converted) | A SOL wallet you sell coins into with no slippage; limits follow each coin's contributions |
+| Platform buyback & burn | 10% | quote → SOL → $RECR | burned |
 | Coin buyback & burn | 10% | quote → the coin | burned |
 | High-entry airdrop | 10% | quote | hourly, to holders whose average entry is above the current price |
 
-Brand name, ticker and domain (`Recur` / `$RECR` / recur.lol) live in
-[packages/shared/src/brand.ts](packages/shared/src/brand.ts). The fee split lives in
-[contracts/src/libraries/FeeSplit.sol](contracts/src/libraries/FeeSplit.sol) and is mirrored in
-[packages/shared/src/fees.ts](packages/shared/src/fees.ts).
+**No custom Solana programs.** The buckets are plain wallets controlled by the backend:
+- **fee**: Meteora partner and LP fee claimer; it splits, converts and burns.
+- **OTC**: the reserve.
+- **protection**: the fund.
+- **airdrop**: pays the airdrops.
+
+Their addresses are public, on the site and in `/api/stats`, so anyone can audit them on Solscan. Anything that pays
+a user out of a backend wallet is a single transaction co-signed by that wallet and the user: an OTC trade (coins one
+way, SOL the other, the 3% to the fee wallet) or a protection claim. It settles atomically or not at all.
+
+The brand lives in [packages/shared/src/brand.ts](packages/shared/src/brand.ts): `Recur` / `$RECR` / recur.lol.
+
+The policy lives in [packages/shared/src/fees.ts](packages/shared/src/fees.ts) (split, anti-snipe, OTC, protection)
+and [packages/shared/src/quotes.ts](packages/shared/src/quotes.ts) (quote catalog with logos, $2.5k / $30k).
 
 ## Layout
 
 ```
-contracts/        Foundry: CookHook (v4 hook), Launchpad, FeeRouter, OTCReserve, ProtectionFund, HolderAirdrop, CookRouter
-indexer/          Ponder indexer + REST API (http://localhost:42069/api/...)
-keeper/           viem jobs: quote rates, fee processing (burns + ETH conversion), hourly airdrops, protection epochs; local seed
-web/              Next.js app: home, launch, token, OTC, protection, portfolio, docs
-packages/shared/  ABIs + addresses (generated), API types, fee math, brand, chains
+backend/          Node service: Meteora configs, launch/swap/OTC/claim transactions, indexer, fee router, airdrops,
+                  protection epochs, REST API (http://localhost:42069/api/...). SQLite via node:sqlite.
+  src/chain/      Solana engine: DBC + DAMM v2 SDKs, event decoding, Jupiter conversions, co-signed transactions
+  src/demo/       Demo engine: the same money moves simulated in the database, plus a market simulator
+web/              Next.js app: home, launch, token, OTC, protection, portfolio, docs (Solana wallet adapter)
+packages/shared/  API types, fee policy, quote catalog, brand, Solana constants
 ```
 
 ## How the money moves
 
-1. **Trade.** `CookHook.beforeSwap/afterSwap` takes 3% of the quote side (99% → 3% anti-snipe surcharge on buys in
-   the first 6 seconds; snipers' extra goes to the coin's buyback) and mints it to the FeeRouter as v4 ERC-6909 claims.
-2. **Process** (keeper, `FeeRouter.process`). In one PoolManager unlock: buy the coin and burn it; convert the
-   protection + OTC + platform shares to ETH along the quote's route (e.g. NVDA → USDG → ETH); buy the platform token
-   with its share and burn it; hand the airdrop share (in the quote asset) to `HolderAirdrop`. Protocol swaps are tax-free.
-3. **OTC reserve.** Each coin earns sell credit worth 2× the ETH it contributed, at full strength while it keeps paying
-   fees and fading to 5% after ~30 quiet days. Sells are priced at min(spot, 30-min TWAP) minus a 3% spread; one coin
-   can draw at most 10% of the reserve, one wallet at most 5% per coin per day. The reserve resells inventory at
-   max(spot, TWAP).
-4. **Airdrops** (keeper, hourly). Recipients are holders whose average entry is above the current price, weighted by
-   unrealized loss, minimum ~$20. Recipients rotate as price moves. Tokens received by transfer carry zero cost basis.
-5. **Protection** (keeper, every 6 days on mainnet). Effective coverage = hold-time rate × the coin's funding.
-   Hold-time rates are "up to" and short because markets are fast: <5 min 0%, 5–30 min 25%, 30 min–6 h 45%, 6 h+ 60%,
-   rug-flagged coin 70%. Each coin can only draw its share of the epoch budget, in proportion to what it has paid into
-   the fund; if its claims ask for more they are paid pro-rata, so coins that paid little cover little. Each claim is
-   capped at 5× the tax that wallet paid on the coin. The contract enforces the budget (≤15% of the uncommitted fund
-   per epoch) and spacing. Claims are Merkle proofs; unclaimed ETH returns to the fund after 60 days. The policy lives
-   in `planProtectionEpoch` in [packages/shared/src/fees.ts](packages/shared/src/fees.ts), shared by keeper, indexer and UI.
+1. **Launch.** The backend builds `createPoolWithFirstBuy` against the quote's Recur config. The new mint key
+   co-signs, and the creator signs and pays the network fee plus a 0.01 SOL pool-creation fee (it funds the platform
+   buyback). Each quote has its own DBC config, priced from the quote's live USD price so the curve starts at $2.5k
+   and completes at $30k. A config is replaced when that price drifts more than 15%.
+2. **Trade.** The 3% fee is charged by Meteora on every swap, through Recur or any aggregator. It starts at 99% and
+   decays to 3% over the first 6 seconds as anti-snipe. The creator's bundled first buy skips that ramp.
+3. **Graduate.** The curve migrates to DAMM v2 with the same 3%. 100% of the LP is permanently locked to the fee
+   wallet, so post-graduation fees keep coming.
+4. **Split** (every few minutes, per coin worth ≥ $5): the fee wallet claims the partner/LP fees and then:
+   - buys the coin and burns it;
+   - sends the airdrop share to the airdrop wallet;
+   - converts the rest to SOL (Jupiter) for OTC 30 : protection 40 : platform burn 10;
+   - buys $RECR with the platform-burn SOL and burns it.
+5. **OTC.** Each coin earns sell credit worth 2× the SOL it contributed. The credit is full while the coin keeps
+   paying fees and fades to 5% after about 30 quiet days. Sells price at min(spot, 30-min TWAP) minus 3%; one coin
+   can draw at most 10% of the reserve, and one wallet at most 5% per coin per day. The reserve resells its inventory
+   at max(spot, TWAP).
+6. **Airdrops** (hourly). Recipients are holders whose average entry is above the price, weighted by unrealized
+   loss, with at least ~$20 at stake. Coins received by transfer carry zero cost basis.
+7. **Protection** (every 6 days):
+   - Coverage is the hold-time rate × the coin's funding ratio.
+   - Hold-time rates: <5 min 0%, 5–30 min 25%, 30 min–6 h 45%, 6 h+ 60%, rug 70%.
+   - Each payout is capped at 5× the tax paid.
+   - Each epoch spends at most 15% of the uncommitted fund.
+   - Claims stay open for 60 days.
 
-## Run it locally
+## Run it locally (demo mode, no chain)
 
-Requirements: Node ≥ 20, pnpm 10, Foundry.
+Requirements: Node ≥ 22.13 (for `node:sqlite`) and pnpm 10.
 
 ```bash
 pnpm install
 ```
 
 ```bash
-cd contracts && forge test
-```
-
-Start a chain two days in the past (so the seed can fill in history), deploy, and generate addresses:
-
-```bash
-anvil --timestamp $(( $(date +%s) - 172800 ))
-```
-
-```bash
-cd contracts && PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 KEEPER=0x70997970C51812dc3A010C7d01b50e0d17dc79C8 MOCK_QUOTES=true PROTECTION_EPOCH_SECS=3600 forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8545 --broadcast
-```
-
-(The keys above are anvil's public development keys. Never use them anywhere else.)
-
-```bash
-pnpm gen
-```
-
-Then, each in its own terminal:
-
-```bash
-pnpm dev:indexer
-```
-
-```bash
-pnpm seed
-```
-
-```bash
-pnpm keeper
+pnpm --filter @cook/backend demo
 ```
 
 ```bash
 pnpm dev:web
 ```
 
-Open http://localhost:3000. Add the local network to your wallet (RPC `http://127.0.0.1:8545`, chain id 31337) and
-import an anvil dev account to trade. If you restart anvil, delete `indexer/.ponder` and `keeper/data` first.
+Open http://localhost:3000.
+- **Backend:** seeds two days of market history (two dozen coins on SOL, stablecoin and stock pairs) and keeps the
+  market moving.
+- **Web:** with `NEXT_PUBLIC_DEMO=1` in `web/.env.local`, adds a burner wallet; every new demo wallet gets $10k of
+  each quote asset.
+- **Transactions:** launches, trades, OTC and claims are applied by the demo engine instead of being sent on-chain.
+- **Reset:** `pnpm --filter @cook/backend demo:reset` wipes the demo database.
 
-## Deploy to Robinhood Chain
-
-**Testnet (46630).** Uniswap v4 is not deployed there, so the script deploys its own PoolManager. Put your own
-funded key in `contracts/.env` (never commit it):
+Tests:
 
 ```bash
-cd contracts && source .env && MOCK_QUOTES=true MOCK_ETH_LIQUIDITY=500000000000000000 forge script script/Deploy.s.sol --rpc-url $ROBINHOOD_TESTNET_RPC --broadcast
+pnpm test
 ```
 
-**Mainnet (4663).** Use Uniswap's official PoolManager (`POOL_MANAGER=0x8366a39cc670b4001a1121b8f6a443a643e40951`,
-check it against Uniswap's deployments page first), set `KEEPER` to your keeper bot, leave `MOCK_QUOTES` unset, and
-approve real quote assets afterwards with `Launchpad.setQuote(quote, {enabled, startFdv, graduationThreshold}, route)`.
-Each route must end in native ETH. Then run `pnpm gen`, point the indexer/keeper/web at the chain
-(`CHAIN_ID`, `RPC_URL`, `NEXT_PUBLIC_CHAIN_ID`, `KEEPER_PRIVATE_KEY`) and run them as services.
+That covers:
+- the fee split and the anti-snipe schedule against Meteora's fee scheduler;
+- each pair's config against Meteora's own `buildCurveWithMarketCap` and `validateConfigParameters`;
+- a full fee-router, OTC and protection run on the demo engine.
+
+`NETWORK_TESTS=1 pnpm test` also decodes live Meteora swaps from mainnet (read-only).
+
+## Run it on Solana
+
+1. Copy `backend/.env.example` to `backend/.env`. Set `CLUSTER` (`devnet` or `mainnet-beta`) and a real `RPC_URL`
+   (Helius, Triton…). Indexing uses `getProgramAccounts`, which public RPCs refuse.
+2. `pnpm --filter @cook/backend wallets` creates the four wallets in `backend/data/wallets` (gitignored) and prints
+   their addresses. Back the keys up, or supply your own via `FEE_WALLET`, `OTC_WALLET`, `PROTECTION_WALLET` and
+   `AIRDROP_WALLET`. Fund the fee wallet with ~0.5 SOL for config rent and fees.
+3. Optional: `pnpm --filter @cook/backend setup:configs SOL USDC NVDAX` pre-creates configs. Otherwise each is
+   created on the first launch for that pair.
+4. `pnpm --filter @cook/backend start`, and run the web app with `NEXT_PUBLIC_CLUSTER` (and `NEXT_PUBLIC_SOLANA_RPC`)
+   set to match.
+5. Launch $RECR through the app on the SOL pair, then set `MAIN_TOKEN_MINT` and restart the backend.
 
 ## Known limits
 
-- **Unaudited.** Get the contracts audited before mainnet.
-- **Trusted keeper.** Airdrop recipients and protection claims are computed off-chain from public data. The contracts
-  cap what the keeper can do (budgets, epoch spacing, each airdrop batch only once). Epoch files are published for anyone to verify.
-- **Protection farming.** Colluding wallets can try to farm losses. Hold-time tiers, the 5×-tax cap, epoch budgets
-  and creator exclusion limit the damage but do not eliminate it.
-- **Quote allowlist.** "Any quote" means any quote the owner approves with an ETH route. Fee-on-transfer or rebasing
-  tokens must not be approved.
-- **Other pools.** Anyone can open a separate, hook-less pool for a coin elsewhere; trades there pay no tax (same as Pons).
-- Not affiliated with Robinhood Markets, Inc.
+- **Custodial treasury.** The bucket wallets are hot keys on the backend server. Whoever holds them can move the
+  funds. Use a dedicated server and secret storage, keep balances visible, and consider moving the larger balances
+  to a multisig (e.g. Squads) that the backend tops up from.
+- **Trusted backend.** Airdrop recipients, OTC limits and protection claims are computed off-chain from public chain
+  data. They're reproducible, but not enforced on-chain.
+- **Not exercised on a live cluster here.** The demo engine and the tests run end to end. The on-chain engine is
+  type-checked against the Meteora SDKs, its configs pass Meteora's validator, and its event decoder is tested on live
+  mainnet swaps. Run a devnet launch → trade → claim → split cycle before mainnet.
+- **Token-2022 quotes.** xStocks and most stock tokens are Token-2022 mints. Meteora DBC accepts them as a quote only
+  when the mint has a token badge. The backend marks a quote unavailable if Meteora rejects its config.
+- **Meteora's share.** 16–20% of each 3% fee is Meteora's protocol fee. To route a full 3% to the buckets, raise
+  `TAX_BPS` to 375 in [packages/shared/src/fees.ts](packages/shared/src/fees.ts).
+- **Protection farming.** Colluding wallets can try to farm losses. Hold-time tiers, the 5×-tax cap, per-coin budgets
+  and creator exclusion limit the damage but don't eliminate it.

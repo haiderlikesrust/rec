@@ -3,8 +3,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, type CoinSort } from "@cook/shared";
 
-export const INDEXER_URL = process.env.NEXT_PUBLIC_INDEXER_URL ?? "http://localhost:42069";
-export const client = api(INDEXER_URL);
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:42069";
+export const client = api(API_URL);
 
 const live = { refetchInterval: 10_000, retry: 1 } as const;
 
@@ -26,8 +26,18 @@ export const useTrades = (address?: string) =>
   useQuery({ queryKey: ["trades", address], queryFn: () => client.trades(address!, 60), enabled: !!address, ...live });
 export const useHolders = (address?: string) =>
   useQuery({ queryKey: ["holders", address], queryFn: () => client.holders(address!), enabled: !!address, ...live });
-export const useWallet = (address?: string) =>
+export const useWalletSummary = (address?: string) =>
   useQuery({ queryKey: ["wallet", address], queryFn: () => client.wallet(address!), enabled: !!address, ...live });
+/** Native SOL (lamports) and SPL balances by mint, from the chain or the demo ledger. */
+export const useBalances = (address?: string) =>
+  useQuery({ queryKey: ["balances", address], queryFn: () => client.balances(address!), enabled: !!address, ...live });
 export const useProtection = () => useQuery({ queryKey: ["protection"], queryFn: client.protection, ...live });
+export const useOtc = () => useQuery({ queryKey: ["otc"], queryFn: client.otc, ...live });
+/** One coin's OTC limits, including this wallet's remaining daily allowance. */
+export const useOtcCoin = (coin?: string, wallet?: string) =>
+  useQuery({ queryKey: ["otc", coin, wallet], queryFn: () => client.otcCoin(coin!, wallet), enabled: !!coin, ...live });
 export const useActivity = () =>
   useQuery({ queryKey: ["activity"], queryFn: () => client.activity(40), refetchInterval: 6_000, retry: 1 });
+
+/** USD per SOL from the backend's price feed (0 until stats load). */
+export const useSolUsd = () => useStats().data?.solUsd ?? 0;

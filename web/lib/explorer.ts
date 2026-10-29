@@ -1,9 +1,13 @@
-import { chainsById } from "@cook/shared";
-import { CHAIN_ID } from "./contracts";
+import { clusters, explorer, type Cluster } from "@cook/shared";
 
-const chain = (chainsById as Record<number, { blockExplorers?: { default: { url: string } } }>)[CHAIN_ID];
-const base = chain?.blockExplorers?.default.url;
+/** The cluster the app talks to. The backend reports it too (`stats.cluster`); both come from deployment config. */
+export const CLUSTER: Cluster = process.env.NEXT_PUBLIC_CLUSTER === "devnet" ? "devnet" : "mainnet-beta";
+export const RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC || clusters[CLUSTER].rpc;
+export const DEMO = process.env.NEXT_PUBLIC_DEMO === "1";
 
-export const explorerAddress = (a: string) => (base ? `${base}/address/${a}` : undefined);
-export const explorerTx = (h: string) => (base ? `${base}/tx/${h}` : undefined);
-export const hasExplorer = !!base;
+const links = explorer(CLUSTER);
+
+export const explorerAddress = (a: string) => links.address(a);
+export const explorerToken = (m: string) => links.token(m);
+export const explorerTx = (sig: string) => links.tx(sig);
+export const hasExplorer = true;

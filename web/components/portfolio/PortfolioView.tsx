@@ -1,28 +1,23 @@
 "use client";
 
-import { ConnectButton } from "@rainbow-me/rainbowkit";
 import clsx from "clsx";
 import { ArrowRight, Gift, LineChart, ShieldCheck, Wallet } from "lucide-react";
 import Link from "next/link";
-import type { Address } from "viem";
-import { useAccount, useReadContracts } from "wagmi";
 import type { Position } from "@cook/shared";
-import { CHAIN_ID, abis, addresses } from "@/lib/contracts";
 import { bucketColor } from "@/lib/buckets";
-import { useQuotes, useStats, useWallet } from "@/lib/data";
-import { age, num, price, tokens, units, usd, wei } from "@/lib/format";
-import { useTx } from "@/lib/tx";
+import { useSolUsd, useWalletSummary } from "@/lib/data";
+import { age, price, sol, tokens, units, usd } from "@/lib/format";
+import { useAddress } from "@/lib/wallet";
 import { CoinAvatar } from "@/components/CoinAvatar";
 import { LogoMark } from "@/components/LogoMark";
 import { QuoteChip } from "@/components/QuoteChip";
-import { TxStatus } from "@/components/TxStatus";
 import { AnimatedNumber, Badge, Button, ButtonLink, Card, CardHeader, Change, EmptyState, ErrorState, IconTile, Skeleton } from "@/components/ui";
+import { useWalletModal } from "@/components/wallet/WalletModal";
 
 export function PortfolioView() {
-  const { address } = useAccount();
-  const { data, isLoading, isError } = useWallet(address);
-  const { data: stats } = useStats();
-  const ethUsd = stats?.ethUsd ?? 0;
+  const address = useAddress();
+  const { data, isLoading, isError } = useWalletSummary(address);
+  const solUsd = useSolUsd();
 
   if (!address) return <ConnectPrompt />;
   if (isError) return <ErrorState />;
@@ -34,13 +29,13 @@ export function PortfolioView() {
       </div>
     );
 
-  const positions = data.positions.filter((p) => units(p.balance) > 0 || p.realizedPnl !== 0);
-  const valueEth = positions.reduce((s, p) => s + p.value * p.coin.quote.ethPerUnit, 0);
-  const unrealEth = positions.reduce((s, p) => s + p.unrealized * p.coin.quote.ethPerUnit, 0);
-  const costEth = valueEth - unrealEth;
-  const claimable = data.claims.filter((c) => !c.claimed).reduce((s, c) => s + units(c.amount), 0);
+  const positions = data.positions.filter((p) => units(p.balance, p.coin.decimals) > 0 || p.realizedPnl !== 0);
+  const valueUsd = positions.reduce((s, p) => s + p.valueUsd, 0);
+  const unrealUsd = positions.reduce((s, p) => s + p.unrealizedUsd, 0);
+  const costUsd = valueUsd - unrealUsd;
+  const claimable = data.claims.filter((c) => c.status === "open").reduce((s, c) => s + units(c.amount, 9), 0);
   const receiving = positions.filter((p) => p.airdropEligible).length;
-  const images = new Map(data.positions.map((p) => [p.coin.address.toLowerCase(), p.coin.image]));
+  const images = new Map(data.positions.map((p) => [p.coin.address, p.coin.image]));
 
   return (
     <div className="space-y-6">
@@ -50,19 +45,18 @@ export function PortfolioView() {
           <div>
             <span className="eyebrow">Holdings value</span>
             <div className="font-display mt-3 text-5xl leading-none font-semibold sm:text-6xl">
-              <AnimatedNumber value={valueEth * ethUsd} format={usd} />
+              <AnimatedNumber value={valueUsd} format={usd} />
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
-              <span className="num text-muted">{num(valueEth)} ETH</span>
-              <span className={clsx("num", unrealEth >= 0 ? "text-up" : "text-down")}>
-                {unrealEth >= 0 ? "+" : "−"}
-                {usd(Math.abs(unrealEth * ethUsd))} unrealized
+              <span className={clsx("num", unrealUsd >= 0 ? "text-up" : "text-down")}>
+                {unrealUsd >= 0 ? "+" : "−"}
+                {usd(Math.abs(unrealUsd))} unrealized
               </span>
-              {costEth > 0 && <Change value={(unrealEth / costEth) * 100} pill className="text-xs" />}
+              {costUsd > 0 && <Change value={(unrealUsd / costUsd) * 100} pill className="text-xs" />}
             </div>
           </div>
           <div className="grid grid-cols-3 gap-3">
-            <Tile icon={Wallet} color="var(--accent)" label="Positions" value={String(positions.filter((p) => units(p.balance) > 0).length)} />
+            <Tile icon={Wallet} color="var(--accent)" label="Positions" value={String(positions.filter((p) => units(p.balance, p.coin.decimals) > 0).length)} />
             <Tile
               icon={Gift}
               color={bucketColor.airdrop}
@@ -74,18 +68,16 @@ export function PortfolioView() {
               icon={ShieldCheck}
               color={bucketColor.protection}
               label="Claimable"
-              value={`${num(claimable)}`}
-              sub="ETH protection"
+              value={usd(claimable * solUsd)}
+              sub={`${sol(claimable)} protection`}
               href={claimable > 0 ? "/protection" : undefined}
             />
           </div>
         </div>
       </Card>
 
-      <UnclaimedAirdrops account={address} />
-
       <Card className="overflow-hidden">
-        <CardHeader title="Positions" sub="Average entry includes the 3% tax. Coins received by transfer count at zero cost." />
+        <CardHeader title="Positions" sub="Values in USD. Average entry includes the 3% fee; coins received by transfer count at zero cost." />
         <div className="mt-4">
           {positions.length === 0 ? (
             <div className="px-5 pb-6 sm:px-6">
@@ -94,7 +86,7 @@ export function PortfolioView() {
           ) : (
             <ul className="divide-y divide-line border-t border-line">
               {positions.map((p) => (
-                <PositionRow key={p.coin.address} p={p} ethUsd={ethUsd} />
+                <PositionRow key={p.coin.address} p={p} />
               ))}
             </ul>
           )}
@@ -121,7 +113,7 @@ export function PortfolioView() {
               <ul className="max-h-[420px] divide-y divide-line overflow-y-auto border-t border-line">
                 {data.airdrops.slice(0, 50).map((a, i) => (
                   <li key={`${a.coin}-${a.t}-${i}`} className="flex items-center gap-3 px-5 py-3 sm:px-6">
-                    <CoinAvatar src={images.get(a.coin.toLowerCase())} symbol={a.symbol} seed={a.coin} size={30} />
+                    <CoinAvatar src={images.get(a.coin)} symbol={a.symbol} seed={a.coin} size={30} />
                     <Link href={`/token/${a.coin}`} className="min-w-0 flex-1 truncate text-sm font-medium hover:text-accent">
                       ${a.symbol}
                     </Link>
@@ -154,9 +146,11 @@ export function PortfolioView() {
                 {data.claims.map((c) => (
                   <li key={c.epoch} className="flex items-center gap-3 px-5 py-3.5 sm:px-6">
                     <span className="num flex-1 text-sm text-muted">Epoch #{c.epoch}</span>
-                    <span className="num text-sm font-medium">{wei(c.amount)}</span>
-                    {c.claimed ? (
+                    <span className="num text-sm font-medium">{usd(units(c.amount, 9) * solUsd)}</span>
+                    {c.status === "claimed" ? (
                       <Badge tone="up">Claimed</Badge>
+                    ) : c.status === "expired" ? (
+                      <Badge tone="outline">Expired</Badge>
                     ) : (
                       <ButtonLink href="/protection" size="sm">
                         Claim
@@ -208,8 +202,10 @@ function Tile({
   );
 }
 
-function PositionRow({ p, ethUsd }: { p: Position; ethUsd: number }) {
-  const holding = units(p.balance) > 0;
+function PositionRow({ p }: { p: Position }) {
+  const holding = units(p.balance, p.coin.decimals) > 0;
+  const q = p.coin.quote;
+  const inUsd = (v: number) => (q.usdPerUnit > 0 ? usd(v * q.usdPerUnit) : `${price(v)} ${q.symbol}`);
   const underwater = holding && p.avgEntry > p.coin.price;
   const cost = p.value - p.unrealized;
   const pct = cost > 0 ? (p.unrealized / cost) * 100 : null;
@@ -227,7 +223,7 @@ function PositionRow({ p, ethUsd }: { p: Position; ethUsd: number }) {
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="truncate text-[15px] font-semibold">${p.coin.symbol}</span>
-              <QuoteChip symbol={p.coin.quote.symbol} />
+              <QuoteChip symbol={p.coin.quote.symbol} logo={p.coin.quote.logo} />
             </div>
             <div className="mt-0.5 text-xs text-muted">{holding && p.firstBuyAt > 0 ? `held ${age(p.firstBuyAt)}` : "closed"}</div>
           </div>
@@ -235,14 +231,14 @@ function PositionRow({ p, ethUsd }: { p: Position; ethUsd: number }) {
 
         <div className="min-w-0">
           <div className="text-[11px] text-faint md:hidden">Balance</div>
-          <div className="num text-sm">{tokens(p.balance, 18)}</div>
-          <div className="num text-xs text-muted">{usd(p.value * p.coin.quote.ethPerUnit * ethUsd)}</div>
+          <div className="num text-sm">{tokens(p.balance, p.coin.decimals)}</div>
+          <div className="num text-xs text-muted">{usd(p.valueUsd)}</div>
         </div>
 
         <div className="min-w-0">
           <div className="num flex justify-between gap-2 text-[10px] text-faint">
-            <span className="truncate">entry {price(p.avgEntry)}</span>
-            <span className="truncate">now {price(p.coin.price)}</span>
+            <span className="truncate">entry {inUsd(p.avgEntry)}</span>
+            <span className="truncate">now {inUsd(p.coin.price)}</span>
           </div>
           <div className="relative mt-1.5 h-1.5 rounded-full bg-sunk">
             <div className="absolute top-1/2 left-1/2 h-3 w-px -translate-y-1/2 bg-line-strong" />
@@ -251,14 +247,14 @@ function PositionRow({ p, ethUsd }: { p: Position; ethUsd: number }) {
               style={{ left: `${marker}%`, background: underwater ? "var(--down)" : "var(--up)" }}
             />
           </div>
-          <div className="mt-1 text-[10px] text-faint">{p.coin.quote.symbol} per coin</div>
+          <div className="mt-1 text-[10px] text-faint">per coin, paired with {q.symbol}</div>
         </div>
 
         <div className="min-w-0 md:text-right">
           <div className="text-[11px] text-faint md:hidden">P/L</div>
-          <div className={clsx("num text-sm", p.unrealized >= 0 ? "text-up" : "text-down")}>
-            {p.unrealized >= 0 ? "+" : ""}
-            {num(p.unrealized)} {p.coin.quote.symbol}
+          <div className={clsx("num text-sm", p.unrealizedUsd >= 0 ? "text-up" : "text-down")}>
+            {p.unrealizedUsd >= 0 ? "+" : ""}
+            {usd(p.unrealizedUsd)}
           </div>
           {pct !== null && holding && <Change value={pct} className="text-xs" />}
         </div>
@@ -282,6 +278,7 @@ function PositionRow({ p, ethUsd }: { p: Position; ethUsd: number }) {
 }
 
 function ConnectPrompt() {
+  const { open } = useWalletModal();
   const benefits = [
     { icon: LineChart, color: "var(--accent)", title: "Entries and P/L", body: "Your average entry on every coin, tax included, against the live price." },
     { icon: Gift, color: bucketColor.airdrop, title: "Airdrops you're earning", body: "See which coins are paying you because you bought high." },
@@ -297,13 +294,9 @@ function ConnectPrompt() {
           <p className="mt-3 max-w-md text-[15px] leading-relaxed text-muted">
             Connect a wallet to see your positions, the airdrops you&apos;re earning and any protection you can claim.
           </p>
-          <ConnectButton.Custom>
-            {({ openConnectModal }) => (
-              <Button size="lg" className="mt-7" onClick={openConnectModal}>
-                Connect wallet <ArrowRight size={16} />
-              </Button>
-            )}
-          </ConnectButton.Custom>
+          <Button size="lg" className="mt-7" onClick={open}>
+            Connect wallet <ArrowRight size={16} />
+          </Button>
         </div>
         <ul className="grid gap-3">
           {benefits.map((b) => (
@@ -319,62 +312,6 @@ function ConnectPrompt() {
           ))}
         </ul>
       </div>
-    </Card>
-  );
-}
-
-/** Airdrops that couldn't be pushed (e.g. a contract wallet rejected ETH) wait here to be pulled. */
-function UnclaimedAirdrops({ account }: { account: Address }) {
-  const { data: quotes } = useQuotes();
-  const tx = useTx();
-  const list = quotes ?? [];
-  const reads = useReadContracts({
-    contracts: list.map((q) => ({
-      address: addresses.holderAirdrop!,
-      abi: abis.airdrop,
-      functionName: "unclaimed" as const,
-      args: [account, q.address] as const,
-      chainId: CHAIN_ID,
-    })),
-    query: { enabled: list.length > 0 && !!addresses.holderAirdrop },
-  });
-  const owed = list
-    .map((q, i) => ({ q, amount: (reads.data?.[i]?.result as bigint | undefined) ?? 0n }))
-    .filter((x) => x.amount > 0n);
-  if (owed.length === 0) return null;
-  return (
-    <Card className="p-5 sm:p-6" featured>
-      <div className="flex items-start gap-3">
-        <IconTile color={bucketColor.airdrop} size={40}>
-          <Gift size={18} />
-        </IconTile>
-        <div>
-          <h2 className="text-[15px] font-semibold">Airdrops waiting for you</h2>
-          <p className="mt-1 text-xs text-muted">These couldn&apos;t be pushed to your wallet automatically. Pull them here.</p>
-        </div>
-      </div>
-      <ul className="mt-4 space-y-2">
-        {owed.map(({ q, amount }) => (
-          <li key={q.address} className="flex items-center justify-between rounded-2xl bg-sunk/70 px-4 py-3">
-            <span className="num text-sm">{tokens(amount, q.decimals, q.symbol)}</span>
-            <Button
-              size="sm"
-              disabled={tx.busy}
-              onClick={() =>
-                tx.send(`Claim ${q.symbol} airdrop`, {
-                  address: addresses.holderAirdrop!,
-                  abi: abis.airdrop,
-                  functionName: "claimUnclaimed",
-                  args: [q.address],
-                })
-              }
-            >
-              Claim
-            </Button>
-          </li>
-        ))}
-      </ul>
-      <TxStatus state={tx.state} className="mt-3" />
     </Card>
   );
 }

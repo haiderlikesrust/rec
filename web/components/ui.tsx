@@ -187,7 +187,7 @@ export function ErrorState({ title = "Couldn't load this", detail, className }: 
     <div className={clsx("rounded-[22px] border border-dashed border-line-strong px-5 py-10 text-center", className)}>
       <p className="text-sm font-medium">{title}</p>
       <p className="mx-auto mt-1 max-w-sm text-xs text-muted">
-        {detail ?? "The indexer isn't reachable right now. This view refreshes automatically."}
+        {detail ?? "The Recur API isn't reachable right now. This view refreshes automatically."}
       </p>
     </div>
   );

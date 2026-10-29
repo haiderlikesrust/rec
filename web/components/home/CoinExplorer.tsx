@@ -4,9 +4,9 @@ import clsx from "clsx";
 import { Clock, Crown, Flame, GraduationCap, LayoutGrid, List, Rocket, Search, Users } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import type { Coin, CoinSort } from "@cook/shared";
-import { useCoins, useQuotes, useStats } from "@/lib/data";
-import { age, eth, short, usd } from "@/lib/format";
+import { quoteCategories, type Coin, type CoinSort, type QuoteCategory } from "@cook/shared";
+import { useCoins, useQuotes } from "@/lib/data";
+import { age, short, tokens, usd } from "@/lib/format";
 import { CoinAvatar } from "@/components/CoinAvatar";
 import { GraduationBar } from "@/components/GraduationBar";
 import { QuoteChip } from "@/components/QuoteChip";
@@ -49,21 +49,19 @@ export function CoinExplorer() {
   };
 
   const { data: quotes } = useQuotes();
-  const { data: stats } = useStats();
   const { data, isLoading, isError } = useCoins({
     sort,
     quote: quote === "all" ? undefined : quote,
     search: debounced || undefined,
     limit: 100,
   });
-  const ethUsd = stats?.ethUsd ?? 0;
 
   return (
     <section id="coins" className="scroll-mt-24">
       <SectionHeading
         eyebrow="Explore"
         title="Every coin, every pair"
-        sub="Coins trade against ETH, USDG or tokenized stocks. Each one pays the same 3%, and all of it comes back."
+        sub="Coins pair with SOL, stablecoins or 120+ tokenized stocks. Every one pays the same 3% fee, and it flows back to holders."
       />
 
       <div className="mt-7 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -103,11 +101,19 @@ export function CoinExplorer() {
             className="h-10 shrink-0 rounded-full border border-line bg-elev px-3.5 text-sm outline-none hover:border-line-strong focus:border-accent"
           >
             <option value="all">Any pair</option>
-            {quotes?.map((q) => (
-              <option key={q.address} value={q.address}>
-                {q.symbol}
-              </option>
-            ))}
+            {(Object.keys(quoteCategories) as QuoteCategory[]).map((cat) => {
+              const list = quotes?.filter((q) => q.category === cat) ?? [];
+              if (!list.length) return null;
+              return (
+                <optgroup key={cat} label={quoteCategories[cat]}>
+                  {list.map((q) => (
+                    <option key={q.address} value={q.address}>
+                      {q.symbol}
+                    </option>
+                  ))}
+                </optgroup>
+              );
+            })}
           </select>
           <div className="hidden shrink-0 rounded-full border border-line bg-sunk/80 p-1 sm:flex">
             {(["list", "grid"] as const).map((v) => (
@@ -139,9 +145,9 @@ export function CoinExplorer() {
             action={!debounced && <ButtonLink href="/launch">Launch a coin</ButtonLink>}
           />
         ) : view === "grid" ? (
-          <Grid coins={data} ethUsd={ethUsd} />
+          <Grid coins={data} />
         ) : (
-          <Table coins={data} ethUsd={ethUsd} />
+          <Table coins={data} />
         )}
       </div>
     </section>
@@ -169,7 +175,7 @@ function TokenCell({ c, size = 40 }: { c: Coin; size?: number }) {
   );
 }
 
-function Table({ coins, ethUsd }: { coins: Coin[]; ethUsd: number }) {
+function Table({ coins }: { coins: Coin[] }) {
   return (
     <div className="surface scroll-x overflow-hidden rounded-[22px]">
       <table className="w-full min-w-[920px] text-left">
@@ -196,22 +202,22 @@ function Table({ coins, ethUsd }: { coins: Coin[]; ethUsd: number }) {
                 </Link>
               </td>
               <td className="px-3 py-3.5">
-                <QuoteChip symbol={c.quote.symbol} />
+                <QuoteChip symbol={c.quote.symbol} logo={c.quote.logo} />
               </td>
               <td className="px-3 py-3.5">
                 <Sparkline data={c.spark} width={104} height={32} />
               </td>
               <td className="px-3 py-3.5 text-right">
-                <div className="num text-sm font-medium">{usd(c.marketCapEth * ethUsd)}</div>
+                <div className="num text-sm font-medium">{usd(c.marketCapUsd)}</div>
                 <Change value={c.change24h} className="text-xs" />
               </td>
               <td className="px-3 py-3.5 text-right">
-                <div className="num text-sm">{usd(c.volume24hEth * ethUsd)}</div>
+                <div className="num text-sm">{usd(c.volume24hUsd)}</div>
                 <div className="num text-xs text-faint">{c.trades24h} trades</div>
               </td>
               <td className="px-3 py-3.5 text-right">
-                <div className="num text-sm">{usd(c.feesEth * ethUsd)}</div>
-                <div className="num text-xs text-faint">{eth(c.feesEth)}</div>
+                <div className="num text-sm">{usd(c.feesUsd)}</div>
+                <div className="num text-xs text-faint">{tokens(c.feesQuote, c.quote.decimals, c.quote.symbol)}</div>
               </td>
               <td className="px-3 py-3.5 text-right">
                 <span className="num inline-flex items-center gap-1 text-sm text-muted">
@@ -230,20 +236,20 @@ function Table({ coins, ethUsd }: { coins: Coin[]; ethUsd: number }) {
   );
 }
 
-function Grid({ coins, ethUsd }: { coins: Coin[]; ethUsd: number }) {
+function Grid({ coins }: { coins: Coin[] }) {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {coins.map((c) => (
         <Link key={c.address} href={`/token/${c.address}`} className="surface surface-hover group rounded-[22px] p-5">
           <div className="flex items-start justify-between gap-3">
             <TokenCell c={c} size={44} />
-            <QuoteChip symbol={c.quote.symbol} />
+            <QuoteChip symbol={c.quote.symbol} logo={c.quote.logo} />
           </div>
           {c.description && <p className="mt-3.5 line-clamp-2 min-h-[2.5em] text-[13px] leading-relaxed text-muted">{c.description}</p>}
           <div className="mt-4 flex items-end justify-between gap-3">
             <div>
               <div className="text-xs text-muted">Market cap</div>
-              <div className="num mt-0.5 text-xl font-medium">{usd(c.marketCapEth * ethUsd)}</div>
+              <div className="num mt-0.5 text-xl font-medium">{usd(c.marketCapUsd)}</div>
               <Change value={c.change24h} pill className="mt-1 text-xs" />
             </div>
             <Sparkline data={c.spark} width={128} height={48} strokeWidth={2} />
@@ -251,7 +257,7 @@ function Grid({ coins, ethUsd }: { coins: Coin[]; ethUsd: number }) {
           <div className="mt-5 grid grid-cols-2 gap-3 border-t border-line pt-4 text-xs">
             <div>
               <div className="text-muted">Fees returned</div>
-              <div className="num mt-0.5 text-sm text-fg">{usd(c.feesEth * ethUsd)}</div>
+              <div className="num mt-0.5 text-sm text-fg">{usd(c.feesUsd)}</div>
             </div>
             <div className="text-right">
               <div className="text-muted">Holders</div>

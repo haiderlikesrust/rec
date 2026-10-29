@@ -1,26 +1,23 @@
 "use client";
 
-import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
 import { ArrowDown, ChevronRight, Clock, Coins as CoinsIcon, Gauge, Percent, Scale, Users, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { erc20Abi, formatUnits, isAddress, zeroAddress, type Address } from "viem";
-import { useAccount, useBalance, usePublicClient, useReadContract, useReadContracts } from "wagmi";
-import type { Coin } from "@cook/shared";
-import { CHAIN_ID, abis, addresses, errorMessage } from "@/lib/contracts";
+import { brand, isSolanaAddress, otcPolicy, type Coin, type CoinDetail, type OtcCoin } from "@cook/shared";
 import { bucketColor } from "@/lib/buckets";
-import { useCoins } from "@/lib/data";
-import { eth, toRaw, tokens, units } from "@/lib/format";
-import { useEnsureAllowance, useTx, useWrongChain } from "@/lib/tx";
+import { client, useBalances, useCoin, useCoins, useOtc, useOtcCoin, useSolUsd } from "@/lib/data";
+import { formatRaw, sol, toRaw, tokens, units, usd } from "@/lib/format";
+import { useSolanaTx } from "@/lib/tx";
+import { useAddress } from "@/lib/wallet";
 import { CoinAvatar } from "@/components/CoinAvatar";
 import { QuoteChip } from "@/components/QuoteChip";
 import { TxStatus } from "@/components/TxStatus";
 import { Button, Card, CardHeader, EmptyState, ErrorState, IconTile, Input, Segmented, Skeleton } from "@/components/ui";
+import { useWalletModal } from "@/components/wallet/WalletModal";
 
-const OTC_SLIPPAGE_BPS = 50n; // quotes are TWAP-based and barely move; 0.5% covers block-to-block drift
 const TEAL = bucketColor.otcReserve;
+const SOL_RESERVE = 10_000_000n; // keep 0.01 SOL for fees and token-account rent
 
 function Meter({ value, color = TEAL, className }: { value: number; color?: string; className?: string }) {
   const p = Math.max(0, Math.min(1, value || 0));
@@ -38,39 +35,28 @@ export function OtcDesk() {
   const params = useSearchParams();
   const [selected, setSelected] = useState<string | undefined>(params.get("coin") ?? undefined);
   const [manual, setManual] = useState("");
-  const { data: coins, isLoading, isError } = useCoins({ sort: "active", limit: 100 });
+  const solUsd = useSolUsd();
+  const { data: otc, isLoading, isError } = useOtc();
+  const { data: coins } = useCoins({ sort: "active", limit: 200 });
+  const coinOf = useMemo(() => new Map((coins ?? []).map((c) => [c.address, c])), [coins]);
 
-  const list = coins ?? [];
-  const base = { address: addresses.otcReserve!, abi: abis.otc, chainId: CHAIN_ID } as const;
-  const limits = useReadContracts({
-    contracts: list.flatMap((c) => [
-      { ...base, functionName: "sellLimit" as const, args: [c.address] as const },
-      { ...base, functionName: "activityBps" as const, args: [c.address] as const },
-      { ...base, functionName: "coins" as const, args: [c.address] as const },
-    ]),
-    query: { enabled: list.length > 0 && !!addresses.otcReserve, refetchInterval: 15_000 },
-  });
-  const rows = list
-    .map((c, i) => {
-      const lim = limits.data?.[i * 3]?.result as bigint | undefined;
-      const act = limits.data?.[i * 3 + 1]?.result as bigint | undefined;
-      const info = limits.data?.[i * 3 + 2]?.result as readonly bigint[] | undefined;
-      return { coin: c, limit: lim ?? 0n, activity: Number(act ?? 0n), contributed: info?.[1] ?? 0n, inventory: info?.[3] ?? 0n };
-    })
-    .sort((a, b) => (b.limit > a.limit ? 1 : b.limit < a.limit ? -1 : 0));
-  const maxLimit = rows.reduce((m, r) => (r.limit > m ? r.limit : m), 0n);
-  const withLimit = rows.filter((r) => r.limit > 0n).length;
-
-  const selectedCoin = list.find((c) => c.address.toLowerCase() === selected?.toLowerCase());
+  const rows = useMemo(() => [...(otc?.coins ?? [])].sort((a, b) => b.sellLimitSol - a.sellLimitSol), [otc]);
+  const maxLimit = rows.reduce((m, r) => Math.max(m, r.sellLimitSol), 0);
+  const withLimit = rows.filter((r) => r.sellLimitSol > 0).length;
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
       <div className="min-w-0 space-y-6">
         <div className="grid grid-cols-3 gap-2 sm:gap-3">
           {[
-            { icon: CoinsIcon, label: "Coins with a limit", value: limits.data ? `${withLimit} / ${rows.length}` : "…", sub: "earned by their own fees" },
-            { icon: Percent, label: "Spread", value: "3%", sub: "stays in the reserve" },
-            { icon: Users, label: "Per-wallet cap", value: "5%", sub: "of the reserve, per coin, per day" },
+            { icon: CoinsIcon, label: "Coins with a limit", value: otc ? `${withLimit} / ${rows.length}` : "…", sub: "earned by their own fees" },
+            { icon: Percent, label: "Spread", value: `${otcPolicy.spreadBps / 100}%`, sub: "the same 3% fee, split like every trade" },
+            {
+              icon: Users,
+              label: "Per-wallet cap",
+              value: otc ? usd(otc.walletDailyCapSol * solUsd) : `${otcPolicy.walletDailyBps / 100}%`,
+              sub: "per coin, per day (5% of the reserve)",
+            },
           ].map((s) => (
             <Card key={s.label} className="min-w-0 p-3.5 sm:p-5">
               <div className="flex items-center gap-2.5">
@@ -88,7 +74,7 @@ export function OtcDesk() {
         </div>
 
         {isError ? (
-          <ErrorState detail="The coin list comes from the indexer. You can still paste a coin address in the ticket." />
+          <ErrorState detail="The OTC list comes from the Recur API. You can still paste a coin address in the ticket." />
         ) : isLoading ? (
           <Skeleton className="h-96 rounded-[22px]" />
         ) : rows.length === 0 ? (
@@ -107,47 +93,17 @@ export function OtcDesk() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => {
-                  const active = selected?.toLowerCase() === r.coin.address.toLowerCase();
-                  return (
-                    <tr
-                      key={r.coin.address}
-                      onClick={() => setSelected(r.coin.address)}
-                      className={clsx(
-                        "group cursor-pointer border-b border-line transition-colors last:border-0",
-                        active ? "bg-elev-2" : "hover:bg-elev-2",
-                      )}
-                    >
-                      <td className="relative py-3 pr-3 pl-5">
-                        {active && <span className="absolute top-2 bottom-2 left-0 w-[3px] rounded-r-full" style={{ background: TEAL }} />}
-                        <div className="flex items-center gap-3">
-                          <CoinAvatar src={r.coin.image} symbol={r.coin.symbol} seed={r.coin.address} size={34} />
-                          <div className="min-w-0">
-                            <div className="truncate font-semibold">${r.coin.symbol}</div>
-                            <QuoteChip symbol={r.coin.quote.symbol} className="mt-0.5" />
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-3 py-3">
-                        <div className="num font-medium">{eth(units(r.limit))}</div>
-                        <Meter className="mt-1.5 w-28" value={maxLimit > 0n ? Number((r.limit * 10_000n) / maxLimit) / 10_000 : 0} />
-                      </td>
-                      <td className="px-3 py-3">
-                        <div className="flex items-center gap-2">
-                          <Meter className="w-16" value={r.activity / 10_000} color={r.activity >= 10_000 ? TEAL : "var(--faint)"} />
-                          <span className={clsx("num text-xs", r.activity >= 10_000 ? "text-fg" : "text-muted")}>
-                            {(r.activity / 100).toFixed(0)}%
-                          </span>
-                        </div>
-                      </td>
-                      <td className="num px-3 py-3 text-right text-muted">{eth(units(r.contributed))}</td>
-                      <td className="num px-3 py-3 text-right text-muted">{tokens(r.inventory, 18)}</td>
-                      <td className="py-3 pr-4 text-right">
-                        <ChevronRight size={16} className={clsx("inline transition-colors", active ? "text-fg" : "text-faint group-hover:text-fg")} />
-                      </td>
-                    </tr>
-                  );
-                })}
+                {rows.map((r) => (
+                  <OtcRow
+                    key={r.coin}
+                    r={r}
+                    solUsd={solUsd}
+                    maxLimit={maxLimit}
+                    info={coinOf.get(r.coin)}
+                    active={selected === r.coin}
+                    onSelect={() => setSelected(r.coin)}
+                  />
+                ))}
               </tbody>
             </table>
           </div>
@@ -157,8 +113,8 @@ export function OtcDesk() {
       </div>
 
       <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
-        {selectedCoin ? (
-          <OtcTicket coin={selectedCoin} onClose={() => setSelected(undefined)} />
+        {selected && isSolanaAddress(selected) ? (
+          <OtcTicket address={selected} onClose={() => setSelected(undefined)} />
         ) : (
           <Card featured className="p-6">
             <IconTile color={TEAL} size={44}>
@@ -166,17 +122,14 @@ export function OtcDesk() {
             </IconTile>
             <h3 className="font-display mt-5 text-2xl font-semibold">Pick a coin</h3>
             <p className="mt-1.5 text-sm leading-relaxed text-muted">
-              Choose a coin from the list to sell into the reserve or buy its inventory, or paste its address.
+              Choose a coin from the list to sell into the reserve or buy its inventory, or paste its mint address.
             </p>
             <div className="mt-5 flex gap-2">
-              <Input value={manual} onChange={(e) => setManual(e.target.value.trim())} placeholder="0x…" className="num text-xs" />
-              <Button variant="secondary" className="h-12" disabled={!isAddress(manual)} onClick={() => setSelected(manual)}>
+              <Input value={manual} onChange={(e) => setManual(e.target.value.trim())} placeholder="Mint address" className="num text-xs" />
+              <Button variant="secondary" className="h-12" disabled={!isSolanaAddress(manual)} onClick={() => setSelected(manual)}>
                 Open
               </Button>
             </div>
-            {selected && !selectedCoin && !isLoading && (
-              <p className="mt-3 text-xs text-muted">That coin isn&apos;t in the indexed list yet.</p>
-            )}
           </Card>
         )}
       </aside>
@@ -184,12 +137,65 @@ export function OtcDesk() {
   );
 }
 
+function OtcRow({
+  r,
+  solUsd,
+  maxLimit,
+  info,
+  active,
+  onSelect,
+}: {
+  r: OtcCoin;
+  solUsd: number;
+  maxLimit: number;
+  info?: Coin;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <tr
+      onClick={onSelect}
+      className={clsx("group cursor-pointer border-b border-line transition-colors last:border-0", active ? "bg-elev-2" : "hover:bg-elev-2")}
+    >
+      <td className="relative py-3 pr-3 pl-5">
+        {active && <span className="absolute top-2 bottom-2 left-0 w-[3px] rounded-r-full" style={{ background: TEAL }} />}
+        <div className="flex items-center gap-3">
+          <CoinAvatar src={r.image} symbol={r.symbol} seed={r.coin} size={34} />
+          <div className="min-w-0">
+            <div className="truncate font-semibold">${r.symbol}</div>
+            {info && <QuoteChip symbol={info.quote.symbol} logo={info.quote.logo} className="mt-0.5" />}
+          </div>
+        </div>
+      </td>
+      <td className="px-3 py-3">
+        <div className="num font-medium">{usd(r.sellLimitSol * solUsd)}</div>
+        <Meter className="mt-1.5 w-28" value={maxLimit > 0 ? r.sellLimitSol / maxLimit : 0} />
+      </td>
+      <td className="px-3 py-3">
+        <div className="flex items-center gap-2">
+          <Meter className="w-16" value={r.activityBps / 10_000} color={r.activityBps >= 10_000 ? TEAL : "var(--faint)"} />
+          <span className={clsx("num text-xs", r.activityBps >= 10_000 ? "text-fg" : "text-muted")}>{(r.activityBps / 100).toFixed(0)}%</span>
+        </div>
+      </td>
+      <td className="num px-3 py-3 text-right text-muted">{usd(r.contributedSol * solUsd)}</td>
+      <td className="num px-3 py-3 text-right text-muted">{info ? tokens(r.inventory, info.decimals) : "—"}</td>
+      <td className="py-3 pr-4 text-right">
+        <ChevronRight size={16} className={clsx("inline transition-colors", active ? "text-fg" : "text-faint group-hover:text-fg")} />
+      </td>
+    </tr>
+  );
+}
+
 function HowLimitsWork() {
   const items = [
-    { icon: CoinsIcon, title: "Credit = 2× contribution", body: "Each coin's limit is 2× the ETH its fees put into the reserve, minus what holders already sold into it." },
+    { icon: CoinsIcon, title: "Credit = 2× contribution", body: "Each coin's limit is 2× the SOL its fees put into the reserve, minus what holders already sold into it." },
     { icon: Clock, title: "Fades when quiet", body: "Full strength while the coin keeps paying fees (3 days), then fades linearly to 5% over the next 27 days." },
     { icon: Gauge, title: "Caps", body: "One coin can draw at most 10% of the reserve at a time, one wallet at most 5% of it per coin per day." },
-    { icon: Scale, title: "Fair pricing", body: "Sellers get the lower of spot and the 30-minute TWAP, inventory buyers pay the higher. The 3% spread stays in the reserve." },
+    {
+      icon: Scale,
+      title: "Fair, atomic settlement",
+      body: "Sellers get the lower of spot and the 30-minute TWAP, inventory buyers pay the higher. Each trade is one transaction signed by you and the reserve wallet, so it settles completely or not at all.",
+    },
   ];
   return (
     <Card className="overflow-hidden">
@@ -211,118 +217,88 @@ function HowLimitsWork() {
   );
 }
 
-function OtcTicket({ coin, onClose }: { coin: Coin; onClose: () => void }) {
+function OtcTicket({ address: coinAddress, onClose }: { address: string; onClose: () => void }) {
+  const { data: coin, isLoading, isError } = useCoin(coinAddress);
+  if (isLoading) return <Skeleton className="h-[480px] rounded-[22px]" />;
+  if (isError || !coin)
+    return (
+      <Card className="p-6">
+        <p className="text-sm font-medium">That coin isn&apos;t on {brand.name} yet</p>
+        <p className="mt-1 text-xs text-muted">Check the mint address, or give a new launch a few seconds to index.</p>
+        <Button variant="secondary" className="mt-4" onClick={onClose}>
+          Back
+        </Button>
+      </Card>
+    );
+  return <Ticket coin={coin} onClose={onClose} />;
+}
+
+function Ticket({ coin, onClose }: { coin: CoinDetail; onClose: () => void }) {
   const [mode, setMode] = useState<"sell" | "buy">("sell");
   const [amount, setAmount] = useState("");
-  const [debounced, setDebounced] = useState("");
-  const { address } = useAccount();
-  const publicClient = usePublicClient({ chainId: CHAIN_ID });
-  const { wrong, switchToApp } = useWrongChain();
-  const tx = useTx();
-  const allowance = useEnsureAllowance();
-  const token = coin.address as Address;
-  const otc = addresses.otcReserve!;
+  const wallet = useAddress();
+  const { open: openWallet } = useWalletModal();
+  const solUsd = useSolUsd();
+  const limits = useOtcCoin(coin.address, wallet);
+  const balances = useBalances(wallet);
+  const tx = useSolanaTx();
 
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(amount), 300);
-    return () => clearTimeout(t);
-  }, [amount]);
   useEffect(() => setAmount(""), [mode, coin.address]);
 
-  const day = useMemo(() => BigInt(Math.floor(Date.now() / 1000 / 86_400)), []);
-  const base = { address: otc, abi: abis.otc, chainId: CHAIN_ID } as const;
-  const reads = useReadContracts({
-    contracts: [
-      { ...base, functionName: "sellLimit", args: [token] },
-      { ...base, functionName: "walletDailyBps" },
-      { ...base, functionName: "walletSold", args: [token, address ?? zeroAddress, day] },
-      { ...base, functionName: "coins", args: [token] },
-    ],
-    query: { refetchInterval: 10_000 },
-  });
-  const limit = (reads.data?.[0]?.result as bigint | undefined) ?? 0n;
-  const walletBps = (reads.data?.[1]?.result as bigint | undefined) ?? 0n;
-  const soldToday = (reads.data?.[2]?.result as bigint | undefined) ?? 0n;
-  const inventory = ((reads.data?.[3]?.result as readonly bigint[] | undefined) ?? [])[3] ?? 0n;
-  const reserve = useBalance({ address: otc, chainId: CHAIN_ID });
-  const walletCap = reserve.data ? (reserve.data.value * walletBps) / 10_000n : 0n;
-  const walletLeft = walletCap > soldToday ? walletCap - soldToday : 0n;
+  const l = limits.data;
+  const inDecimals = mode === "sell" ? coin.decimals : 9;
+  const inputRaw = toRaw(amount, inDecimals);
+  const inputUnits = units(inputRaw, inDecimals);
+  // previews from the reserve's posted prices; the signed quote fixes the exact amounts
+  const outUnits = !l ? 0 : mode === "sell" ? inputUnits * l.sellPriceSol : l.buyPriceSol > 0 ? inputUnits / l.buyPriceSol : 0;
+  const outUsd = mode === "sell" ? outUnits * solUsd : outUnits * coin.priceUsd;
+  const inventory = l ? units(l.inventory, coin.decimals) : 0;
 
-  const coinBal = useReadContract({
-    address: token,
-    abi: erc20Abi,
-    functionName: "balanceOf",
-    args: [address ?? zeroAddress],
-    chainId: CHAIN_ID,
-    query: { enabled: !!address && mode === "sell" },
-  });
-  const ethBal = useBalance({ address, chainId: CHAIN_ID, query: { enabled: !!address && mode === "buy" } });
-
-  const raw = toRaw(debounced, 18);
-  const quote = useQuery({
-    queryKey: ["otcQuote", token, mode, raw.toString()],
-    enabled: raw > 0n && !!publicClient,
-    queryFn: async () =>
-      (await publicClient!.readContract({
-        address: otc,
-        abi: abis.otc,
-        functionName: mode === "sell" ? "quoteSell" : "quoteBuy",
-        args: [token, raw],
-      })) as bigint,
-    retry: false,
-    refetchInterval: 10_000,
-  });
-  const out = quote.data ?? 0n;
-  const inputRaw = toRaw(amount, 18);
-  const overLimit = mode === "sell" && out > limit;
-  const overWallet = mode === "sell" && out > walletLeft;
-  const overInventory = mode === "buy" && out > inventory;
-  const balance = mode === "sell" ? coinBal.data : ethBal.data?.value;
+  const overLimit = mode === "sell" && !!l && outUnits > l.sellLimitSol;
+  const overWallet = mode === "sell" && !!l && !!wallet && outUnits > l.walletRemainingSol;
+  const overInventory = mode === "buy" && !!l && outUnits > inventory;
+  const notReady = !!l && !l.twapReady;
+  const balance = balances.data
+    ? mode === "sell"
+      ? BigInt(balances.data.tokens[coin.address] ?? "0")
+      : BigInt(balances.data.sol)
+    : undefined;
   const insufficient = balance !== undefined && inputRaw > balance;
 
   async function submit() {
-    if (!address || inputRaw === 0n || out === 0n) return;
-    const minOut = (out * (10_000n - OTC_SLIPPAGE_BPS)) / 10_000n;
-    if (mode === "sell") {
-      const ok = await allowance.ensure(token, otc, inputRaw, `Approve ${coin.symbol}`);
-      if (!ok) return;
-      const r = await tx.send(`Sell ${coin.symbol} to reserve`, {
-        address: otc,
-        abi: abis.otc,
-        functionName: "sellToReserve",
-        args: [token, inputRaw, minOut],
-      });
-      if (r) setAmount("");
-    } else {
-      const r = await tx.send(`Buy ${coin.symbol} from reserve`, {
-        address: otc,
-        abi: abis.otc,
-        functionName: "buyFromReserve",
-        args: [token, minOut],
-        value: inputRaw,
-      });
-      if (r) setAmount("");
-    }
+    if (!wallet || inputRaw === 0n) return;
+    const r = await tx.run(
+      mode === "sell" ? `Sell ${coin.symbol} to reserve` : `Buy ${coin.symbol} from reserve`,
+      () => client.otcQuote({ wallet, coin: coin.address, side: mode, amount: inputRaw.toString() }),
+      (signature, quote) => client.otcConfirm(quote.id, signature),
+    );
+    if (r) setAmount("");
   }
 
-  const blocked = overLimit || overWallet || overInventory || insufficient;
-  const busy = tx.busy || allowance.busy;
-  const label = insufficient
-    ? "Insufficient balance"
-    : overLimit
-      ? "Above this coin's limit"
-      : overWallet
-        ? "Above your daily cap"
-        : overInventory
-          ? "Not enough inventory"
-          : busy
-            ? "Working…"
-            : mode === "sell"
-              ? `Sell ${coin.symbol} for ETH`
-              : `Buy ${coin.symbol} with ETH`;
+  const blocked = notReady || overLimit || overWallet || overInventory || insufficient;
+  const label = notReady
+    ? "OTC opens after 30 min of history"
+    : insufficient
+      ? "Insufficient balance"
+      : overLimit
+        ? "Above this coin's limit"
+        : overWallet
+          ? "Above your daily cap"
+          : overInventory
+            ? "Not enough inventory"
+            : tx.busy
+              ? "Working…"
+              : mode === "sell"
+                ? `Sell ${coin.symbol} for SOL`
+                : `Buy ${coin.symbol} with SOL`;
 
-  const limitUse = limit > 0n ? Number((out * 10_000n) / limit) / 10_000 : out > 0n ? 1 : 0;
-  const capUse = walletCap > 0n ? Number(((soldToday + out) * 10_000n) / walletCap) / 10_000 : 0;
+  const limitUse = l && l.sellLimitSol > 0 ? outUnits / l.sellLimitSol : outUnits > 0 ? 1 : 0;
+  const capUse = l && l.walletRemainingSol > 0 ? outUnits / l.walletRemainingSol : 0;
+  const setMax = () => {
+    if (balance === undefined) return;
+    const v = mode === "buy" ? (balance > SOL_RESERVE ? balance - SOL_RESERVE : 0n) : balance;
+    setAmount(formatRaw(v, inDecimals));
+  };
 
   return (
     <Card featured className="p-5 sm:p-6">
@@ -332,7 +308,7 @@ function OtcTicket({ coin, onClose }: { coin: Coin; onClose: () => void }) {
           <div className="truncate text-[15px] font-semibold">${coin.symbol}</div>
           <div className="truncate text-xs text-muted">{coin.name}</div>
         </div>
-        <QuoteChip symbol={coin.quote.symbol} />
+        <QuoteChip symbol={coin.quote.symbol} logo={coin.quote.logo} />
         <button
           onClick={onClose}
           aria-label="Close ticket"
@@ -355,9 +331,9 @@ function OtcTicket({ coin, onClose }: { coin: Coin; onClose: () => void }) {
       <div className="mt-4 rounded-2xl border border-line bg-sunk px-4 py-3.5 transition-all focus-within:border-accent focus-within:bg-elev focus-within:shadow-[0_0_0_4px_var(--accent-soft)]">
         <div className="flex justify-between text-xs text-muted">
           <span>{mode === "sell" ? "You sell" : "You spend"}</span>
-          {address && balance !== undefined && (
-            <button onClick={() => setAmount(formatUnits(balance, 18))} className="num transition-colors hover:text-fg">
-              Balance {tokens(balance, 18)} · <span className="text-accent">Max</span>
+          {wallet && balance !== undefined && (
+            <button onClick={setMax} className="num transition-colors hover:text-fg">
+              Balance {tokens(balance, inDecimals)} · <span className="text-accent">Max</span>
             </button>
           )}
         </div>
@@ -369,7 +345,10 @@ function OtcTicket({ coin, onClose }: { coin: Coin; onClose: () => void }) {
             onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))}
             className="num min-w-0 flex-1 bg-transparent text-3xl outline-none placeholder:text-faint"
           />
-          <span className="rounded-full border border-line bg-elev px-3 py-1 text-sm font-medium">{mode === "sell" ? coin.symbol : "ETH"}</span>
+          <span className="rounded-full border border-line bg-elev px-3 py-1 text-sm font-medium">{mode === "sell" ? coin.symbol : "SOL"}</span>
+        </div>
+        <div className="num mt-1 text-xs text-faint">
+          {inputRaw > 0n ? `≈ ${usd(mode === "sell" ? inputUnits * coin.priceUsd : inputUnits * solUsd)}` : " "}
         </div>
       </div>
 
@@ -380,17 +359,20 @@ function OtcTicket({ coin, onClose }: { coin: Coin; onClose: () => void }) {
       </div>
 
       <div className="rounded-2xl border border-line bg-sunk/60 px-4 py-3.5">
-        <div className="text-xs text-muted">You receive</div>
+        <div className="flex justify-between text-xs text-muted">
+          <span>You receive (est.)</span>
+          {outUnits > 0 && <span className="num text-faint">≈ {usd(outUsd)}</span>}
+        </div>
         <div className="num mt-1.5 min-h-9 text-3xl">
-          {raw === 0n ? (
+          {inputRaw === 0n ? (
             <span className="text-faint">0.0</span>
-          ) : quote.isError ? (
-            <span className="text-sm text-down">{errorMessage(quote.error)}</span>
-          ) : quote.data === undefined ? (
+          ) : !l ? (
             <Skeleton className="mt-1 h-8 w-32" />
+          ) : mode === "sell" ? (
+            sol(outUnits)
           ) : (
             <>
-              {tokens(out, 18)} <span className="text-base text-muted">{mode === "sell" ? "ETH" : coin.symbol}</span>
+              {outUnits.toLocaleString("en-US", { maximumFractionDigits: 2 })} <span className="text-base text-muted">{coin.symbol}</span>
             </>
           )}
         </div>
@@ -402,14 +384,14 @@ function OtcTicket({ coin, onClose }: { coin: Coin; onClose: () => void }) {
             <div>
               <div className="flex justify-between text-xs">
                 <span className="text-muted">Coin limit now</span>
-                <span className={clsx("num", overLimit ? "text-down" : "text-fg")}>{tokens(limit, 18)} ETH</span>
+                <span className={clsx("num", overLimit ? "text-down" : "text-fg")}>{l ? usd(l.sellLimitSol * solUsd) : "…"}</span>
               </div>
               <Meter className="mt-1.5" value={limitUse} color={overLimit ? "var(--down)" : TEAL} />
             </div>
             <div>
               <div className="flex justify-between text-xs">
                 <span className="text-muted">Your cap left today</span>
-                <span className={clsx("num", overWallet ? "text-down" : "text-fg")}>{address ? `${tokens(walletLeft, 18)} ETH` : "—"}</span>
+                <span className={clsx("num", overWallet ? "text-down" : "text-fg")}>{wallet && l ? usd(l.walletRemainingSol * solUsd) : "—"}</span>
               </div>
               <Meter className="mt-1.5" value={capUse} color={overWallet ? "var(--down)" : "var(--accent)"} />
             </div>
@@ -419,35 +401,29 @@ function OtcTicket({ coin, onClose }: { coin: Coin; onClose: () => void }) {
             <div className="flex justify-between text-xs">
               <span className="text-muted">Reserve inventory</span>
               <span className={clsx("num", overInventory ? "text-down" : "text-fg")}>
-                {tokens(inventory, 18)} {coin.symbol}
+                {l ? tokens(l.inventory, coin.decimals, coin.symbol) : "…"}
               </span>
             </div>
-            <Meter className="mt-1.5" value={inventory > 0n ? Number((out * 10_000n) / inventory) / 10_000 : 0} color={overInventory ? "var(--down)" : TEAL} />
+            <Meter className="mt-1.5" value={inventory > 0 ? outUnits / inventory : 0} color={overInventory ? "var(--down)" : TEAL} />
           </div>
         )}
       </div>
 
       <div className="mt-5">
-        {!address ? (
-          <ConnectButton.Custom>
-            {({ openConnectModal }) => (
-              <Button className="w-full" size="lg" onClick={openConnectModal}>
-                Connect wallet
-              </Button>
-            )}
-          </ConnectButton.Custom>
-        ) : wrong ? (
-          <Button className="w-full" size="lg" onClick={switchToApp}>
-            Switch network
+        {!wallet ? (
+          <Button className="w-full" size="lg" onClick={openWallet}>
+            Connect wallet
           </Button>
         ) : (
-          <Button className="w-full" size="lg" disabled={busy || blocked || inputRaw === 0n || out === 0n} onClick={submit}>
+          <Button className="w-full" size="lg" disabled={tx.busy || blocked || inputRaw === 0n || outUnits <= 0} onClick={submit}>
             {label}
           </Button>
         )}
       </div>
-      <TxStatus state={allowance.state.status === "error" || allowance.busy ? allowance.state : tx.state} className="mt-3" />
-      <p className="mt-3 text-center text-[11px] text-faint">0.5% slippage guard · 3% spread stays in the reserve</p>
+      <TxStatus state={tx.state} className="mt-3" />
+      <p className="mt-3 text-center text-[11px] text-faint">
+        One transaction signed by you and the reserve wallet · quotes hold for {otcPolicy.quoteTtlSeconds}s
+      </p>
     </Card>
   );
 }

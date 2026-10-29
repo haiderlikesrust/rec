@@ -3,8 +3,8 @@ import { ButtonLink, IconTile } from "@/components/ui";
 
 const steps = [
   { icon: Sparkles, title: "Name it", body: "Name, ticker, image and socials." },
-  { icon: Wallet, title: "Pick a pair", body: "ETH, USDG or a tokenized stock." },
-  { icon: Lock, title: "Launch", body: "1B supply, liquidity locked forever." },
+  { icon: Wallet, title: "Pick a pair", body: "SOL, a stablecoin or one of 120+ tokenized stocks." },
+  { icon: Lock, title: "Launch", body: "1B supply on a Meteora curve: $2.5k start, graduates at $30k." },
 ];
 
 export function LaunchCta() {
@@ -20,7 +20,7 @@ export function LaunchCta() {
             one transaction.
           </h2>
           <p className="mt-4 max-w-md text-[15px] leading-relaxed text-muted">
-            Costs 0.0005 ETH. A 6-second anti-snipe tax keeps bots off your launch, and you choose the wallets that skip it.
+            Costs 0.01 SOL. A 6-second anti-snipe fee keeps bots off your launch, and your own first buy, bundled into the launch transaction, skips it.
           </p>
           <ButtonLink href="/launch" size="lg" className="mt-8">
             <Rocket size={17} /> Launch a coin

@@ -15,7 +15,7 @@ export default function ProtectionPage() {
             <br className="hidden sm:block" /> <span className="text-spectrum">Part of it comes back.</span>
           </>
         }
-        sub="40% of every fee on every coin, converted to ETH. How much comes back depends on how long you held, how much that coin paid into the fund, and how big the fund is."
+        sub="40% of every fee on every coin, converted to SOL. How much comes back depends on how long you held, how much that coin paid into the fund, and how big the fund is."
       />
       <ProtectionView />
     </div>

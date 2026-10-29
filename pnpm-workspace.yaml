@@ -1,5 +1,4 @@
 packages:
   - packages/*
-  - indexer
-  - keeper
+  - backend
   - web

@@ -3,7 +3,7 @@
 import clsx from "clsx";
 import { TrendingUp } from "lucide-react";
 import Link from "next/link";
-import { useStats, useTrending } from "@/lib/data";
+import { useTrending } from "@/lib/data";
 import { usd } from "@/lib/format";
 import { CoinAvatar } from "@/components/CoinAvatar";
 import { QuoteChip } from "@/components/QuoteChip";
@@ -12,8 +12,6 @@ import { Change, SectionHeading, Skeleton } from "@/components/ui";
 
 export function Trending() {
   const { data, isLoading, isError } = useTrending();
-  const { data: stats } = useStats();
-  const ethUsd = stats?.ethUsd ?? 0;
 
   if (isError || (!isLoading && (!data || data.length === 0))) return null;
 
@@ -54,9 +52,9 @@ export function Trending() {
                     <Sparkline data={c.spark} width={204} height={44} strokeWidth={2} className="mt-4" />
                     <div className="mt-3 flex items-end justify-between gap-2">
                       <div>
-                        <div className="num text-base font-medium">{usd(c.marketCapEth * ethUsd)}</div>
+                        <div className="num text-base font-medium">{usd(c.marketCapUsd)}</div>
                         <div className="mt-1">
-                          <QuoteChip symbol={c.quote.symbol} />
+                          <QuoteChip symbol={c.quote.symbol} logo={c.quote.logo} />
                         </div>
                       </div>
                       <Change value={c.change24h} pill className="text-xs" />

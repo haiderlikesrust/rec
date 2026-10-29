@@ -17,7 +17,7 @@ export default function OtcPage() {
             <br className="hidden sm:block" /> moving the chart
           </>
         }
-        sub="Sell a coin straight into a shared ETH pool, priced at the lower of spot and the 30-minute TWAP. No pool slippage, and the price doesn't move. Each coin's limit is earned by its own fees."
+        sub="Sell a coin straight into a shared SOL reserve, priced at the lower of spot and the 30-minute TWAP. No pool slippage, and the chart doesn't move. Each coin's limit is earned by its own fees, whatever it's paired with."
         aside={<ReserveMetric />}
       />
       <Suspense fallback={<Skeleton className="h-96 rounded-[22px]" />}>

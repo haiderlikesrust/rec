@@ -10,7 +10,7 @@ export default function LaunchPage() {
       <PageHeader
         eyebrow="Launch"
         title="Launch a coin"
-        sub="0.0005 ETH and one transaction: a fixed 1B supply, its own pool, and every token locked as liquidity forever. No migration, no creator tax."
+        sub="0.01 SOL and one transaction: a fixed 1B supply on its own Meteora pool, paired with SOL, a stablecoin or any of 120+ tokenized stocks. Starts at a $2.5k market cap, graduates at $30k. No creator tax."
       />
       <LaunchForm />
     </div>

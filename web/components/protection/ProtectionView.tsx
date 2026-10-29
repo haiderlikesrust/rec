@@ -1,27 +1,28 @@
 "use client";
 
-import { ConnectButton } from "@rainbow-me/rainbowkit";
 import clsx from "clsx";
-import { Clock, Coins, ExternalLink, Scale, ShieldCheck, Timer } from "lucide-react";
+import { ArrowUpRight, Clock, Coins, Scale, ShieldCheck, Timer } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import type { Address } from "viem";
-import { useAccount, useBalance, useReadContracts } from "wagmi";
 import {
   PROTECTION_CAP_X_TAX,
+  PROTECTION_CLAIM_WINDOW_SECONDS,
   PROTECTION_EPOCH_BPS,
+  PROTECTION_EPOCH_SECONDS,
   type CoinProtection,
   type ProtectionClaim,
 } from "@cook/shared";
-import { CHAIN_ID, abis, addresses } from "@/lib/contracts";
 import { bucketColor } from "@/lib/buckets";
-import { useProtection, useStats, useWallet } from "@/lib/data";
-import { age, bps, duration, eth, units, usd, wei } from "@/lib/format";
-import { useTx, useWrongChain } from "@/lib/tx";
+import { client, useProtection, useSolUsd, useWalletSummary } from "@/lib/data";
+import { explorerAddress, explorerTx } from "@/lib/explorer";
+import { age, bps, duration, short, sol, units, usd } from "@/lib/format";
+import { useSolanaTx } from "@/lib/tx";
+import { useAddress } from "@/lib/wallet";
 import { CoinAvatar } from "@/components/CoinAvatar";
 import { FundingRatio, TierChart } from "@/components/docs/DocsBlocks";
 import { TxStatus } from "@/components/TxStatus";
 import { AnimatedNumber, Badge, Button, Card, CardHeader, EmptyState, ErrorState, IconTile, Skeleton } from "@/components/ui";
+import { useWalletModal } from "@/components/wallet/WalletModal";
 
 const VIOLET = bucketColor.protection;
 
@@ -38,34 +39,15 @@ const scaleColor = (s: number) => (s >= 0.999 ? bucketColor.otcReserve : s >= 0.
 
 export function ProtectionView() {
   const { data: status, isLoading, isError } = useProtection();
-  const { data: stats } = useStats();
-  const ethUsd = stats?.ethUsd ?? 0;
+  const solUsd = useSolUsd();
   const now = useNow();
 
-  const base = { address: addresses.protectionFund!, abi: abis.protection, chainId: CHAIN_ID } as const;
-  const chain = useReadContracts({
-    contracts: [
-      { ...base, functionName: "reserved" },
-      { ...base, functionName: "epochBudget" },
-      { ...base, functionName: "totalPaid" },
-      { ...base, functionName: "maxEpochBps" },
-      { ...base, functionName: "lastPublished" },
-      { ...base, functionName: "minEpochInterval" },
-    ],
-    query: { enabled: !!addresses.protectionFund, refetchInterval: 10_000 },
-  });
-  const balance = useBalance({ address: addresses.protectionFund, chainId: CHAIN_ID, query: { refetchInterval: 10_000 } });
-  const reserved = (chain.data?.[0]?.result as bigint | undefined) ?? (status ? BigInt(status.reservedEth) : undefined);
-  const budget = (chain.data?.[1]?.result as bigint | undefined) ?? (status ? BigInt(status.epochBudgetEth) : undefined);
-  const paid = chain.data?.[2]?.result as bigint | undefined;
-  const maxEpochBps = Number((chain.data?.[3]?.result as bigint | undefined) ?? BigInt(PROTECTION_EPOCH_BPS));
-  const lastPublished = Number((chain.data?.[4]?.result as number | bigint | undefined) ?? 0);
-  const interval = Number((chain.data?.[5]?.result as number | bigint | undefined) ?? 0);
-  const fund = balance.data?.value ?? (status ? BigInt(status.fundEth) : undefined);
-
-  const nextAt = status?.nextEpochAt ?? (lastPublished ? lastPublished + interval : 0);
+  const fund = status?.fundSol;
+  const maxEpochBps = status?.maxEpochBps ?? PROTECTION_EPOCH_BPS;
+  const lastEpochAt = status?.lastEpochAt ?? 0;
+  const nextAt = status?.nextEpochAt ?? 0;
   const left = Math.max(0, nextAt - now);
-  const elapsed = interval > 0 && lastPublished > 0 ? Math.min(1, (now - lastPublished) / interval) : 1;
+  const elapsed = lastEpochAt > 0 ? Math.min(1, (now - lastEpochAt) / PROTECTION_EPOCH_SECONDS) : 1;
 
   return (
     <div className="space-y-6">
@@ -81,25 +63,40 @@ export function ProtectionView() {
               <span className="eyebrow">Fund balance</span>
             </div>
             <div className="font-display mt-4 text-5xl leading-none font-semibold sm:text-6xl">
-              {fund !== undefined ? <AnimatedNumber value={units(fund)} format={(n) => n.toFixed(3)} /> : <Skeleton className="inline-block h-12 w-40 align-middle" />}
-              <span className="ml-2 text-2xl text-muted">ETH</span>
+              {fund !== undefined && solUsd > 0 ? (
+                <AnimatedNumber value={fund * solUsd} format={usd} />
+              ) : (
+                <Skeleton className="inline-block h-12 w-40 align-middle" />
+              )}
             </div>
-            <div className="num mt-2 text-sm text-muted">{fund !== undefined ? usd(units(fund) * ethUsd) : " "}</div>
+            <div className="num mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
+              {fund !== undefined ? sol(fund) : " "}
+              {status?.wallet && (
+                <a
+                  href={explorerAddress(status.wallet)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-faint transition-colors hover:text-fg"
+                >
+                  wallet {short(status.wallet)} <ArrowUpRight size={11} />
+                </a>
+              )}
+            </div>
             <div className="mt-7 grid grid-cols-1 gap-3 sm:grid-cols-3">
               {[
-                { label: "Committed to open epochs", value: reserved },
-                { label: "Next epoch budget", value: budget, sub: `up to ${bps(maxEpochBps)} of the fund` },
-                { label: "Paid out so far", value: paid },
+                { label: "Committed to open claims", value: status?.reservedSol },
+                { label: "Next epoch budget", value: status?.epochBudgetSol, sub: `up to ${bps(maxEpochBps)} of the fund` },
+                { label: "Paid out so far", value: status?.totalPaidSol },
               ].map((s) => (
                 <div key={s.label} className="rounded-2xl border border-line bg-sunk/70 px-4 py-3">
                   <div className="text-xs text-muted">{s.label}</div>
-                  <div className="num mt-1 text-lg font-medium">{s.value !== undefined ? wei(s.value) : "…"}</div>
-                  <div className="num text-[11px] text-faint">{s.sub ?? (s.value !== undefined ? usd(units(s.value) * ethUsd) : "")}</div>
+                  <div className="num mt-1 text-lg font-medium">{s.value !== undefined ? usd(s.value * solUsd) : "…"}</div>
+                  <div className="num text-[11px] text-faint">{s.sub ?? (s.value !== undefined ? sol(s.value) : "")}</div>
                 </div>
               ))}
             </div>
           </div>
-          <Countdown elapsed={elapsed} label={status || chain.data ? (left <= 0 ? "Any time now" : duration(left)) : "…"} />
+          <Countdown elapsed={elapsed} label={status ? (left <= 0 ? "Any time now" : duration(left)) : "…"} />
         </div>
       </Card>
 
@@ -131,7 +128,7 @@ export function ProtectionView() {
               sub="Effective coverage = hold-time rate × the coin's funding. A coin can only draw its share of each epoch's budget, in proportion to what it paid into the fund."
             />
             <div className="px-5 pt-5 pb-6 sm:px-6">
-              <CoinFunding coins={status?.coins} loading={isLoading} error={isError} />
+              <CoinFunding coins={status?.coins} loading={isLoading} error={isError} solUsd={solUsd} />
             </div>
           </Card>
 
@@ -147,8 +144,8 @@ export function ProtectionView() {
             <ul className="grid grid-cols-1 gap-px border-t border-line bg-line sm:grid-cols-2 mt-5">
               {[
                 `Each payout is capped at ${PROTECTION_CAP_X_TAX}× the tax that wallet paid on that coin.`,
-                `An epoch can commit at most ${bps(maxEpochBps)} of the uncommitted fund, enforced by the contract.`,
-                "Epochs are at least 6 days apart. Claims stay open for 60 days, then return to the fund.",
+                `An epoch can commit at most ${bps(maxEpochBps)} of the uncommitted fund.`,
+                `Epochs are at least ${duration(PROTECTION_EPOCH_SECONDS)} apart. Claims stay open for ${Math.round(PROTECTION_CLAIM_WINDOW_SECONDS / 86_400)} days, then return to the fund.`,
                 "Creators on their own coins, protocol addresses and wash-trading clusters are excluded.",
               ].map((t) => (
                 <li key={t} className="bg-elev px-5 py-4 text-[13px] leading-relaxed text-muted sm:px-6">
@@ -172,11 +169,11 @@ export function ProtectionView() {
                 </IconTile>
               }
               title="Epoch history"
-              sub="Each epoch's full claim list is published with its Merkle root so anyone can recompute it."
+              sub="Each epoch is computed from public trade data with the same open-source policy the UI uses, and paid from the protection wallet."
             />
             <div className="px-5 pt-4 pb-6 sm:px-6">
               {isError ? (
-                <ErrorState detail="Epoch history comes from the indexer, which isn't reachable right now." />
+                <ErrorState detail="Epoch history comes from the Recur API, which isn't reachable right now." />
               ) : isLoading ? (
                 <Skeleton className="h-32" />
               ) : !status?.epochs.length ? (
@@ -185,7 +182,7 @@ export function ProtectionView() {
                 <ol className="relative space-y-3 pl-6">
                   <span className="absolute top-2 bottom-2 left-[7px] w-px bg-line-strong" aria-hidden />
                   {status.epochs.map((e, i) => {
-                    const claimedShare = BigInt(e.total) > 0n ? Number((BigInt(e.claimed) * 10_000n) / BigInt(e.total)) / 10_000 : 0;
+                    const claimedShare = e.totalSol > 0 ? Math.min(1, e.claimedSol / e.totalSol) : 0;
                     return (
                       <li key={e.id} className="relative">
                         <span
@@ -202,23 +199,14 @@ export function ProtectionView() {
                           </div>
                           <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs">
                             <span className="text-muted">
-                              Committed <span className="num text-fg">{wei(e.total)}</span>
+                              Committed <span className="num text-fg">{usd(e.totalSol * solUsd)}</span>
                             </span>
                             <span className="text-muted">
-                              Claimed <span className="num text-fg">{wei(e.claimed)}</span>
+                              Claimed <span className="num text-fg">{usd(e.claimedSol * solUsd)}</span>
                             </span>
-                            {e.uri && /^(ipfs|https?):/.test(e.uri) ? (
-                              <a
-                                href={e.uri.replace(/^ipfs:\/\//, "https://ipfs.io/ipfs/")}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-1 text-accent hover:underline"
-                              >
-                                claims.json <ExternalLink size={11} />
-                              </a>
-                            ) : (
-                              e.uri && <span className="num text-faint">{e.uri}</span>
-                            )}
+                            <span className="text-muted">
+                              <span className="num text-fg">{e.claims}</span> wallet{e.claims === 1 ? "" : "s"}
+                            </span>
                           </div>
                           <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-sunk">
                             <div className="h-full rounded-full" style={{ width: `${claimedShare * 100}%`, background: VIOLET }} />
@@ -269,9 +257,9 @@ function Countdown({ elapsed, label }: { elapsed: number; label: string }) {
   );
 }
 
-function CoinFunding({ coins, loading, error }: { coins?: CoinProtection[]; loading: boolean; error: boolean }) {
+function CoinFunding({ coins, loading, error, solUsd }: { coins?: CoinProtection[]; loading: boolean; error: boolean; solUsd: number }) {
   const [all, setAll] = useState(false);
-  if (error) return <ErrorState detail="Per-coin funding comes from the indexer, which isn't reachable right now." />;
+  if (error) return <ErrorState detail="Per-coin funding comes from the Recur API, which isn't reachable right now." />;
   if (loading) return <Skeleton className="h-40" />;
   if (!coins || coins.length === 0)
     return (
@@ -305,7 +293,7 @@ function CoinFunding({ coins, loading, error }: { coins?: CoinProtection[]; load
                     <span className="font-medium">${c.symbol}</span>
                   </Link>
                 </td>
-                <td className="num py-2.5 text-right">{eth(c.contributedEth)}</td>
+                <td className="num py-2.5 text-right">{usd(c.contributedSol * solUsd)}</td>
                 <td className="py-2.5 pl-4">
                   <div className="flex items-center gap-2">
                     <div className="h-1.5 w-16 overflow-hidden rounded-full bg-sunk">
@@ -314,8 +302,8 @@ function CoinFunding({ coins, loading, error }: { coins?: CoinProtection[]; load
                     <span className="num text-xs text-muted">{(c.shareOfFund * 100).toFixed(1)}%</span>
                   </div>
                 </td>
-                <td className="num py-2.5 text-right">{eth(c.allocationEth)}</td>
-                <td className="num py-2.5 text-right text-muted">{c.requestedEth > 0 ? eth(c.requestedEth) : "—"}</td>
+                <td className="num py-2.5 text-right">{usd(c.allocationSol * solUsd)}</td>
+                <td className="num py-2.5 text-right text-muted">{c.requestedSol > 0 ? usd(c.requestedSol * solUsd) : "—"}</td>
                 <td className="py-2.5 text-right">
                   <span
                     className="num inline-flex rounded-full px-2 py-0.5 text-xs"
@@ -343,40 +331,36 @@ function CoinFunding({ coins, loading, error }: { coins?: CoinProtection[]; load
 }
 
 function YourClaims() {
-  const { address } = useAccount();
-  const { data, isLoading, isError } = useWallet(address);
+  const address = useAddress();
+  const { open: openWallet } = useWalletModal();
+  const solUsd = useSolUsd();
+  const { data, isLoading, isError } = useWalletSummary(address);
   if (!address)
     return (
       <Card className="relative overflow-hidden p-6">
         <div className="spectrum mb-5 h-1 w-12 rounded-full" />
         <h3 className="font-display text-2xl font-semibold">Your claims</h3>
         <p className="mt-1.5 text-sm leading-relaxed text-muted">Connect to see covered losses and claim them.</p>
-        <ConnectButton.Custom>
-          {({ openConnectModal }) => (
-            <Button className="mt-5 w-full" size="lg" onClick={openConnectModal}>
-              Connect wallet
-            </Button>
-          )}
-        </ConnectButton.Custom>
+        <Button className="mt-5 w-full" size="lg" onClick={openWallet}>
+          Connect wallet
+        </Button>
       </Card>
     );
-  const claimable = data ? data.claims.filter((c) => !c.claimed).reduce((s, c) => s + units(c.amount), 0) : 0;
+  const claimable = data ? data.claims.filter((c) => c.status === "open").reduce((s, c) => s + units(c.amount, 9), 0) : 0;
   return (
     <Card featured className="p-5 sm:p-6">
       <div className="flex items-start justify-between gap-3">
         <div>
           <span className="eyebrow">Your claims</span>
-          <div className="font-display mt-2 text-3xl font-semibold">
-            {claimable.toFixed(4)} <span className="text-base text-muted">ETH</span>
-          </div>
-          <div className="text-xs text-muted">ready to claim</div>
+          <div className="font-display mt-2 text-3xl font-semibold">{usd(claimable * solUsd)}</div>
+          <div className="num text-xs text-muted">{sol(claimable)} ready to claim</div>
         </div>
         <IconTile color={VIOLET} size={40}>
           <ShieldCheck size={18} />
         </IconTile>
       </div>
       {isError ? (
-        <p className="mt-4 text-xs text-muted">Claims come from the indexer, which isn&apos;t reachable right now.</p>
+        <p className="mt-4 text-xs text-muted">Claims come from the Recur API, which isn&apos;t reachable right now.</p>
       ) : isLoading || !data ? (
         <Skeleton className="mt-4 h-24" />
       ) : (
@@ -387,7 +371,7 @@ function YourClaims() {
           {data.claims.length > 0 && (
             <ul className="mt-5 space-y-3">
               {data.claims.map((c) => (
-                <ClaimRow key={c.epoch} claim={c} />
+                <ClaimRow key={c.epoch} claim={c} solUsd={solUsd} />
               ))}
             </ul>
           )}
@@ -401,12 +385,12 @@ function YourClaims() {
                       <Link href={`/token/${p.coin}`} className="font-medium hover:text-accent">
                         ${p.symbol}
                       </Link>
-                      <span className="num">≈ {eth(p.estimatedEth)}</span>
+                      <span className="num">≈ {usd(p.estimatedSol * solUsd)}</span>
                     </div>
-                    <div className="num mt-1 text-[11px] text-muted">loss {eth(p.lossEth)}</div>
+                    <div className="num mt-1 text-[11px] text-muted">loss {usd(p.lossSol * solUsd)}</div>
                     <div className="num mt-0.5 text-[11px] text-muted">
                       tier {bps(p.tierBps)} × funding {p.tierBps > 0 ? Math.round((p.coverageBps / p.tierBps) * 100) : 0}% ={" "}
-                      <span className="text-fg">{bps(p.coverageBps)}</span> (≈ {eth(p.estimatedEth)})
+                      <span className="text-fg">{bps(p.coverageBps)}</span> (≈ {sol(p.estimatedSol)})
                     </div>
                   </li>
                 ))}
@@ -422,36 +406,55 @@ function YourClaims() {
   );
 }
 
-function ClaimRow({ claim }: { claim: ProtectionClaim }) {
-  const tx = useTx();
-  const { wrong, switchToApp } = useWrongChain();
-  const done = claim.claimed || tx.state.status === "success";
+function ClaimRow({ claim, solUsd }: { claim: ProtectionClaim; solUsd: number }) {
+  const tx = useSolanaTx();
+  const wallet = useAddress();
+  const amountSol = units(claim.amount, 9);
+  const done = claim.status === "claimed" || tx.state.status === "success";
   const claim_ = () =>
-    tx.send(`Claim epoch #${claim.epoch}`, {
-      address: addresses.protectionFund!,
-      abi: abis.protection,
-      functionName: "claim",
-      args: [BigInt(claim.epoch), claim.account as Address, BigInt(claim.amount), claim.proof as `0x${string}`[]],
-    });
+    wallet &&
+    tx.run(
+      `Claim epoch #${claim.epoch}`,
+      () => client.claim(wallet, claim.epoch),
+      (signature, res) => client.claimConfirm(res.claimId, signature),
+    );
+  const signature = claim.signature ?? tx.state.signature;
   return (
-    <li className={clsx("rounded-2xl border p-4", done ? "border-line bg-sunk/50" : "border-line-strong bg-elev-2")}>
+    <li className={clsx("rounded-2xl border p-4", done || claim.status === "expired" ? "border-line bg-sunk/50" : "border-line-strong bg-elev-2")}>
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-xs text-muted">Epoch #{claim.epoch}</div>
-          <div className="num mt-0.5 text-lg font-medium">{wei(claim.amount)}</div>
+          <div className="num mt-0.5 text-lg font-medium">{usd(amountSol * solUsd)}</div>
+          <div className="num text-[11px] text-faint">{sol(amountSol)}</div>
         </div>
         {done ? (
-          <Badge tone="up">Claimed</Badge>
-        ) : wrong ? (
-          <Button size="sm" onClick={switchToApp}>
-            Switch network
-          </Button>
+          signature && signature !== "demo" ? (
+            <a href={explorerTx(signature)} target="_blank" rel="noreferrer">
+              <Badge tone="up">
+                Claimed <ArrowUpRight size={11} />
+              </Badge>
+            </a>
+          ) : (
+            <Badge tone="up">Claimed</Badge>
+          )
+        ) : claim.status === "expired" ? (
+          <Badge tone="outline">Expired</Badge>
+        ) : claim.status === "pending" && !tx.busy ? (
+          <div className="flex flex-col items-end gap-1.5">
+            <Badge tone="accent">Confirming…</Badge>
+            <button onClick={claim_} className="text-[11px] text-muted hover:text-fg">
+              Retry
+            </button>
+          </div>
         ) : (
           <Button size="sm" disabled={tx.busy} onClick={claim_}>
             {tx.busy ? "Claiming…" : "Claim"}
           </Button>
         )}
       </div>
+      {claim.status === "open" && claim.expiresAt > 0 && (
+        <p className="mt-2 text-[11px] text-faint">Open until {new Date(claim.expiresAt * 1000).toLocaleDateString()} · paid by the protection wallet in one co-signed transaction</p>
+      )}
       {claim.breakdown.length > 0 && (
         <ul className="mt-3 space-y-1.5 border-t border-line pt-3 text-[11px] text-muted">
           {claim.breakdown.map((b, i) => (
@@ -460,7 +463,7 @@ function ClaimRow({ claim }: { claim: ProtectionClaim }) {
                 ${b.symbol} · held {duration(b.holdSeconds)}
               </span>
               <span className="num">
-                loss {eth(b.lossEth)} × {bps(b.coverageBps)}
+                loss {usd(b.lossSol * solUsd)} × {bps(b.coverageBps)}
               </span>
             </li>
           ))}

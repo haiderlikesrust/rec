@@ -19,6 +19,7 @@ const cols = [
       { href: "/docs", label: "How it works" },
       { href: "/docs#example", label: "Worked example" },
       { href: "/docs#compare", label: "Compare" },
+      { href: "/docs#wallets", label: "Treasury wallets" },
       { href: "/docs#risks", label: "Risks" },
     ],
   },
@@ -36,8 +37,9 @@ export function Footer() {
           </div>
           <p className="mt-4 text-sm leading-relaxed text-muted">{brand.tagline}</p>
           <p className="mt-6 text-xs leading-relaxed text-faint">
-            {brand.chainLabel}. Not affiliated with Robinhood Markets, Inc. Coins are issued by their creators and are
-            highly volatile. Protection coverage is discretionary and capped, not insurance. Contracts are unaudited.
+            {brand.chainLabel} · {brand.poolsLabel}. Coins are issued by their creators and are highly volatile. The
+            OTC reserve, protection fund and airdrop pool are backend-controlled Solana wallets you can audit on-chain.
+            Protection coverage is discretionary and capped, not insurance.
           </p>
         </div>
         <div className="grid grid-cols-2 gap-8">

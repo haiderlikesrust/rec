@@ -3,11 +3,11 @@
 import clsx from "clsx";
 import Link from "next/link";
 import type { ActivityItem } from "@cook/shared";
-import { useActivity, useStats } from "@/lib/data";
+import { useActivity } from "@/lib/data";
 import { age, short, usd } from "@/lib/format";
 import { CoinAvatar } from "@/components/CoinAvatar";
 
-function Item({ a, ethUsd }: { a: ActivityItem; ethUsd: number }) {
+function Item({ a }: { a: ActivityItem }) {
   return (
     <Link
       href={`/token/${a.coin}`}
@@ -25,7 +25,7 @@ function Item({ a, ethUsd }: { a: ActivityItem; ethUsd: number }) {
           <span className={clsx("font-medium", a.kind === "buy" ? "text-up" : "text-down")}>
             {a.kind === "buy" ? "bought" : "sold"}
           </span>{" "}
-          <span className="num">{usd(a.ethValue * ethUsd)}</span> <span className="text-muted">of</span>{" "}
+          <span className="num">{usd(a.usdValue)}</span> <span className="text-muted">of</span>{" "}
           <span className="font-semibold">${a.symbol}</span>
         </span>
       )}
@@ -37,7 +37,6 @@ function Item({ a, ethUsd }: { a: ActivityItem; ethUsd: number }) {
 /** Scrolling strip of the latest trades and launches. Pauses on hover. */
 export function LiveTicker() {
   const { data } = useActivity();
-  const { data: stats } = useStats();
   if (!data || data.length === 0) return null;
   const items = data.slice(0, 24);
   return (
@@ -45,7 +44,7 @@ export function LiveTicker() {
       <div className="mask-fade-x">
         <div className="flex w-max animate-marquee gap-2.5 group-hover:[animation-play-state:paused]">
           {[...items, ...items].map((a, i) => (
-            <Item key={`${a.id}-${i}`} a={a} ethUsd={stats?.ethUsd ?? 0} />
+            <Item key={`${a.id}-${i}`} a={a} />
           ))}
         </div>
       </div>
