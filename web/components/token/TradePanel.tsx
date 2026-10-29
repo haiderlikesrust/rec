@@ -38,8 +38,8 @@ function useSnipeFee(createdAt: number) {
   return buyTaxBpsAt(Math.max(0, now - createdAt));
 }
 
-export function TradePanel({ coin }: { coin: Coin }) {
-  const [side, setSide] = useState<"buy" | "sell">("buy");
+export function TradePanel({ coin, initialSide = "buy" }: { coin: Coin; initialSide?: "buy" | "sell" }) {
+  const [side, setSide] = useState<"buy" | "sell">(initialSide);
   const [amount, setAmount] = useState("");
   const [slippage, setSlippage] = useState(5);
   const [showSettings, setShowSettings] = useState(false);

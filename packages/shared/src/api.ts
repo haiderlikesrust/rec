@@ -106,6 +106,8 @@ export type CoinDetail = Coin & {
   otc: OtcCoin;
   airdropsPaid: string; // raw quote paid to holders so far
   airdropRecipientsLastEpoch: number;
+  /** the fee wallet's buy-and-burns of this coin in the last 24h (they run continuously) */
+  buybacks24h: { count: number; tokenAmount: string; usd: number };
   protection: CoinProtection;
 };
 
@@ -339,7 +341,8 @@ export const api = (base: string) => {
     coin: (address: string) => get<CoinDetail>(`/api/coins/${address}`),
     candles: (address: string, interval: "1m" | "5m" | "15m" | "1h" = "5m") =>
       get<Candle[]>(`/api/coins/${address}/candles?interval=${interval}`),
-    trades: (address: string, limit = 50) => get<Trade[]>(`/api/coins/${address}/trades?limit=${limit}`),
+    trades: (address: string, limit = 50, opts: { buybacks?: boolean } = {}) =>
+      get<Trade[]>(`/api/coins/${address}/trades?limit=${limit}${opts.buybacks === false ? "&buybacks=0" : ""}`),
     holders: (address: string) => get<Holder[]>(`/api/coins/${address}/holders`),
     wallet: (address: string) => get<WalletSummary>(`/api/wallet/${address}`),
     balances: (address: string) => get<Balances>(`/api/balances/${address}`),

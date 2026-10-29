@@ -14,6 +14,7 @@ import { QuoteChip } from "@/components/QuoteChip";
 import { Badge, ButtonLink, Change, EmptyState, ErrorState, Skeleton } from "@/components/ui";
 import { ActivityTabs } from "./ActivityTabs";
 import { FeesPanel } from "./FeesPanel";
+import { MobileTradeBar } from "./MobileTradeBar";
 import { OtcPanel } from "./OtcPanel";
 import { PositionCard } from "./PositionCard";
 import { PriceChart } from "./PriceChart";
@@ -206,24 +207,49 @@ export function TokenView({ address }: { address: string }) {
             <StatTile className="col-span-2 sm:col-span-1" label="Burned" value={`${burnedPct.toFixed(2)}%`} sub={`${tokens(coin.burned, coin.decimals)} ${coin.symbol}`} />
           </div>
 
-          <div className="surface flex flex-col gap-3 rounded-2xl px-4 py-3.5 sm:flex-row sm:items-center sm:gap-5">
-            <div className="flex shrink-0 items-center gap-2 text-sm">
-              <GraduationCap size={16} className={clsx(coin.graduated ? "text-up" : "text-accent")} />
-              <span className="font-medium">{coin.graduated ? "Graduated" : "Graduation"}</span>
-              <span className="num text-xs text-muted">
-                {num(coin.quoteInPool)} / {num(coin.graduationThreshold)} {q.symbol} in the curve
+          {coin.graduated ? (
+            <div className="surface flex flex-col gap-2 rounded-2xl px-4 py-3.5 sm:flex-row sm:items-center sm:gap-4">
+              <div className="flex shrink-0 items-center gap-2 text-sm">
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-up-soft text-up">
+                  <GraduationCap size={15} />
+                </span>
+                <span className="font-medium">Graduated to Meteora DAMM v2</span>
+              </div>
+              <span className="text-xs text-muted sm:flex-1">
+                Same 3% fee on every trade. The pool's liquidity is locked for good, and its fees keep flowing to the buckets.
               </span>
+              {coin.dammPool && (
+                <a
+                  href={explorerAddress(coin.dammPool)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex shrink-0 items-center gap-1 text-xs text-muted transition-colors hover:text-fg"
+                >
+                  View pool <ExternalLink size={12} />
+                </a>
+              )}
             </div>
-            <GraduationBar className="flex-1" progress={coin.graduationProgress} graduated={coin.graduated} />
-            <span className="shrink-0 text-[11px] text-faint">
-              {coin.graduated ? "trading on Meteora DAMM v2 · LP locked" : `moves to Meteora DAMM v2 at ${usd(q.graduationMcapUsd)}`}
-            </span>
-          </div>
+          ) : (
+            <div className="surface flex flex-col gap-3 rounded-2xl px-4 py-3.5 sm:flex-row sm:items-center sm:gap-5">
+              <div className="flex shrink-0 items-center gap-2 text-sm">
+                <GraduationCap size={16} className="text-accent" />
+                <span className="font-medium">Graduation</span>
+                <span className="num text-xs text-muted">
+                  {num(coin.quoteInPool)} / {num(coin.graduationThreshold)} {q.symbol} in the curve
+                </span>
+              </div>
+              <GraduationBar className="flex-1" progress={coin.graduationProgress} graduated={false} />
+              <span className="shrink-0 text-[11px] text-faint">moves to Meteora DAMM v2 at {usd(q.graduationMcapUsd)}</span>
+            </div>
+          )}
         </div>
 
-        {/* trade column: right after the header on mobile, sticky with its own scroll on desktop */}
+        {/* trade column: your position and the fee panels after the header on phones, sticky with its own scroll on desktop */}
         <aside className="no-scrollbar space-y-4 lg:sticky lg:top-20 lg:col-start-2 lg:row-span-3 lg:row-start-1 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto lg:pb-2">
-          <TradePanel coin={coin} />
+          {/* phones trade from the bottom bar's sheet instead */}
+          <div className="hidden lg:block">
+            <TradePanel coin={coin} />
+          </div>
           <PositionCard coin={coin} />
           <FeesPanel coin={coin} solUsd={solUsd} />
           <OtcPanel coin={coin} solUsd={solUsd} />
@@ -236,6 +262,7 @@ export function TokenView({ address }: { address: string }) {
           <ActivityTabs coin={coin} />
         </div>
       </div>
+      <MobileTradeBar coin={coin} />
     </div>
   );
 }

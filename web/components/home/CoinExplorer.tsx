@@ -144,10 +144,12 @@ export function CoinExplorer() {
             detail={debounced ? "Try a ticker, a name or a contract address." : "Be the first: launch a coin in under a minute."}
             action={!debounced && <ButtonLink href="/launch">Launch a coin</ButtonLink>}
           />
-        ) : view === "grid" ? (
-          <Grid coins={data} />
         ) : (
-          <Table coins={data} />
+          <>
+            {/* phones get a compact card list; the table and grid need more width */}
+            <MobileList coins={data} />
+            <div className="hidden sm:block">{view === "grid" ? <Grid coins={data} /> : <Table coins={data} />}</div>
+          </>
         )}
       </div>
     </section>
@@ -233,6 +235,36 @@ function Table({ coins }: { coins: Coin[] }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+function MobileList({ coins }: { coins: Coin[] }) {
+  return (
+    <ul className="surface divide-y divide-line overflow-hidden rounded-[22px] sm:hidden">
+      {coins.map((c) => (
+        <li key={c.address}>
+          <Link href={`/token/${c.address}`} className="flex items-center gap-3 px-4 py-3.5 transition-colors active:bg-elev-2">
+            <CoinAvatar src={c.image} symbol={c.symbol} seed={c.address} size={40} />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <span className="truncate text-[15px] font-semibold tracking-tight">{c.name}</span>
+                {c.isMain && <Badge tone="accent">Platform</Badge>}
+              </div>
+              <div className="mt-1 flex items-center gap-1.5 text-xs text-muted">
+                <span className="font-medium text-fg/75">${c.symbol}</span>
+                <QuoteChip symbol={c.quote.symbol} logo={c.quote.logo} />
+              </div>
+              <GraduationBar className="mt-2" progress={c.graduationProgress} graduated={c.graduated} />
+            </div>
+            <div className="shrink-0 text-right">
+              <div className="num text-sm font-medium">{usd(c.marketCapUsd)}</div>
+              <Change value={c.change24h} className="text-xs" />
+              <Sparkline data={c.spark} width={64} height={22} className="mt-1 ml-auto block" />
+            </div>
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }
 

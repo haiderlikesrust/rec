@@ -23,8 +23,15 @@ export const useCandles = (address: string | undefined, interval: "1m" | "5m" | 
     enabled: !!address,
     ...live,
   });
-export const useTrades = (address?: string) =>
-  useQuery({ queryKey: ["trades", address], queryFn: () => client.trades(address!, 60), enabled: !!address, ...live });
+/** Recent trades; buybacks (continuous burns) are left out unless asked for. */
+export const useTrades = (address: string | undefined, limit = 20, buybacks = false) =>
+  useQuery({
+    queryKey: ["trades", address, limit, buybacks],
+    queryFn: () => client.trades(address!, limit, { buybacks }),
+    enabled: !!address,
+    ...live,
+    placeholderData: (prev) => prev,
+  });
 export const useHolders = (address?: string) =>
   useQuery({ queryKey: ["holders", address], queryFn: () => client.holders(address!), enabled: !!address, ...live });
 export const useWalletSummary = (address?: string) =>

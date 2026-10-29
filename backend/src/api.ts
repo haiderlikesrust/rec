@@ -146,6 +146,19 @@ export function createApi(engine: Engine) {
       otc: otcCoin(c),
       airdropsPaid: c.airdrops_paid,
       airdropRecipientsLastEpoch: c.airdrop_last_recipients,
+      buybacks24h: (() => {
+        const rows = all<{ token_amount: string; quote_amount: string }>(
+          "SELECT token_amount, quote_amount FROM trade WHERE coin = ? AND kind = 'buyback' AND ts >= ?",
+          mint,
+          now() - 86_400,
+        );
+        const quote = rows.reduce((s, r) => s + big(r.quote_amount), 0n);
+        return {
+          count: rows.length,
+          tokenAmount: rows.reduce((s, r) => s + big(r.token_amount), 0n).toString(),
+          usd: toUnits(quote, q.decimals) * q.usd,
+        };
+      })(),
       protection: currentProtectionPlan().coinFunding(c),
     };
     return ctx.json(detail);
@@ -172,7 +185,13 @@ export function createApi(engine: Engine) {
   app.get("/api/coins/:address/trades", (ctx) => {
     const mint = address(ctx, "address");
     const limit = Math.min(Number(ctx.req.query("limit") ?? 50), 200);
-    const rows = all<TradeRow>("SELECT * FROM trade WHERE coin = ? ORDER BY ts DESC, rowid DESC LIMIT ?", mint, limit);
+    // buybacks run every few seconds; the UI hides them from the feed by default (?buybacks=0)
+    const hideBuybacks = ctx.req.query("buybacks") === "0";
+    const rows = all<TradeRow>(
+      `SELECT * FROM trade WHERE coin = ? ${hideBuybacks ? "AND kind != 'buyback'" : ""} ORDER BY ts DESC, rowid DESC LIMIT ?`,
+      mint,
+      limit,
+    );
     const trades: Trade[] = rows.map((t) => ({
       id: t.id,
       tx: t.tx,

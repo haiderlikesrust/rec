@@ -1,7 +1,7 @@
 "use client";
 
 import { useStats } from "@/lib/data";
-import { TreasuryWallets } from "@/components/home/StatsBento";
+import { TreasuryWallets } from "@/components/home/FeeBuckets";
 
 /** Live list of the backend-controlled wallets, for the docs. */
 export function DocsTreasury() {
