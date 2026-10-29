@@ -1,0 +1,22 @@
+{
+  "name": "@cook/indexer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "ponder dev --port 42069",
+    "start": "ponder start --port 42069",
+    "codegen": "ponder codegen",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cook/shared": "workspace:*",
+    "hono": "^4.13.14",
+    "ponder": "0.18.3",
+    "viem": "^2.57.13"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "5.9.3"
+  }
+}

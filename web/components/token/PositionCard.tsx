@@ -1,0 +1,123 @@
+"use client";
+
+import clsx from "clsx";
+import { Gift, ShieldCheck, Wallet } from "lucide-react";
+import Link from "next/link";
+import { useAccount } from "wagmi";
+import { coverageBpsForHold, protectionTiers, RUG_COVERAGE_BPS, type CoinDetail } from "@cook/shared";
+import { bucketColor } from "@/lib/buckets";
+import { useWallet } from "@/lib/data";
+import { bps, duration, num, tokens, units } from "@/lib/format";
+import { IconTile, Row, Skeleton } from "@/components/ui";
+import { TinyPrice } from "./TinyPrice";
+
+export function PositionCard({ coin }: { coin: CoinDetail }) {
+  const { address } = useAccount();
+  const { data, isLoading } = useWallet(address);
+  if (!address) return null;
+  const pos = data?.positions.find((p) => p.coin.address.toLowerCase() === coin.address.toLowerCase());
+  const q = coin.quote;
+
+  if (isLoading) return <Skeleton className="h-44 rounded-[22px]" />;
+  if (!pos || units(pos.balance) === 0) {
+    return (
+      <section className="surface flex items-start gap-3 rounded-[22px] p-5">
+        <IconTile size={36}>
+          <Wallet size={16} />
+        </IconTile>
+        <div>
+          <h3 className="text-[15px] font-semibold tracking-tight">Your position</h3>
+          <p className="mt-1 text-xs leading-relaxed text-muted">
+            You don&apos;t hold ${coin.symbol} yet. Buys through any router count toward your entry price.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  const hold = pos.firstBuyAt ? Date.now() / 1000 - pos.firstBuyAt : 0;
+  const tierBps = coverageBpsForHold(hold);
+  const funding = coin.protection?.scale ?? 0;
+  const effectiveBps = Math.round(tierBps * funding);
+  const nextTier = protectionTiers.find((t) => t.minHold > hold);
+  const basis = units(pos.costBasis, q.decimals);
+  const pnlPct = basis > 0 ? (pos.unrealized / basis) * 100 : 0;
+  const up = pos.unrealized >= 0;
+
+  return (
+    <section className="surface rounded-[22px] p-5">
+      <div className="flex items-center gap-3">
+        <IconTile size={36}>
+          <Wallet size={16} />
+        </IconTile>
+        <h3 className="text-[15px] font-semibold tracking-tight">Your position</h3>
+      </div>
+      <div className="mt-4 flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <div className="num truncate text-2xl font-medium">{tokens(pos.balance, 18)}</div>
+          <div className="num text-xs text-muted">
+            ${coin.symbol} ≈ {num(pos.value)} {q.symbol}
+          </div>
+        </div>
+        <div className={clsx("num shrink-0 rounded-xl px-2.5 py-1.5 text-right text-sm", up ? "bg-up-soft text-up" : "bg-down-soft text-down")}>
+          {up ? "+" : ""}
+          {num(pos.unrealized)} {q.symbol}
+          <div className="text-[11px]">
+            {pnlPct >= 0 ? "+" : ""}
+            {pnlPct.toFixed(1)}%
+          </div>
+        </div>
+      </div>
+      <div className="mt-4 divide-y divide-line border-t border-line">
+        <Row label="Avg entry" value={<><TinyPrice value={pos.avgEntry} /> {q.symbol}</>} />
+        <Row label="Realized P/L" value={`${num(pos.realizedPnl)} ${q.symbol}`} />
+        <Row label="Tax paid" value={tokens(pos.taxPaid, q.decimals, q.symbol)} />
+        <Row label="Airdrops received" value={tokens(pos.airdropsReceived, q.decimals, q.symbol)} />
+      </div>
+
+      <div
+        className="mt-3 flex items-start gap-2.5 rounded-2xl px-3.5 py-3 text-xs leading-relaxed"
+        style={{
+          background: pos.airdropEligible ? `color-mix(in srgb, ${bucketColor.airdrop} 12%, transparent)` : "var(--bg-sunk)",
+          color: pos.airdropEligible ? bucketColor.airdrop : undefined,
+        }}
+      >
+        <Gift size={14} className="mt-px shrink-0" />
+        {pos.airdropEligible ? (
+          <span>Receiving hourly airdrops: your entry is above the price.</span>
+        ) : (
+          <span className="text-muted">Not receiving airdrops: you&apos;re in profit at this price.</span>
+        )}
+      </div>
+
+      <div className="mt-2 rounded-2xl bg-sunk px-3.5 py-3 text-xs">
+        <div className="flex items-center gap-2.5">
+          <ShieldCheck size={14} style={{ color: bucketColor.protection }} className="shrink-0" />
+          <span className="text-muted">
+            Loss cover if sold now: <span className="num font-medium text-fg">{bps(effectiveBps)}</span>
+          </span>
+          <Link href="/protection" className="ml-auto text-accent hover:underline">
+            Rules
+          </Link>
+        </div>
+        <div className="mt-2.5 grid grid-cols-4 gap-1">
+          {protectionTiers.map((t) => (
+            <div
+              key={t.minHold}
+              className="h-1.5 rounded-full"
+              style={{ background: hold >= t.minHold && t.coverageBps > 0 ? bucketColor.protection : "var(--line-strong)" }}
+              title={`${t.label}: ${bps(t.coverageBps)}`}
+            />
+          ))}
+        </div>
+        <p className="num mt-2.5 text-[11px] text-muted">
+          {bps(tierBps)} hold rate × {(funding * 100).toFixed(0)}% coin funding = {bps(effectiveBps)}
+        </p>
+        <p className="mt-1 text-[11px] leading-relaxed text-faint">
+          Held {duration(hold)}.{nextTier && ` Rate rises to ${bps(nextTier.coverageBps)} after ${duration(nextTier.minHold - hold)} more.`} Rugs
+          get {bps(RUG_COVERAGE_BPS)}. Funding is this coin&apos;s share of the next epoch&apos;s budget, set by what it paid into the fund.
+        </p>
+      </div>
+    </section>
+  );
+}

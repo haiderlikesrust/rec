@@ -1,0 +1,415 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/*
+ * Design tokens. The five fee buckets form the brand "spectrum" — every split visual, the logo mark
+ * and the accent gradients are built from them. Light theme first, dark overrides below.
+ */
+:root {
+  --bg: #f6f5f1;
+  --bg-elev: #ffffff;
+  --bg-elev-2: #fbfaf7;
+  --bg-sunk: #eeede7;
+  --fg: #0d0c16;
+  --muted: #5d5c70;
+  --faint: #9897a8;
+  --line: rgba(13, 12, 22, 0.08);
+  --line-strong: rgba(13, 12, 22, 0.15);
+  --accent: #6a56ff;
+  --accent-2: #12b5a0;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(106, 86, 255, 0.1);
+  --up: #0fa97c;
+  --up-soft: rgba(15, 169, 124, 0.12);
+  --down: #e8455f;
+  --down-soft: rgba(232, 69, 95, 0.11);
+  --b-protection: #6a56ff;
+  --b-otc: #12b5a0;
+  --b-main: #f29d0c;
+  --b-coin: #e8455f;
+  --b-airdrop: #3a86ff;
+  --sh-card: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 1px 2px rgba(13, 12, 22, 0.04), 0 8px 24px -12px rgba(13, 12, 22, 0.1);
+  --sh-pop: 0 24px 60px -24px rgba(13, 12, 22, 0.28);
+  --glow-a: rgba(106, 86, 255, 0.16);
+  --glow-b: rgba(18, 181, 160, 0.13);
+  --glow-c: rgba(242, 157, 12, 0.08);
+  --grid-line: rgba(13, 12, 22, 0.045);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #07070c;
+    --bg-elev: #0f0f18;
+    --bg-elev-2: #151522;
+    --bg-sunk: #0a0a12;
+    --fg: #f4f3ff;
+    --muted: #a3a2bb;
+    --faint: #64637c;
+    --line: rgba(255, 255, 255, 0.07);
+    --line-strong: rgba(255, 255, 255, 0.14);
+    --accent: #8f80ff;
+    --accent-2: #2ee6c5;
+    --accent-fg: #07070c;
+    --accent-soft: rgba(143, 128, 255, 0.14);
+    --up: #2ad8a4;
+    --up-soft: rgba(42, 216, 164, 0.13);
+    --down: #ff5c7a;
+    --down-soft: rgba(255, 92, 122, 0.13);
+    --b-protection: #8f80ff;
+    --b-otc: #2ee6c5;
+    --b-main: #ffb224;
+    --b-coin: #ff5c7a;
+    --b-airdrop: #4ca2ff;
+    --sh-card: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 12px 32px -16px rgba(0, 0, 0, 0.6);
+    --sh-pop: 0 30px 80px -30px rgba(0, 0, 0, 0.85);
+    --glow-a: rgba(143, 128, 255, 0.2);
+    --glow-b: rgba(46, 230, 197, 0.1);
+    --glow-c: rgba(255, 178, 36, 0.06);
+    --grid-line: rgba(255, 255, 255, 0.035);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #07070c;
+  --bg-elev: #0f0f18;
+  --bg-elev-2: #151522;
+  --bg-sunk: #0a0a12;
+  --fg: #f4f3ff;
+  --muted: #a3a2bb;
+  --faint: #64637c;
+  --line: rgba(255, 255, 255, 0.07);
+  --line-strong: rgba(255, 255, 255, 0.14);
+  --accent: #8f80ff;
+  --accent-2: #2ee6c5;
+  --accent-fg: #07070c;
+  --accent-soft: rgba(143, 128, 255, 0.14);
+  --up: #2ad8a4;
+  --up-soft: rgba(42, 216, 164, 0.13);
+  --down: #ff5c7a;
+  --down-soft: rgba(255, 92, 122, 0.13);
+  --b-protection: #8f80ff;
+  --b-otc: #2ee6c5;
+  --b-main: #ffb224;
+  --b-coin: #ff5c7a;
+  --b-airdrop: #4ca2ff;
+  --sh-card: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 12px 32px -16px rgba(0, 0, 0, 0.6);
+  --sh-pop: 0 30px 80px -30px rgba(0, 0, 0, 0.85);
+  --glow-a: rgba(143, 128, 255, 0.2);
+  --glow-b: rgba(46, 230, 197, 0.1);
+  --glow-c: rgba(255, 178, 36, 0.06);
+  --grid-line: rgba(255, 255, 255, 0.035);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-elev: var(--bg-elev);
+  --color-elev-2: var(--bg-elev-2);
+  --color-sunk: var(--bg-sunk);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-up: var(--up);
+  --color-up-soft: var(--up-soft);
+  --color-down: var(--down);
+  --color-down-soft: var(--down-soft);
+  --color-b-protection: var(--b-protection);
+  --color-b-otc: var(--b-otc);
+  --color-b-main: var(--b-main);
+  --color-b-coin: var(--b-coin);
+  --color-b-airdrop: var(--b-airdrop);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --shadow-card: var(--sh-card);
+  --shadow-pop: var(--sh-pop);
+  --animate-marquee: marquee 60s linear infinite;
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-spin-slow: spin 40s linear infinite;
+  --animate-fade-up: fade-up 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes shimmer {
+  from {
+    background-position: -200% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+@keyframes pulse-dot {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--up) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ambient page backdrop: soft spectrum glows + a fading grid */
+.ambient {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(60rem 36rem at 12% -8%, var(--glow-a), transparent 60%),
+    radial-gradient(50rem 30rem at 92% 2%, var(--glow-b), transparent 60%),
+    radial-gradient(40rem 26rem at 60% 110%, var(--glow-c), transparent 60%);
+}
+.ambient::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 80% 55% at 50% 0%, #000 30%, transparent 75%);
+}
+
+.font-display {
+  font-family: var(--font-bricolage), var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.035em;
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* the brand spectrum, in bucket order */
+.spectrum {
+  background-image: linear-gradient(
+    90deg,
+    var(--b-protection) 0%,
+    var(--b-airdrop) 26%,
+    var(--b-otc) 50%,
+    var(--b-main) 76%,
+    var(--b-coin) 100%
+  );
+}
+.text-spectrum {
+  background-image: linear-gradient(
+    100deg,
+    var(--b-protection) 0%,
+    var(--b-airdrop) 30%,
+    var(--b-otc) 55%,
+    var(--b-main) 80%,
+    var(--b-coin) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* surfaces */
+.surface {
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  box-shadow: var(--sh-card);
+}
+.surface-hover {
+  transition:
+    border-color 0.2s,
+    transform 0.2s,
+    box-shadow 0.2s,
+    background-color 0.2s;
+}
+.surface-hover:hover {
+  border-color: var(--line-strong);
+  transform: translateY(-2px);
+  box-shadow: var(--sh-card), var(--sh-pop);
+}
+/* 1px gradient ring, for featured cards */
+.ring-spectrum {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--bg-elev), var(--bg-elev)) padding-box,
+    linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--b-protection) 70%, transparent),
+        color-mix(in srgb, var(--b-otc) 35%, transparent) 40%,
+        var(--line) 60%,
+        color-mix(in srgb, var(--b-main) 45%, transparent)
+      )
+      border-box;
+}
+.glass {
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, var(--b-airdrop)));
+  color: #fff;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.25) inset,
+    0 8px 24px -8px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.btn-primary:hover {
+  filter: brightness(1.08);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.25) inset,
+    0 12px 32px -8px color-mix(in srgb, var(--accent) 85%, transparent);
+}
+
+.shimmer {
+  background: linear-gradient(90deg, var(--bg-sunk) 25%, var(--bg-elev-2) 50%, var(--bg-sunk) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--up);
+  animation: pulse-dot 2s ease-out infinite;
+}
+
+.mask-fade-x {
+  mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+.scroll-x {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* long-form docs */
+.prose-docs h2 {
+  font-family: var(--font-bricolage), var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 1.85rem;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  margin-top: 4.5rem;
+  margin-bottom: 1rem;
+  scroll-margin-top: 6rem;
+}
+.prose-docs h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-top: 2rem;
+  margin-bottom: 0.5rem;
+  scroll-margin-top: 6rem;
+}
+.prose-docs p,
+.prose-docs li {
+  color: var(--muted);
+  line-height: 1.75;
+}
+.prose-docs p {
+  margin-top: 0.85rem;
+}
+.prose-docs strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+.prose-docs ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+  margin-top: 0.75rem;
+}
+.prose-docs li + li {
+  margin-top: 0.4rem;
+}
+.prose-docs a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  text-underline-offset: 3px;
+}

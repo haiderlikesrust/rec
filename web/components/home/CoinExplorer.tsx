@@ -1,0 +1,285 @@
+"use client";
+
+import clsx from "clsx";
+import { Clock, Crown, Flame, GraduationCap, LayoutGrid, List, Rocket, Search, Users } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import type { Coin, CoinSort } from "@cook/shared";
+import { useCoins, useQuotes, useStats } from "@/lib/data";
+import { age, eth, short, usd } from "@/lib/format";
+import { CoinAvatar } from "@/components/CoinAvatar";
+import { GraduationBar } from "@/components/GraduationBar";
+import { QuoteChip } from "@/components/QuoteChip";
+import { Sparkline } from "@/components/Sparkline";
+import { Badge, ButtonLink, Change, EmptyState, ErrorState, SectionHeading, Skeleton } from "@/components/ui";
+
+const tabs: { value: CoinSort; label: string; icon: typeof Crown }[] = [
+  { value: "mcap", label: "Market cap", icon: Crown },
+  { value: "new", label: "New", icon: Rocket },
+  { value: "active", label: "Active", icon: Flame },
+  { value: "near", label: "Near graduation", icon: Clock },
+  { value: "graduated", label: "Graduated", icon: GraduationCap },
+];
+
+const VIEW_KEY = "cook-view";
+
+export function CoinExplorer() {
+  const [sort, setSort] = useState<CoinSort>("mcap");
+  const [quote, setQuote] = useState("all");
+  const [search, setSearch] = useState("");
+  const [debounced, setDebounced] = useState("");
+  const [view, setView] = useState<"list" | "grid">("list");
+
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem(VIEW_KEY);
+      if (v === "list" || v === "grid") setView(v);
+    } catch {}
+  }, []);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(search.trim()), 250);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const changeView = (v: "list" | "grid") => {
+    setView(v);
+    try {
+      localStorage.setItem(VIEW_KEY, v);
+    } catch {}
+  };
+
+  const { data: quotes } = useQuotes();
+  const { data: stats } = useStats();
+  const { data, isLoading, isError } = useCoins({
+    sort,
+    quote: quote === "all" ? undefined : quote,
+    search: debounced || undefined,
+    limit: 100,
+  });
+  const ethUsd = stats?.ethUsd ?? 0;
+
+  return (
+    <section id="coins" className="scroll-mt-24">
+      <SectionHeading
+        eyebrow="Explore"
+        title="Every coin, every pair"
+        sub="Coins trade against ETH, USDG or tokenized stocks. Each one pays the same 3%, and all of it comes back."
+      />
+
+      <div className="mt-7 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="no-scrollbar -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+          <div className="inline-flex gap-1.5">
+            {tabs.map((t) => (
+              <button
+                key={t.value}
+                onClick={() => setSort(t.value)}
+                className={clsx(
+                  "inline-flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-sm whitespace-nowrap transition-all",
+                  sort === t.value
+                    ? "border-line-strong bg-elev-2 text-fg shadow-card"
+                    : "border-line text-muted hover:border-line-strong hover:text-fg",
+                )}
+              >
+                <t.icon size={14} className={sort === t.value ? "text-accent" : ""} />
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="relative min-w-0 flex-1 xl:w-64 xl:flex-none">
+            <Search size={15} className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-faint" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search name, ticker, address"
+              className="h-10 w-full rounded-full border border-line bg-elev pr-4 pl-10 text-sm outline-none transition-all placeholder:text-faint hover:border-line-strong focus:border-accent focus:shadow-[0_0_0_4px_var(--accent-soft)]"
+            />
+          </div>
+          <select
+            value={quote}
+            onChange={(e) => setQuote(e.target.value)}
+            aria-label="Pair"
+            className="h-10 shrink-0 rounded-full border border-line bg-elev px-3.5 text-sm outline-none hover:border-line-strong focus:border-accent"
+          >
+            <option value="all">Any pair</option>
+            {quotes?.map((q) => (
+              <option key={q.address} value={q.address}>
+                {q.symbol}
+              </option>
+            ))}
+          </select>
+          <div className="hidden shrink-0 rounded-full border border-line bg-sunk/80 p-1 sm:flex">
+            {(["list", "grid"] as const).map((v) => (
+              <button
+                key={v}
+                aria-label={`${v} view`}
+                onClick={() => changeView(v)}
+                className={clsx(
+                  "flex h-8 w-8 items-center justify-center rounded-full transition-all",
+                  view === v ? "bg-elev-2 text-fg shadow-[inset_0_0_0_1px_var(--line-strong)]" : "text-muted hover:text-fg",
+                )}
+              >
+                {v === "list" ? <List size={15} /> : <LayoutGrid size={15} />}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-5">
+        {isError && !data ? (
+          <ErrorState />
+        ) : isLoading && !data ? (
+          <ListSkeleton />
+        ) : !data || data.length === 0 ? (
+          <EmptyState
+            title={debounced ? "No coins match that search" : "No coins here yet"}
+            detail={debounced ? "Try a ticker, a name or a contract address." : "Be the first: launch a coin in under a minute."}
+            action={!debounced && <ButtonLink href="/launch">Launch a coin</ButtonLink>}
+          />
+        ) : view === "grid" ? (
+          <Grid coins={data} ethUsd={ethUsd} />
+        ) : (
+          <Table coins={data} ethUsd={ethUsd} />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function TokenCell({ c, size = 40 }: { c: Coin; size?: number }) {
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <CoinAvatar src={c.image} symbol={c.symbol} seed={c.address} size={size} />
+      <div className="min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="truncate text-[15px] font-semibold tracking-tight">{c.name}</span>
+          {c.isMain && <Badge tone="accent">Platform</Badge>}
+        </div>
+        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted">
+          <span className="font-medium text-fg/75">${c.symbol}</span>
+          <span className="text-faint">·</span>
+          <span className="num">{short(c.creator, 3)}</span>
+          <span className="text-faint">·</span>
+          <span className="num">{age(c.createdAt)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Table({ coins, ethUsd }: { coins: Coin[]; ethUsd: number }) {
+  return (
+    <div className="surface scroll-x overflow-hidden rounded-[22px]">
+      <table className="w-full min-w-[920px] text-left">
+        <thead>
+          <tr className="border-b border-line text-[11px] tracking-wider text-faint uppercase">
+            <th className="w-12 py-3.5 pl-5 font-medium">#</th>
+            <th className="px-3 py-3.5 font-medium">Coin</th>
+            <th className="px-3 py-3.5 font-medium">Pair</th>
+            <th className="px-3 py-3.5 font-medium">24h</th>
+            <th className="px-3 py-3.5 text-right font-medium">Market cap</th>
+            <th className="px-3 py-3.5 text-right font-medium">Volume 24h</th>
+            <th className="px-3 py-3.5 text-right font-medium">Fees returned</th>
+            <th className="px-3 py-3.5 text-right font-medium">Holders</th>
+            <th className="w-44 py-3.5 pr-5 pl-3 font-medium">Graduation</th>
+          </tr>
+        </thead>
+        <tbody>
+          {coins.map((c, i) => (
+            <tr key={c.address} className="group relative border-b border-line transition-colors last:border-0 hover:bg-elev-2">
+              <td className="num py-3.5 pl-5 text-xs text-faint">{i + 1}</td>
+              <td className="max-w-[300px] px-3 py-3.5">
+                <Link href={`/token/${c.address}`} className="block after:absolute after:inset-0">
+                  <TokenCell c={c} />
+                </Link>
+              </td>
+              <td className="px-3 py-3.5">
+                <QuoteChip symbol={c.quote.symbol} />
+              </td>
+              <td className="px-3 py-3.5">
+                <Sparkline data={c.spark} width={104} height={32} />
+              </td>
+              <td className="px-3 py-3.5 text-right">
+                <div className="num text-sm font-medium">{usd(c.marketCapEth * ethUsd)}</div>
+                <Change value={c.change24h} className="text-xs" />
+              </td>
+              <td className="px-3 py-3.5 text-right">
+                <div className="num text-sm">{usd(c.volume24hEth * ethUsd)}</div>
+                <div className="num text-xs text-faint">{c.trades24h} trades</div>
+              </td>
+              <td className="px-3 py-3.5 text-right">
+                <div className="num text-sm">{usd(c.feesEth * ethUsd)}</div>
+                <div className="num text-xs text-faint">{eth(c.feesEth)}</div>
+              </td>
+              <td className="px-3 py-3.5 text-right">
+                <span className="num inline-flex items-center gap-1 text-sm text-muted">
+                  <Users size={12} className="text-faint" />
+                  {c.holders}
+                </span>
+              </td>
+              <td className="py-3.5 pr-5 pl-3">
+                <GraduationBar progress={c.graduationProgress} graduated={c.graduated} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Grid({ coins, ethUsd }: { coins: Coin[]; ethUsd: number }) {
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {coins.map((c) => (
+        <Link key={c.address} href={`/token/${c.address}`} className="surface surface-hover group rounded-[22px] p-5">
+          <div className="flex items-start justify-between gap-3">
+            <TokenCell c={c} size={44} />
+            <QuoteChip symbol={c.quote.symbol} />
+          </div>
+          {c.description && <p className="mt-3.5 line-clamp-2 min-h-[2.5em] text-[13px] leading-relaxed text-muted">{c.description}</p>}
+          <div className="mt-4 flex items-end justify-between gap-3">
+            <div>
+              <div className="text-xs text-muted">Market cap</div>
+              <div className="num mt-0.5 text-xl font-medium">{usd(c.marketCapEth * ethUsd)}</div>
+              <Change value={c.change24h} pill className="mt-1 text-xs" />
+            </div>
+            <Sparkline data={c.spark} width={128} height={48} strokeWidth={2} />
+          </div>
+          <div className="mt-5 grid grid-cols-2 gap-3 border-t border-line pt-4 text-xs">
+            <div>
+              <div className="text-muted">Fees returned</div>
+              <div className="num mt-0.5 text-sm text-fg">{usd(c.feesEth * ethUsd)}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-muted">Holders</div>
+              <div className="num mt-0.5 text-sm text-fg">{c.holders}</div>
+            </div>
+          </div>
+          <GraduationBar className="mt-4" progress={c.graduationProgress} graduated={c.graduated} />
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function ListSkeleton() {
+  return (
+    <div className="surface space-y-1 rounded-[22px] p-5">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-4 py-2.5">
+          <Skeleton className="h-10 w-10 rounded-full" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-3.5 w-44" />
+            <Skeleton className="h-3 w-28" />
+          </div>
+          <Skeleton className="hidden h-8 w-28 sm:block" />
+          <Skeleton className="h-4 w-20" />
+          <Skeleton className="hidden h-2 w-36 md:block" />
+        </div>
+      ))}
+    </div>
+  );
+}

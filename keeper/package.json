@@ -1,0 +1,23 @@
+{
+  "name": "@cook/keeper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "once": "tsx src/index.ts --once",
+    "seed": "tsx src/seed.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cook/shared": "workspace:*",
+    "@openzeppelin/merkle-tree": "^1.0.8",
+    "dotenv": "^18.0.9",
+    "viem": "^2.57.13"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.23.15",
+    "typescript": "5.9.3"
+  }
+}
