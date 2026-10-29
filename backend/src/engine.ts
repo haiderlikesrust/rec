@@ -50,6 +50,8 @@ export interface Engine {
   claimFees(c: CoinRow): Promise<bigint>;
   /** Fee wallet buys the coin in its own pool with `quoteRaw` and burns everything it receives. */
   buybackAndBurn(c: CoinRow, quoteRaw: bigint): Promise<{ burned: bigint; sig: string }>;
+  /** Burns up to `amount` of a coin a backend wallet holds; returns what it actually burned. */
+  burnHeld(from: Role, c: CoinRow, amount: bigint): Promise<{ burned: bigint; sig: string }>;
   /** Swaps inside the fee wallet (Jupiter on mainnet). Wrapped-SOL mint means native SOL. */
   convert(fromMint: string, toMint: string, raw: bigint): Promise<{ out: bigint; sig: string }>;
   sendSol(from: Role, to: string, lamports: bigint): Promise<string>;

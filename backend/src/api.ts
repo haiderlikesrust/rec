@@ -348,7 +348,7 @@ export function createApi(engine: Engine) {
       wallet: engine.wallets.otc,
       reserveSol: treasury.otcSol,
       walletDailyCapSol: walletDailyCapSol(),
-      coins: all<CoinRow>("SELECT * FROM coin WHERE otc_credit > 0 OR otc_inventory != '0' ORDER BY sol_to_otc DESC").map((c) => otcCoin(c)),
+      coins: all<CoinRow>("SELECT * FROM coin WHERE otc_credit > 0 OR otc_burned != '0' ORDER BY sol_to_otc DESC").map((c) => otcCoin(c)),
     }),
   );
 

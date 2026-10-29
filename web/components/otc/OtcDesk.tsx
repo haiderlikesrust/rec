@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { ArrowDown, ChevronRight, Clock, Coins as CoinsIcon, Gauge, Percent, Scale, Users, X } from "lucide-react";
+import { ArrowDown, ChevronRight, Clock, Coins as CoinsIcon, Flame, Gauge, Percent, Scale, Users, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { brand, isSolanaAddress, otcPolicy, type Coin, type CoinDetail, type OtcCoin } from "@cook/shared";
@@ -13,11 +13,10 @@ import { useAddress } from "@/lib/wallet";
 import { CoinAvatar } from "@/components/CoinAvatar";
 import { QuoteChip } from "@/components/QuoteChip";
 import { TxStatus } from "@/components/TxStatus";
-import { Button, Card, CardHeader, EmptyState, ErrorState, IconTile, Input, Segmented, Skeleton } from "@/components/ui";
+import { Button, Card, CardHeader, EmptyState, ErrorState, IconTile, Input, Skeleton } from "@/components/ui";
 import { useWalletModal } from "@/components/wallet/WalletModal";
 
 const TEAL = bucketColor.otcReserve;
-const SOL_RESERVE = 10_000_000n; // keep 0.01 SOL for fees and token-account rent
 
 function Meter({ value, color = TEAL, className }: { value: number; color?: string; className?: string }) {
   const p = Math.max(0, Math.min(1, value || 0));
@@ -88,7 +87,7 @@ export function OtcDesk() {
                   <th className="px-3 py-3.5 font-medium">Sell limit now</th>
                   <th className="px-3 py-3.5 font-medium">Activity</th>
                   <th className="px-3 py-3.5 text-right font-medium">Contributed</th>
-                  <th className="px-3 py-3.5 text-right font-medium">Inventory</th>
+                  <th className="px-3 py-3.5 text-right font-medium">Burned via OTC</th>
                   <th className="w-10 py-3.5 pr-4" />
                 </tr>
               </thead>
@@ -122,7 +121,7 @@ export function OtcDesk() {
             </IconTile>
             <h3 className="font-display mt-5 text-2xl font-semibold">Pick a coin</h3>
             <p className="mt-1.5 text-sm leading-relaxed text-muted">
-              Choose a coin from the list to sell into the reserve or buy its inventory, or paste its mint address.
+              Choose a coin from the list to sell into the reserve, or paste its mint address. Every coin the reserve buys is burned in the same transaction.
             </p>
             <div className="mt-5 flex gap-2">
               <Input value={manual} onChange={(e) => setManual(e.target.value.trim())} placeholder="Mint address" className="num text-xs" />
@@ -178,7 +177,7 @@ function OtcRow({
         </div>
       </td>
       <td className="num px-3 py-3 text-right text-muted">{usd(r.contributedSol * solUsd)}</td>
-      <td className="num px-3 py-3 text-right text-muted">{info ? tokens(r.inventory, info.decimals) : "—"}</td>
+      <td className="num px-3 py-3 text-right text-muted">{info ? tokens(r.burned, info.decimals) : "—"}</td>
       <td className="py-3 pr-4 text-right">
         <ChevronRight size={16} className={clsx("inline transition-colors", active ? "text-fg" : "text-faint group-hover:text-fg")} />
       </td>
@@ -194,7 +193,7 @@ function HowLimitsWork() {
     {
       icon: Scale,
       title: "Fair, atomic settlement",
-      body: "Sellers get the lower of spot and the 30-minute TWAP, inventory buyers pay the higher. Each trade is one transaction signed by you and the reserve wallet, so it settles completely or not at all.",
+      body: "Sellers get the lower of spot and the 30-minute TWAP. Each sale is one transaction signed by you and the reserve wallet: you're paid and the coins are burned together, or nothing happens.",
     },
   ];
   return (
@@ -234,7 +233,6 @@ function OtcTicket({ address: coinAddress, onClose }: { address: string; onClose
 }
 
 function Ticket({ coin, onClose }: { coin: CoinDetail; onClose: () => void }) {
-  const [mode, setMode] = useState<"sell" | "buy">("sell");
   const [amount, setAmount] = useState("");
   const wallet = useAddress();
   const { open: openWallet } = useWalletModal();
@@ -243,39 +241,31 @@ function Ticket({ coin, onClose }: { coin: CoinDetail; onClose: () => void }) {
   const balances = useBalances(wallet);
   const tx = useSolanaTx();
 
-  useEffect(() => setAmount(""), [mode, coin.address]);
+  useEffect(() => setAmount(""), [coin.address]);
 
   const l = limits.data;
-  const inDecimals = mode === "sell" ? coin.decimals : 9;
-  const inputRaw = toRaw(amount, inDecimals);
-  const inputUnits = units(inputRaw, inDecimals);
-  // previews from the reserve's posted prices; the signed quote fixes the exact amounts
-  const outUnits = !l ? 0 : mode === "sell" ? inputUnits * l.sellPriceSol : l.buyPriceSol > 0 ? inputUnits / l.buyPriceSol : 0;
-  const outUsd = mode === "sell" ? outUnits * solUsd : outUnits * coin.priceUsd;
-  const inventory = l ? units(l.inventory, coin.decimals) : 0;
+  const inputRaw = toRaw(amount, coin.decimals);
+  const inputUnits = units(inputRaw, coin.decimals);
+  // previews from the reserve's posted price; the signed quote fixes the exact amounts
+  const outUnits = l ? inputUnits * l.sellPriceSol : 0;
 
-  const overLimit = mode === "sell" && !!l && outUnits > l.sellLimitSol;
-  const overWallet = mode === "sell" && !!l && !!wallet && outUnits > l.walletRemainingSol;
-  const overInventory = mode === "buy" && !!l && outUnits > inventory;
+  const overLimit = !!l && outUnits > l.sellLimitSol;
+  const overWallet = !!l && !!wallet && outUnits > l.walletRemainingSol;
   const notReady = !!l && !l.twapReady;
-  const balance = balances.data
-    ? mode === "sell"
-      ? BigInt(balances.data.tokens[coin.address] ?? "0")
-      : BigInt(balances.data.sol)
-    : undefined;
+  const balance = balances.data ? BigInt(balances.data.tokens[coin.address] ?? "0") : undefined;
   const insufficient = balance !== undefined && inputRaw > balance;
 
   async function submit() {
     if (!wallet || inputRaw === 0n) return;
     const r = await tx.run(
-      mode === "sell" ? `Sell ${coin.symbol} to reserve` : `Buy ${coin.symbol} from reserve`,
-      () => client.otcQuote({ wallet, coin: coin.address, side: mode, amount: inputRaw.toString() }),
+      `Sell ${coin.symbol} to reserve`,
+      () => client.otcQuote({ wallet, coin: coin.address, side: "sell", amount: inputRaw.toString() }),
       (signature, quote) => client.otcConfirm(quote.id, signature),
     );
     if (r) setAmount("");
   }
 
-  const blocked = notReady || overLimit || overWallet || overInventory || insufficient;
+  const blocked = notReady || overLimit || overWallet || insufficient;
   const label = notReady
     ? "OTC opens after 30 min of history"
     : insufficient
@@ -284,20 +274,14 @@ function Ticket({ coin, onClose }: { coin: CoinDetail; onClose: () => void }) {
         ? "Above this coin's limit"
         : overWallet
           ? "Above your daily cap"
-          : overInventory
-            ? "Not enough inventory"
-            : tx.busy
-              ? "Working…"
-              : mode === "sell"
-                ? `Sell ${coin.symbol} for SOL`
-                : `Buy ${coin.symbol} with SOL`;
+          : tx.busy
+            ? "Working…"
+            : `Sell ${coin.symbol} for SOL`;
 
   const limitUse = l && l.sellLimitSol > 0 ? outUnits / l.sellLimitSol : outUnits > 0 ? 1 : 0;
   const capUse = l && l.walletRemainingSol > 0 ? outUnits / l.walletRemainingSol : 0;
   const setMax = () => {
-    if (balance === undefined) return;
-    const v = mode === "buy" ? (balance > SOL_RESERVE ? balance - SOL_RESERVE : 0n) : balance;
-    setAmount(formatRaw(v, inDecimals));
+    if (balance !== undefined) setAmount(formatRaw(balance, coin.decimals));
   };
 
   return (
@@ -318,22 +302,17 @@ function Ticket({ coin, onClose }: { coin: CoinDetail; onClose: () => void }) {
         </button>
       </div>
 
-      <Segmented
-        className="mt-5 flex w-full [&>button]:flex-1"
-        value={mode}
-        onChange={setMode}
-        options={[
-          { value: "sell", label: "Sell to reserve" },
-          { value: "buy", label: "Buy inventory" },
-        ]}
-      />
+      <div className="mt-5 flex items-center gap-2 rounded-xl border border-line bg-sunk/60 px-3 py-2 text-xs text-muted">
+        <Flame size={13} className="shrink-0 text-accent" />
+        Sell to the reserve for SOL. The coins are burned in the same transaction.
+      </div>
 
       <div className="mt-4 rounded-2xl border border-line bg-sunk px-4 py-3.5 transition-all focus-within:border-accent focus-within:bg-elev focus-within:shadow-[0_0_0_4px_var(--accent-soft)]">
         <div className="flex justify-between text-xs text-muted">
-          <span>{mode === "sell" ? "You sell" : "You spend"}</span>
+          <span>You sell</span>
           {wallet && balance !== undefined && (
             <button onClick={setMax} className="num transition-colors hover:text-fg">
-              Balance {tokens(balance, inDecimals)} · <span className="text-accent">Max</span>
+              Balance {tokens(balance, coin.decimals)} · <span className="text-accent">Max</span>
             </button>
           )}
         </div>
@@ -345,10 +324,10 @@ function Ticket({ coin, onClose }: { coin: CoinDetail; onClose: () => void }) {
             onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))}
             className="num min-w-0 flex-1 bg-transparent text-3xl outline-none placeholder:text-faint"
           />
-          <span className="rounded-full border border-line bg-elev px-3 py-1 text-sm font-medium">{mode === "sell" ? coin.symbol : "SOL"}</span>
+          <span className="rounded-full border border-line bg-elev px-3 py-1 text-sm font-medium">{coin.symbol}</span>
         </div>
         <div className="num mt-1 text-xs text-faint">
-          {inputRaw > 0n ? `≈ ${usd(mode === "sell" ? inputUnits * coin.priceUsd : inputUnits * solUsd)}` : " "}
+          {inputRaw > 0n ? `≈ ${usd(inputUnits * coin.priceUsd)}` : " "}
         </div>
       </div>
 
@@ -361,52 +340,34 @@ function Ticket({ coin, onClose }: { coin: CoinDetail; onClose: () => void }) {
       <div className="rounded-2xl border border-line bg-sunk/60 px-4 py-3.5">
         <div className="flex justify-between text-xs text-muted">
           <span>You receive (est.)</span>
-          {outUnits > 0 && <span className="num text-faint">≈ {usd(outUsd)}</span>}
+          {outUnits > 0 && <span className="num text-faint">≈ {usd(outUnits * solUsd)}</span>}
         </div>
         <div className="num mt-1.5 min-h-9 text-3xl">
           {inputRaw === 0n ? (
             <span className="text-faint">0.0</span>
           ) : !l ? (
             <Skeleton className="mt-1 h-8 w-32" />
-          ) : mode === "sell" ? (
-            sol(outUnits)
           ) : (
-            <>
-              {outUnits.toLocaleString("en-US", { maximumFractionDigits: 2 })} <span className="text-base text-muted">{coin.symbol}</span>
-            </>
+            sol(outUnits)
           )}
         </div>
       </div>
 
       <div className="mt-4 space-y-3.5">
-        {mode === "sell" ? (
-          <>
-            <div>
-              <div className="flex justify-between text-xs">
-                <span className="text-muted">Coin limit now</span>
-                <span className={clsx("num", overLimit ? "text-down" : "text-fg")}>{l ? usd(l.sellLimitSol * solUsd) : "…"}</span>
-              </div>
-              <Meter className="mt-1.5" value={limitUse} color={overLimit ? "var(--down)" : TEAL} />
-            </div>
-            <div>
-              <div className="flex justify-between text-xs">
-                <span className="text-muted">Your cap left today</span>
-                <span className={clsx("num", overWallet ? "text-down" : "text-fg")}>{wallet && l ? usd(l.walletRemainingSol * solUsd) : "—"}</span>
-              </div>
-              <Meter className="mt-1.5" value={capUse} color={overWallet ? "var(--down)" : "var(--accent)"} />
-            </div>
-          </>
-        ) : (
-          <div>
-            <div className="flex justify-between text-xs">
-              <span className="text-muted">Reserve inventory</span>
-              <span className={clsx("num", overInventory ? "text-down" : "text-fg")}>
-                {l ? tokens(l.inventory, coin.decimals, coin.symbol) : "…"}
-              </span>
-            </div>
-            <Meter className="mt-1.5" value={inventory > 0 ? outUnits / inventory : 0} color={overInventory ? "var(--down)" : TEAL} />
+        <div>
+          <div className="flex justify-between text-xs">
+            <span className="text-muted">Coin limit now</span>
+            <span className={clsx("num", overLimit ? "text-down" : "text-fg")}>{l ? usd(l.sellLimitSol * solUsd) : "…"}</span>
           </div>
-        )}
+          <Meter className="mt-1.5" value={limitUse} color={overLimit ? "var(--down)" : TEAL} />
+        </div>
+        <div>
+          <div className="flex justify-between text-xs">
+            <span className="text-muted">Your cap left today</span>
+            <span className={clsx("num", overWallet ? "text-down" : "text-fg")}>{wallet && l ? usd(l.walletRemainingSol * solUsd) : "—"}</span>
+          </div>
+          <Meter className="mt-1.5" value={capUse} color={overWallet ? "var(--down)" : "var(--accent)"} />
+        </div>
       </div>
 
       <div className="mt-5">

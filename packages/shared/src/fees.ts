@@ -119,15 +119,16 @@ export function buyTaxBpsAt(secondsSinceLaunch: number) {
 
 // ---------------------------------------------------------------- OTC reserve policy
 //
-// The OTC reserve is a backend-controlled SOL wallet. Every OTC trade is one transaction signed by both sides
-// (the trader and the reserve), so it settles atomically or not at all.
+// The OTC reserve is a backend-controlled SOL wallet that only buys. Every OTC sale is one transaction signed by
+// both sides (the seller and the reserve) that pays the seller and burns the coins, so it settles atomically or not
+// at all and the reserve never holds coins.
 
 export const otcPolicy = {
   /** OTC trades carry the same 3%; it goes to the fee wallet in the same transaction. */
   spreadBps: TAX_BPS,
   /** 1 SOL contributed = 2 SOL of sell capacity. */
   creditMultiplierBps: 20_000,
-  /** Sells price at min(spot, TWAP), buys at max(spot, TWAP). OTC opens once this much history exists. */
+  /** Sells price at min(spot, TWAP). OTC opens once this much history exists. */
   twapSeconds: 30 * 60,
   /** Full limit while the coin paid fees within this window... */
   activeSeconds: 2 * 86_400,

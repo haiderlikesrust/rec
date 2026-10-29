@@ -296,19 +296,13 @@ export class DemoEngine implements Engine {
   // ---------------------------------------------------------------- OTC and claims settle instantly
 
   async otcTx(q: OtcQuoteRow, c: CoinRow): Promise<TxEnvelope> {
+    if (q.side !== "sell") throw new UserError("The OTC reserve only buys coins.");
     tx(() => {
       const tax = big(q.tax);
-      if (q.side === "sell") {
-        this.add(q.wallet, c.mint, -big(q.amount_in), c.symbol);
-        this.add(this.wallets.otc, c.mint, big(q.amount_in));
-        this.add(this.wallets.otc, NATIVE_MINT, -(big(q.amount_out) + tax), "SOL in the reserve");
-        this.add(q.wallet, NATIVE_MINT, big(q.amount_out));
-      } else {
-        this.add(q.wallet, NATIVE_MINT, -big(q.amount_in), "SOL");
-        this.add(this.wallets.otc, NATIVE_MINT, big(q.amount_in) - tax);
-        this.add(this.wallets.otc, c.mint, -big(q.amount_out), "inventory");
-        this.add(q.wallet, c.mint, big(q.amount_out));
-      }
+      // the coins leave the seller and are burned in the same step; the reserve never holds them
+      this.add(q.wallet, c.mint, -big(q.amount_in), c.symbol);
+      this.add(this.wallets.otc, NATIVE_MINT, -(big(q.amount_out) + tax), "SOL in the reserve");
+      this.add(q.wallet, NATIVE_MINT, big(q.amount_out));
       this.add(this.wallets.fees, NATIVE_MINT, tax);
     });
     return { tx: null, demo: true, signature: fakeSig() };
@@ -340,6 +334,14 @@ export class DemoEngine implements Engine {
     const { fill, sig } = this.trade(c, this.wallets.fees, "buy", quoteRaw, this.at(), "buyback");
     this.add(this.wallets.fees, c.mint, -fill.amountOut);
     return { burned: fill.amountOut, sig };
+  }
+
+  async burnHeld(from: Role, c: CoinRow, amount: bigint) {
+    const held = this.bal(this.wallets[from], c.mint);
+    const burned = held < amount ? held : amount;
+    if (burned <= 0n) return { burned: 0n, sig: "" };
+    this.add(this.wallets[from], c.mint, -burned);
+    return { burned, sig: fakeSig() };
   }
 
   async convert(fromMint: string, toMint: string, raw: bigint) {

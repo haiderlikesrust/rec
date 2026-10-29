@@ -395,18 +395,20 @@ export default function DocsPage() {
               </li>
               <li>One coin can draw at most 10% of the reserve at a time, and one wallet at most 5% of it per coin per day.</li>
               <li>
-                Sellers are paid at the <strong>lower</strong> of spot and the 30-minute TWAP; buyers of the reserve&apos;s
-                inventory pay the <strong>higher</strong>. Pumping the price for a few blocks doesn&apos;t help. OTC opens 30
-                minutes after launch.
+                Sellers are paid at the <strong>lower</strong> of spot and the 30-minute TWAP, so pumping the price for a
+                few blocks doesn&apos;t help. OTC opens 30 minutes after launch.
               </li>
               <li>
-                OTC trades carry the same 3%, paid to the fee wallet in the same transaction and split like any other fee. SOL
-                paid by inventory buyers restores that coin&apos;s credit.
+                <strong>Every coin the reserve buys is burned</strong> in the same transaction that pays you. The reserve
+                never holds coins or resells them, so each OTC exit permanently shrinks the supply.
               </li>
               <li>
-                <strong>Atomic settlement.</strong> Every OTC trade is one Solana transaction signed by both you and the reserve
-                wallet: your coins in, its SOL out. It settles completely or not at all, and the signed quote expires within a
-                minute.
+                OTC sales carry the same 3%, paid to the fee wallet in the same transaction and split like any other fee.
+              </li>
+              <li>
+                <strong>Atomic settlement.</strong> Every OTC sale is one Solana transaction signed by both you and the reserve
+                wallet: your coins in, its SOL out, the coins burned. It settles completely or not at all, and the signed quote
+                expires within a minute.
               </li>
             </ul>
           </RuleCard>

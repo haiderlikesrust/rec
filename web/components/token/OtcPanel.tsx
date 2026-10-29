@@ -50,8 +50,8 @@ export function OtcPanel({ coin, solUsd }: { coin: CoinDetail; solUsd: number })
           <div className="num mt-0.5 text-fg">{usd(otc.contributedSol * solUsd)}</div>
         </div>
         <div className="text-right">
-          <div className="text-muted">Reserve inventory</div>
-          <div className="num mt-0.5 text-fg">{tokens(otc.inventory, coin.decimals, coin.symbol)}</div>
+          <div className="text-muted">Burned via OTC</div>
+          <div className="num mt-0.5 text-fg">{tokens(otc.burned, coin.decimals, coin.symbol)}</div>
         </div>
       </div>
       {!otc.twapReady && (

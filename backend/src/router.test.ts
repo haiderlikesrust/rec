@@ -81,12 +81,18 @@ test("fees flow from trades into the five wallets, and losses become protection 
   const rest = BigInt(Math.floor(((Math.min(info.sellLimitSol, walletDailyCapSol()) * 0.5) / info.sellPriceSol) * 1e6));
   const before = sol(buyer);
   const feesBefore = sol(engine.wallets.fees);
+  const supplyBefore = big(getCoin(mint)!.total_supply);
   const q = await otcQuote(engine, { wallet: buyer, coin: mint, side: "sell", amount: rest.toString() });
   assert.equal(q.demo, true);
   assert.ok(Math.abs(sol(buyer) - before - Number(q.amountOut) / 1e9) < 1e-9);
   assert.ok(Math.abs(sol(engine.wallets.fees) - feesBefore - Number(q.taxLamports) / 1e9) < 1e-9);
   assert.equal(one<{ status: string }>("SELECT status FROM otc_quote WHERE id = ?", q.id)!.status, "done");
   assert.ok(getCoin(mint)!.pending_sol > 0, "OTC tax is queued for the next split");
+  // the reserve burned exactly what it bought, in the same settlement, and holds none of it
+  assert.equal(big(getCoin(mint)!.otc_burned), rest, "every coin sold to the reserve is burned");
+  assert.equal(big(getCoin(mint)!.total_supply), supplyBefore - rest, "supply went down by the OTC sale");
+  assert.equal(engine.bal(engine.wallets.otc, mint), 0n, "the reserve holds no coins");
+  await assert.rejects(otcQuote(engine, { wallet: buyer, coin: mint, side: "buy" as "sell", amount: "1000000" }), /only buys/);
 
   // protection: an epoch covers the buyer's realized loss, and the claim pays out of the protection wallet
   refresh();

@@ -60,8 +60,8 @@ packages/shared/  API types, fee policy, quote catalog, brand, Solana constants
    - buys $RECR with the platform-burn SOL and burns it.
 5. **OTC.** Each coin earns sell credit worth 2× the SOL it contributed. The credit is full while the coin keeps
    paying fees and drops to 5% after 2 days without any (fresh trading restores it). Sells price at
-   min(spot, 30-min TWAP) minus 3%; one coin can draw at most 10% of the reserve, and one wallet at most 5% per coin per day. The reserve resells its inventory
-   at max(spot, TWAP).
+   min(spot, 30-min TWAP) minus 3%; one coin can draw at most 10% of the reserve, and one wallet at most 5% per coin
+   per day. The coins are burned in the same transaction that pays the seller, so the reserve never holds any.
 6. **Airdrops** (continuously). Every pass (20 s), new airdrop money is allocated to holders whose average entry is
    above the price, weighted by unrealized loss, with at least ~$20 at stake. Each holder's allocation is sent as
    soon as it's worth $0.50, so payouts never cost more than they deliver. Coins received by transfer carry zero

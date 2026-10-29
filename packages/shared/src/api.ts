@@ -92,12 +92,10 @@ export type OtcCoin = {
   creditSol: number; // sell credit before activity scaling
   activityBps: number;
   sellLimitSol: number; // SOL the reserve will pay for this coin right now
-  inventory: string; // raw coin units the reserve holds
+  burned: string; // raw coin units the reserve has bought and burned (it never holds any)
   lastContribution: number;
   /** SOL per whole coin a seller gets, after the spread (0 until the TWAP window fills) */
   sellPriceSol: number;
-  /** SOL per whole coin a buyer pays, including the spread */
-  buyPriceSol: number;
   twapReady: boolean;
 };
 
@@ -299,8 +297,8 @@ export type LaunchRequest = {
 };
 export type LaunchResponse = TxEnvelope & { mint: Address; pool: Address };
 
-export type OtcSide = "sell" | "buy"; // sell coins to the reserve / buy coins from it
-export type OtcQuoteRequest = { wallet: Address; coin: Address; side: OtcSide; amount: string /* raw coin for sells, lamports for buys */ };
+export type OtcSide = "sell"; // sell coins to the reserve, which burns them in the same transaction
+export type OtcQuoteRequest = { wallet: Address; coin: Address; side: OtcSide; amount: string /* raw coin units */ };
 export type OtcQuote = TxEnvelope & {
   id: string;
   side: OtcSide;

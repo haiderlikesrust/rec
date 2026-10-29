@@ -255,16 +255,17 @@ export function recordTransfer(coinMint: string, wallet: string, delta: bigint) 
   });
 }
 
-/** Burned supply, from a coin buyback or a platform-token buyback. */
-export function recordBurn(coinMint: string, amount: bigint, valueSol: number, buyback: "coin" | "main") {
+/** Burned supply, from a coin buyback, a platform-token buyback, or coins sold to the OTC reserve. */
+export function recordBurn(coinMint: string, amount: bigint, valueSol: number, source: "coin" | "main" | "otc") {
   const c = getCoin(coinMint);
   if (!c) return;
   run(
-    "UPDATE coin SET total_supply = ?, burned = ?, coin_burned = ?, burned_value_sol = burned_value_sol + ? WHERE mint = ?",
+    "UPDATE coin SET total_supply = ?, burned = ?, coin_burned = ?, otc_burned = ?, burned_value_sol = burned_value_sol + ? WHERE mint = ?",
     (big(c.total_supply) - amount).toString(),
     (big(c.burned) + amount).toString(),
-    (big(c.coin_burned) + (buyback === "coin" ? amount : 0n)).toString(),
-    buyback === "coin" ? valueSol : 0,
+    (big(c.coin_burned) + (source === "coin" ? amount : 0n)).toString(),
+    (big(c.otc_burned) + (source === "otc" ? amount : 0n)).toString(),
+    source === "coin" ? valueSol : 0,
     coinMint,
   );
 }

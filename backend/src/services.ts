@@ -302,10 +302,9 @@ export function otcCoin(c: CoinRow, at = now()): OtcCoin {
     creditSol: c.otc_credit,
     activityBps,
     sellLimitSol: Math.max(0, otcSellLimitSol(c.otc_credit, activityBps, treasury.otcSol) - outstanding),
-    inventory: c.otc_inventory,
+    burned: c.otc_burned,
     lastContribution: c.otc_last_contribution,
     sellPriceSol: avg === null ? 0 : Math.min(spot, avg * solPer) * (1 - spread),
-    buyPriceSol: avg === null ? 0 : Math.max(spot, avg * solPer) / (1 - spread),
     twapReady: avg !== null,
   };
 }

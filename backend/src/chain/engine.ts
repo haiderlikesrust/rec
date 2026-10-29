@@ -403,23 +403,18 @@ export class ChainEngine implements Engine {
     const userAta = this.ata(user, c.mint, program);
     const otcAta = this.ata(otc, c.mint, program);
     const mint = this.pk(c.mint);
-    const tx = new Transaction();
-    if (q.side === "sell") {
-      tx.add(
-        createAssociatedTokenAccountIdempotentInstruction(user, otcAta, otc, mint, program),
-        createTransferCheckedInstruction(userAta, mint, otcAta, user, BigInt(q.amount_in), c.decimals, [], program),
-        SystemProgram.transfer({ fromPubkey: otc, toPubkey: user, lamports: BigInt(q.amount_out) }),
-        SystemProgram.transfer({ fromPubkey: otc, toPubkey: fees, lamports: BigInt(q.tax) }),
-      );
-    } else {
-      tx.add(
-        SystemProgram.transfer({ fromPubkey: user, toPubkey: otc, lamports: BigInt(q.amount_in) - BigInt(q.tax) }),
-        SystemProgram.transfer({ fromPubkey: user, toPubkey: fees, lamports: BigInt(q.tax) }),
-        createAssociatedTokenAccountIdempotentInstruction(user, userAta, user, mint, program),
-        createTransferCheckedInstruction(otcAta, mint, userAta, otc, BigInt(q.amount_out), c.decimals, [], program),
-      );
-    }
-    tx.add(this.memo(memoFor("otc", q.id), otc));
+    if (q.side !== "sell") throw new UserError("The OTC reserve only buys coins.");
+    const coins = BigInt(q.amount_in);
+    // one transaction: the coins reach the reserve, the seller and the fee wallet are paid, and the reserve burns
+    // exactly those coins, so it settles completely or not at all and the reserve never holds any
+    const tx = new Transaction().add(
+      createAssociatedTokenAccountIdempotentInstruction(user, otcAta, otc, mint, program),
+      createTransferCheckedInstruction(userAta, mint, otcAta, user, coins, c.decimals, [], program),
+      SystemProgram.transfer({ fromPubkey: otc, toPubkey: user, lamports: BigInt(q.amount_out) }),
+      SystemProgram.transfer({ fromPubkey: otc, toPubkey: fees, lamports: BigInt(q.tax) }),
+      createBurnCheckedInstruction(otcAta, mint, otc, coins, c.decimals, [], program),
+      this.memo(memoFor("otc", q.id), otc),
+    );
     return this.forUser(tx, q.wallet, [this.keys.otc]);
   }
 
@@ -528,6 +523,20 @@ export class ChainEngine implements Engine {
       await this.send(burnTx, [this.keys.fees]);
     }
     return { burned, sig };
+  }
+
+  async burnHeld(from: Role, c: CoinRow, amount: bigint) {
+    const program = await this.tokenProgram(c.mint);
+    const owner = this.keys[from].publicKey;
+    const ata = this.ata(owner, c.mint, program);
+    const held = await this.conn
+      .getTokenAccountBalance(ata, "confirmed")
+      .then((b) => BigInt(b.value.amount))
+      .catch(() => 0n);
+    const burned = held < amount ? held : amount;
+    if (burned <= 0n) return { burned: 0n, sig: "" };
+    const tx = new Transaction().add(createBurnCheckedInstruction(ata, this.pk(c.mint), owner, burned, c.decimals, [], program));
+    return { burned, sig: await this.send(tx, [this.keys[from]]) };
   }
 
   async convert(fromMint: string, toMint: string, raw: bigint) {

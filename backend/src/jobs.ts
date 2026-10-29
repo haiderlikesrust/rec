@@ -260,27 +260,56 @@ export async function sweep(engine: Engine, at = now()) {
     else if (s === "failed" || at > (c.claimed_at ?? 0) + 120) run("UPDATE protection_claim SET status = 'open', signature = NULL WHERE id = ?", c.id);
   }
   run("UPDATE protection_claim SET status = 'expired' WHERE status = 'open' AND expires_at < ?", at);
+  await burnOtcLeftovers(engine);
 }
 
-/** Books a confirmed OTC trade: limits, inventory, the 3% tax as SOL fee income for the coin. */
+/**
+ * Coins the OTC reserve bought before it started burning them on arrival: burn those too, so it never holds any.
+ * The amount is taken off the books before the burn and put back if the burn fails, so two servers can't both burn it.
+ */
+async function burnOtcLeftovers(engine: Engine) {
+  for (const c of all<CoinRow>("SELECT * FROM coin WHERE otc_inventory != '0'")) {
+    const amount = big(c.otc_inventory);
+    run("UPDATE coin SET otc_inventory = '0' WHERE mint = ?", c.mint);
+    if (amount <= 0n) continue;
+    try {
+      const { burned, sig } = await engine.burnHeld("otc", c, amount);
+      if (burned > 0n)
+        tx(() => {
+          recordBurn(c.mint, burned, 0, "otc");
+          ledger({ coin: c.mint, kind: "otc-burn", mint: c.mint, amount: burned, tx: sig, note: "inventory from before burn-on-arrival" });
+        });
+      log(`OTC reserve: burned ${toUnits(burned, c.decimals).toFixed(0)} leftover ${c.symbol}`);
+    } catch (e) {
+      run("UPDATE coin SET otc_inventory = ? WHERE mint = ?", amount.toString(), c.mint);
+      log(`OTC leftover burn ${c.symbol}: ${(e as Error).message}`);
+    }
+  }
+}
+
+/**
+ * Books a confirmed OTC trade: limits, the burn, the 3% tax as SOL fee income for the coin. The transaction that
+ * paid the seller also burned the coins, so a confirmed sale is a confirmed burn.
+ */
 export function settleOtc(id: string, signature: string, at = now()) {
   return tx(() => {
     const q = one<OtcQuoteRow>("SELECT * FROM otc_quote WHERE id = ?", id);
     if (!q || q.status === "done") return false;
     const c = getCoin(q.coin)!;
     const taxSol = Number(BigInt(q.tax)) / LAMPORTS;
+    // quotes issued before the reserve started burning could also buy from its inventory
     const isSell = q.side === "sell";
     const tokens = BigInt(isSell ? q.amount_in : q.amount_out);
     run("UPDATE otc_quote SET status = 'done', signature = ? WHERE id = ?", signature, id);
     run(
-      `UPDATE coin SET otc_credit = MAX(0, otc_credit + ?), otc_inventory = ?, pending_sol = pending_sol + ?,
-         fees_sol = fees_sol + ? WHERE mint = ?`,
+      "UPDATE coin SET otc_credit = MAX(0, otc_credit + ?), pending_sol = pending_sol + ?, fees_sol = fees_sol + ? WHERE mint = ?",
       isSell ? -q.sol_gross : q.sol_gross,
-      (isSell ? big(c.otc_inventory) + tokens : big(c.otc_inventory) - tokens).toString(),
       taxSol,
       taxSol,
       c.mint,
     );
+    if (isSell) recordBurn(c.mint, tokens, q.sol_gross, "otc");
+    else run("UPDATE coin SET otc_inventory = ? WHERE mint = ?", (big(c.otc_inventory) - tokens).toString(), c.mint);
     // the trade counts like any other for cost basis and realized losses, priced in the coin's quote
     const solPer = solPerUnit(c.quote) || 1;
     const qDec = quoteDecimals(c.quote);
@@ -303,7 +332,7 @@ export function settleOtc(id: string, signature: string, at = now()) {
         kind: "otc",
     });
     treasury.otcSol += isSell ? -q.sol_gross : q.sol_gross - taxSol;
-    ledger({ coin: c.mint, kind: isSell ? "otc-buy" : "otc-sell", mint: c.mint, amount: tokens, sol: q.sol_gross, tx: signature });
+    ledger({ coin: c.mint, kind: isSell ? "otc-burn" : "otc-sell", mint: c.mint, amount: tokens, sol: q.sol_gross, tx: signature });
     return true;
   });
 }

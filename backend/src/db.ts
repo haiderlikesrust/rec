@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS coin (
   airdrop_last_epoch INTEGER NOT NULL DEFAULT 0, airdrop_last_recipients INTEGER NOT NULL DEFAULT 0,
   -- OTC reserve accounting (SOL)
   otc_credit REAL NOT NULL DEFAULT 0, otc_last_contribution INTEGER NOT NULL DEFAULT 0, otc_inventory TEXT NOT NULL DEFAULT '0',
+  otc_burned TEXT NOT NULL DEFAULT '0',
   -- rug heuristic
   creator_bought TEXT NOT NULL DEFAULT '0', creator_sold TEXT NOT NULL DEFAULT '0'
 );
@@ -108,6 +109,10 @@ CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
 export const one = <T>(sql: string, ...params: SQLInputValue[]) => db.prepare(sql).get(...params) as T | undefined;
 export const all = <T>(sql: string, ...params: SQLInputValue[]) => db.prepare(sql).all(...params) as T[];
 export const run = (sql: string, ...params: SQLInputValue[]) => db.prepare(sql).run(...params);
+
+// columns added after a database was first created
+const coinColumns = new Set(all<{ name: string }>("PRAGMA table_info(coin)").map((c) => c.name));
+if (!coinColumns.has("otc_burned")) db.exec("ALTER TABLE coin ADD COLUMN otc_burned TEXT NOT NULL DEFAULT '0'");
 
 let depth = 0;
 /** Runs `fn` in a transaction (nested calls join the outer one). */
@@ -205,6 +210,7 @@ export type CoinRow = {
   otc_credit: number;
   otc_last_contribution: number;
   otc_inventory: string;
+  otc_burned: string;
   creator_bought: string;
   creator_sold: string;
 };
