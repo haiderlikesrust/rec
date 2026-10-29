@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Keypair } from "@solana/web3.js";
-import { BaseFeeMode, getFeeSchedulerParams, validateConfigParameters } from "@meteora-ag/dynamic-bonding-curve-sdk";
+import { BaseFeeMode, MigratedCollectFeeMode, getFeeSchedulerParams, validateConfigParameters } from "@meteora-ag/dynamic-bonding-curve-sdk";
 import {
   GRADUATION_MCAP_USD,
   SNIPE,
@@ -57,6 +57,19 @@ test("every quote's DBC config starts at $2.5k and graduates at $30k, and Meteor
     assert.equal(params.partnerPermanentLockedLiquidityPercentage, 100);
     assert.equal(params.migratedPoolFee.poolFeeBps, TAX_BPS);
   }
+});
+
+test("quotes with a transfer fee (PreStocks, Tessera) graduate to a Compounding pool that keeps every fee claimable", () => {
+  const fees = Keypair.generate().publicKey;
+  const opts = { feeClaimer: fees, quoteMintHasTransferFee: true };
+  // what failed a live launch: Meteora won't take a QuoteToken migrated pool for such a quote
+  const plain = configParams(1001, 9);
+  assert.throws(() => validateConfigParameters({ ...plain, leftoverReceiver: fees }, opts), /Compounding/);
+  const params = configParams(1001, 9, true);
+  assert.doesNotThrow(() => validateConfigParameters({ ...params, leftoverReceiver: fees }, opts));
+  assert.equal(params.migratedPoolFee.collectFeeMode, MigratedCollectFeeMode.Compounding);
+  assert.equal(params.compoundingFeeBps, 0);
+  assert.equal(params.migratedPoolFee.poolFeeBps, TAX_BPS);
 });
 
 test("demo curve: buying to the threshold reaches the $30k graduation price", () => {

@@ -11,11 +11,14 @@ import {
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
+  calculateEpochFee,
   createAssociatedTokenAccountIdempotentInstruction,
   createBurnCheckedInstruction,
   createTransferCheckedInstruction,
   getAssociatedTokenAddressSync,
   getMint,
+  getTransferFeeConfig,
+  type Mint,
 } from "@solana/spl-token";
 import {
   ComputeBudgetProgram,
@@ -57,8 +60,20 @@ import { configParams } from "./params";
 const MEMO_PROGRAM_ID = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
 // network and priority fees on top of a config's rent
 const CONFIG_FEE_MARGIN_LAMPORTS = 1_000_000;
+// a Token-2022 quote whose issuer charges (or can start charging) a transfer fee: PreStocks, Tessera
+const hasTransferFee = (mint: Mint) => {
+  const fee = getTransferFeeConfig(mint);
+  return (
+    !!fee &&
+    (!fee.transferFeeConfigAuthority.equals(PublicKey.default) ||
+      fee.olderTransferFee.transferFeeBasisPoints > 0 ||
+      fee.newerTransferFee.transferFeeBasisPoints > 0)
+  );
+};
 const lowFeeWallet = (symbol: string) =>
   new UserError(`Launches on the ${symbol} pair open once the platform's fee wallet is topped up with SOL. Try again shortly.`);
+// polls in a row a transaction may fail to index before the indexer moves past it
+const MAX_INGEST_TRIES = 5;
 // burns and airdrops send many small transactions, so the default priority fee stays low
 const PRIORITY_MICROLAMPORTS = Number(process.env.PRIORITY_MICROLAMPORTS ?? 5_000);
 
@@ -74,6 +89,7 @@ export class ChainEngine implements Engine {
   private dbc: DynamicBondingCurveClient;
   private damm: CpAmm;
   private tokenPrograms = new Map<string, PublicKey>();
+  private quoteMints = new Map<string, { at: number; state: { mint: Mint; currentEpoch: number } }>();
   private configInFlight = new Map<string, Promise<{ address: string; threshold: string; quote_usd: number }>>();
 
   constructor(private keys: Record<Role, Keypair>) {
@@ -116,6 +132,28 @@ export class ChainEngine implements Engine {
       this.tokenPrograms.set(mint, p);
     }
     return p;
+  }
+
+  /**
+   * A Token-2022 quote's mint and the current epoch, which Meteora's quote math needs to apply its transfer fee
+   * (and refuses to quote without). Null for classic SPL quotes. Cached for a few minutes.
+   */
+  private async quoteMintState(quote: string) {
+    const program = await this.tokenProgram(quote);
+    if (program.equals(TOKEN_PROGRAM_ID)) return null;
+    const hit = this.quoteMints.get(quote);
+    if (hit && Date.now() - hit.at < 5 * 60_000) return hit.state;
+    const [mint, { epoch }] = await Promise.all([getMint(this.conn, this.pk(quote), "confirmed", program), this.conn.getEpochInfo("confirmed")]);
+    const state = { mint, currentEpoch: epoch };
+    this.quoteMints.set(quote, { at: Date.now(), state });
+    return state;
+  }
+
+  /** What actually lands when `amount` of the quote moves, after any Token-2022 transfer fee. */
+  private async afterTransferFee(quote: string, amount: bigint) {
+    const q = await this.quoteMintState(quote);
+    const fee = q && getTransferFeeConfig(q.mint);
+    return fee ? amount - calculateEpochFee(fee, BigInt(q.currentEpoch), amount) : amount;
   }
 
   private ata(owner: string | PublicKey, mint: string, program: PublicKey) {
@@ -223,7 +261,7 @@ export class ChainEngine implements Engine {
     }
     const program = await this.tokenProgram(quoteMint);
     const mint = await getMint(this.conn, this.pk(quoteMint), "confirmed", program);
-    const params = configParams(usd, mint.decimals);
+    const params = configParams(usd, mint.decimals, hasTransferFee(mint));
     const kp = Keypair.generate();
     const tx = await this.dbc.partner.createConfig2({
       ...params,
@@ -298,8 +336,10 @@ export class ChainEngine implements Engine {
       const poolState = await this.damm.fetchPoolState(this.pk(c.damm_pool));
       const slot = await this.conn.getSlot();
       const time = await this.conn.getBlockTime(slot);
+      const quoteMint = await this.quoteMintState(c.quote);
       const q = this.damm.getQuote2({
         inputTokenMint: side === "buy" ? this.pk(c.quote) : this.pk(c.mint),
+        ...(quoteMint && (side === "buy" ? { inputTokenInfo: quoteMint } : { outputTokenInfo: quoteMint })),
         slippage: slippageBps / 100,
         currentPoint: new BN(time ?? Math.floor(Date.now() / 1000)),
         poolState,
@@ -324,8 +364,12 @@ export class ChainEngine implements Engine {
     }
     const [virtualPool, poolConfig] = await Promise.all([this.dbc.state.getPool(c.pool), this.dbc.state.getPoolConfig(c.config)]);
     if (!virtualPool || !poolConfig) throw new UserError("Pool not found on-chain yet. Try again in a few seconds.");
-    const currentPoint = await getCurrentPoint(this.conn, poolConfig.activationType as ActivationType);
+    const [currentPoint, quoteMint] = await Promise.all([
+      getCurrentPoint(this.conn, poolConfig.activationType as ActivationType),
+      this.quoteMintState(c.quote),
+    ]);
     const q = this.dbc.pool.swapQuote2({
+      ...(quoteMint && { quoteMint: quoteMint.mint, currentEpoch: quoteMint.currentEpoch }),
       virtualPool,
       config: poolConfig,
       swapBaseForQuote: side === "sell",
@@ -428,7 +472,7 @@ export class ChainEngine implements Engine {
   }
 
   async verify(signature: string, memo: string, signer: Role) {
-    const tx = await this.conn.getTransaction(signature, { maxSupportedTransactionVersion: 0, commitment: "confirmed" });
+    const tx = await this.conn.getTransaction(signature, { maxSupportedTransactionVersion: 1, commitment: "confirmed" });
     if (!tx) return "pending" as const;
     if (tx.meta?.err) return "failed" as const;
     const keys = accountKeys(tx);
@@ -455,7 +499,7 @@ export class ChainEngine implements Engine {
       });
       await this.send(tx, [this.keys.fees]);
       await this.claimCreationFee(c);
-      return amount;
+      return this.afterTransferFee(c.quote, amount);
     }
     // graduated: the fee wallet owns the permanently locked LP position(s)
     const pool = this.pk(c.damm_pool);
@@ -479,7 +523,7 @@ export class ChainEngine implements Engine {
         feePayer: fees,
       });
       await this.send(tx, [this.keys.fees]);
-      total += pending;
+      total += await this.afterTransferFee(c.quote, pending);
     }
     return total;
   }
@@ -598,18 +642,27 @@ export class ChainEngine implements Engine {
     for (const address of addresses) {
       const cursor = kvGet(`cursor:${address}`);
       const sigs = await this.conn.getSignaturesForAddress(this.pk(address), { until: cursor, limit: 500 }, "confirmed");
-      if (!sigs.length) continue;
+      // oldest first, moving the cursor past each one handled, so a transaction that can't be read is retried a few
+      // times and then skipped instead of holding back everything after it
       for (const s of [...sigs].reverse()) {
-        if (s.err) continue;
-        await this.ingest(s.signature);
+        if (!s.err) {
+          try {
+            await this.ingest(s.signature);
+          } catch (e) {
+            const tries = Number(kvGet(`fail:${s.signature}`) ?? 0) + 1;
+            kvSet(`fail:${s.signature}`, tries);
+            log(`index ${s.signature}: ${(e as Error).message}${tries >= MAX_INGEST_TRIES ? " (skipped)" : ""}`);
+            if (tries < MAX_INGEST_TRIES) break;
+          }
+        }
+        kvSet(`cursor:${address}`, s.signature);
       }
-      kvSet(`cursor:${address}`, sigs[0]!.signature);
     }
   }
 
   async ingest(signature: string) {
     if (one("SELECT 1 FROM kv WHERE k = ?", `seen:${signature}`)) return;
-    const tx = await this.conn.getTransaction(signature, { maxSupportedTransactionVersion: 0, commitment: "confirmed" });
+    const tx = await this.conn.getTransaction(signature, { maxSupportedTransactionVersion: 1, commitment: "confirmed" });
     if (!tx || tx.meta?.err) return;
     await this.handle(tx, signature);
     kvSet(`seen:${signature}`, 1);

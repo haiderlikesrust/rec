@@ -273,9 +273,6 @@ export function LaunchForm() {
                   placeholder="MCAT"
                 />
               </Field>
-              <Field label="Image URL" hint="or drop a file" className="sm:col-span-2">
-                <Input value={image} onChange={(e) => setImage(e.target.value)} placeholder="https://… or ipfs://…" />
-              </Field>
               {uploadError && <p className="text-xs text-down sm:col-span-2">{uploadError}</p>}
             </div>
           </div>

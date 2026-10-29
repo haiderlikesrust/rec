@@ -13,7 +13,7 @@ test("decodes live DBC swap events from mainnet", { skip: process.env.NETWORK_TE
   const sigs = await conn.getSignaturesForAddress(new PublicKey(DBC_PROGRAM_ID), { limit: 25 });
   let swaps = 0;
   for (const s of sigs.filter((x) => !x.err).slice(0, 12)) {
-    const tx = await conn.getTransaction(s.signature, { maxSupportedTransactionVersion: 0, commitment: "confirmed" });
+    const tx = await conn.getTransaction(s.signature, { maxSupportedTransactionVersion: 1, commitment: "confirmed" });
     if (!tx) continue;
     for (const { ev, facts: f } of swapsOf(decodeEvents(tx))) {
       swaps++;

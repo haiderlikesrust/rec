@@ -23,8 +23,11 @@ import { SUPPLY } from "../curve";
  *  - Graduates to a DAMM v2 pool with the same 3% (quote-side), with 100% of the LP permanently locked to the
  *    fee wallet, so post-graduation trading fees keep flowing to the buckets.
  *  - A 0.01 SOL pool creation fee that funds the platform buyback.
+ *
+ * Quotes with a Token-2022 transfer fee (PreStocks, Tessera) must graduate to a Compounding DAMM v2 pool. With
+ * compoundingFeeBps 0 it works like QuoteToken for us: every fee is charged in the quote and all of it is claimable.
  */
-export function configParams(quoteUsd: number, quoteDecimals: number) {
+export function configParams(quoteUsd: number, quoteDecimals: number, quoteHasTransferFee = false) {
   return buildCurveWithMarketCap({
     token: {
       tokenType: TokenType.SPLToken,
@@ -55,9 +58,10 @@ export function configParams(quoteUsd: number, quoteDecimals: number) {
       migrationFeeOption: MigrationFeeOption.Customizable,
       migrationFee: { feePercentage: 0, creatorFeePercentage: 0 },
       migratedPoolFee: {
-        collectFeeMode: MigratedCollectFeeMode.QuoteToken,
+        collectFeeMode: quoteHasTransferFee ? MigratedCollectFeeMode.Compounding : MigratedCollectFeeMode.QuoteToken,
         dynamicFee: DammV2DynamicFeeMode.Disabled,
         poolFeeBps: TAX_BPS,
+        compoundingFeeBps: 0,
       },
     },
     liquidityDistribution: {
