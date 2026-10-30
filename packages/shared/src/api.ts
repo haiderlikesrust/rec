@@ -336,8 +336,10 @@ export const api = (base: string) => {
     coin: (address: string) => get<CoinDetail>(`/api/coins/${address}`),
     candles: (address: string, interval: "1m" | "5m" | "15m" | "1h" = "5m") =>
       get<Candle[]>(`/api/coins/${address}/candles?interval=${interval}`),
-    trades: (address: string, limit = 50, opts: { buybacks?: boolean } = {}) =>
-      get<Trade[]>(`/api/coins/${address}/trades?limit=${limit}${opts.buybacks === false ? "&buybacks=0" : ""}`),
+    trades: (address: string, limit = 50, opts: { buybacks?: boolean; trader?: string } = {}) =>
+      get<Trade[]>(
+        `/api/coins/${address}/trades?limit=${limit}${opts.buybacks === false ? "&buybacks=0" : ""}${opts.trader ? `&trader=${opts.trader}` : ""}`,
+      ),
     holders: (address: string) => get<Holder[]>(`/api/coins/${address}/holders`),
     wallet: (address: string) => get<WalletSummary>(`/api/wallet/${address}`),
     balances: (address: string) => get<Balances>(`/api/balances/${address}`),

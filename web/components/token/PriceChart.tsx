@@ -63,7 +63,8 @@ export function PriceChart({ coin }: { coin: Coin }) {
   const factor = (mode === "mcap" ? supply : 1) * (toUsd || 1);
   const prefix = toUsd ? "$" : "";
 
-  const fmt = useMemo(() => (p: number) => `${prefix}${Math.abs(p) >= 1 ? num(p) : sig(p, 4)}`, [prefix]);
+  // prices and market caps never go below zero; the scale's bottom margin (room for volume) would otherwise be labelled negative
+  const fmt = useMemo(() => (p: number) => (p < 0 ? "" : `${prefix}${Math.abs(p) >= 1 ? num(p) : sig(p, 4)}`), [prefix]);
 
   useEffect(() => {
     if (!el.current) return;

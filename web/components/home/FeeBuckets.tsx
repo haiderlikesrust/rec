@@ -44,12 +44,14 @@ export function TreasuryWallets({ wallets, solUsd, className }: { wallets: Treas
               style={{ background: roleColor[w.role], boxShadow: `0 0 10px ${roleColor[w.role]}` }}
             />
             <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] font-medium">{roleLabel[w.role]}</div>
-              <div className="num truncate text-xs text-faint">{short(w.address)}</div>
-            </div>
-            <div className="text-right">
-              <div className="num text-[13px]">{usd(w.sol * solUsd)}</div>
-              <div className="num text-[11px] text-faint">{sol(w.sol)}</div>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[13px] font-medium whitespace-nowrap">{roleLabel[w.role]}</span>
+                <span className="num text-[13px]">{usd(w.sol * solUsd)}</span>
+              </div>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="num truncate text-xs text-faint">{short(w.address)}</span>
+                <span className="num shrink-0 text-[11px] text-faint">{sol(w.sol)}</span>
+              </div>
             </div>
             <ArrowUpRight size={13} className="shrink-0 text-faint transition-colors group-hover:text-fg" />
           </a>

@@ -186,9 +186,14 @@ export function createApi(engine: Engine) {
     const limit = Math.min(Number(ctx.req.query("limit") ?? 50), 200);
     // buybacks run every few seconds; the UI hides them from the feed by default (?buybacks=0)
     const hideBuybacks = ctx.req.query("buybacks") === "0";
+    // ?trader= narrows the feed to one wallet ("my trades")
+    const trader = ctx.req.query("trader");
+    if (trader && !isSolanaAddress(trader)) throw new UserError("Invalid wallet address.");
     const rows = all<TradeRow>(
-      `SELECT * FROM trade WHERE coin = ? ${hideBuybacks ? "AND kind != 'buyback'" : ""} ORDER BY ts DESC, rowid DESC LIMIT ?`,
+      `SELECT * FROM trade WHERE coin = ? ${hideBuybacks ? "AND kind != 'buyback'" : ""} ${trader ? "AND trader = ?" : ""}
+       ORDER BY ts DESC, rowid DESC LIMIT ?`,
       mint,
+      ...(trader ? [trader] : []),
       limit,
     );
     const trades: Trade[] = rows.map((t) => ({

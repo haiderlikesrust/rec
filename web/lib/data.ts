@@ -24,10 +24,10 @@ export const useCandles = (address: string | undefined, interval: "1m" | "5m" | 
     ...live,
   });
 /** Recent trades; buybacks (continuous burns) are left out unless asked for. */
-export const useTrades = (address: string | undefined, limit = 20, buybacks = false) =>
+export const useTrades = (address: string | undefined, limit = 20, buybacks = false, trader?: string) =>
   useQuery({
-    queryKey: ["trades", address, limit, buybacks],
-    queryFn: () => client.trades(address!, limit, { buybacks }),
+    queryKey: ["trades", address, limit, buybacks, trader],
+    queryFn: () => client.trades(address!, limit, { buybacks, trader }),
     enabled: !!address,
     ...live,
     placeholderData: (prev) => prev,

@@ -9,6 +9,7 @@ import { buckets } from "@/lib/buckets";
 import { client, useBalances, useQuotes, useStats } from "@/lib/data";
 import { bps, formatRaw, sol, toRaw, tokens, units, usd } from "@/lib/format";
 import { useSolanaTx } from "@/lib/tx";
+import { useStickyTop } from "@/lib/useStickyTop";
 import { useAddress } from "@/lib/wallet";
 import { CoinAvatar } from "@/components/CoinAvatar";
 import { FeeSplitBar } from "@/components/FeeSplitBar";
@@ -124,6 +125,17 @@ export function LaunchForm() {
   const balances = useBalances(address);
   const tx = useSolanaTx();
   const fileRef = useRef<HTMLInputElement>(null);
+  const [aside, setAside] = useState<HTMLElement | null>(null);
+  const asideTop = useStickyTop(aside);
+  // the summary bar floats over the bottom of the form: keep a focused field scrolled clear of it
+  useEffect(() => {
+    const html = document.documentElement;
+    const before = html.style.scrollPaddingBottom;
+    html.style.scrollPaddingBottom = "9rem";
+    return () => {
+      html.style.scrollPaddingBottom = before;
+    };
+  }, []);
 
   const [name, setName] = useState("");
   const [symbol, setSymbol] = useState("");
@@ -404,7 +416,7 @@ export function LaunchForm() {
       </div>
 
       {/* ------------------------------------------------ live preview */}
-      <aside className="no-scrollbar space-y-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto lg:pb-2">
+      <aside ref={setAside} style={{ top: asideTop }} className="space-y-5 lg:sticky">
         <section>
           <div className="mb-3 flex items-center justify-between">
             <span className="eyebrow flex items-center gap-2">

@@ -11,7 +11,7 @@ import { CoinAvatar } from "@/components/CoinAvatar";
 import { GraduationBar } from "@/components/GraduationBar";
 import { QuoteChip } from "@/components/QuoteChip";
 import { Sparkline } from "@/components/Sparkline";
-import { Badge, ButtonLink, Change, EmptyState, ErrorState, SectionHeading, Skeleton } from "@/components/ui";
+import { Badge, Button, ButtonLink, Change, EmptyState, ErrorState, SectionHeading, Skeleton } from "@/components/ui";
 
 const tabs: { value: CoinSort; label: string; icon: typeof Crown }[] = [
   { value: "mcap", label: "Market cap", icon: Crown },
@@ -22,6 +22,7 @@ const tabs: { value: CoinSort; label: string; icon: typeof Crown }[] = [
 ];
 
 const VIEW_KEY = "cook-view";
+const PAGE = 20;
 
 export function CoinExplorer() {
   const [sort, setSort] = useState<CoinSort>("mcap");
@@ -29,6 +30,7 @@ export function CoinExplorer() {
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
   const [view, setView] = useState<"list" | "grid">("list");
+  const [shown, setShown] = useState(PAGE);
 
   useEffect(() => {
     try {
@@ -40,6 +42,8 @@ export function CoinExplorer() {
     const t = setTimeout(() => setDebounced(search.trim()), 250);
     return () => clearTimeout(t);
   }, [search]);
+  // a new tab, pair or search starts from the top of the list again
+  useEffect(() => setShown(PAGE), [sort, quote, debounced]);
 
   const changeView = (v: "list" | "grid") => {
     setView(v);
@@ -84,8 +88,8 @@ export function CoinExplorer() {
             ))}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="relative min-w-0 flex-1 xl:w-64 xl:flex-none">
+        <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+          <div className="relative w-full min-w-0 sm:w-auto sm:flex-1 xl:w-64 xl:flex-none">
             <Search size={15} className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-faint" />
             <input
               value={search}
@@ -98,7 +102,7 @@ export function CoinExplorer() {
             value={quote}
             onChange={(e) => setQuote(e.target.value)}
             aria-label="Pair"
-            className="h-10 shrink-0 rounded-full border border-line bg-elev px-3.5 text-sm outline-none hover:border-line-strong focus:border-accent"
+            className="h-10 min-w-0 flex-1 rounded-full border border-line bg-elev px-3.5 text-sm outline-none hover:border-line-strong focus:border-accent sm:flex-none"
           >
             <option value="all">Any pair</option>
             {(Object.keys(quoteCategories) as QuoteCategory[]).map((cat) => {
@@ -147,8 +151,18 @@ export function CoinExplorer() {
         ) : (
           <>
             {/* phones get a compact card list; the table and grid need more width */}
-            <MobileList coins={data} />
-            <div className="hidden sm:block">{view === "grid" ? <Grid coins={data} /> : <Table coins={data} />}</div>
+            <MobileList coins={data.slice(0, shown)} />
+            <div className="hidden sm:block">{view === "grid" ? <Grid coins={data.slice(0, shown)} /> : <Table coins={data.slice(0, shown)} />}</div>
+            {data.length > shown && (
+              <div className="mt-4 flex flex-col items-center gap-1.5">
+                <Button variant="secondary" onClick={() => setShown((n) => n + PAGE)}>
+                  Show more
+                </Button>
+                <span className="num text-[11px] text-faint">
+                  {shown} of {data.length} coins
+                </span>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -156,7 +170,7 @@ export function CoinExplorer() {
   );
 }
 
-function TokenCell({ c, size = 40 }: { c: Coin; size?: number }) {
+function TokenCell({ c, size = 40, pair = false }: { c: Coin; size?: number; pair?: boolean }) {
   return (
     <div className="flex min-w-0 items-center gap-3">
       <CoinAvatar src={c.image} symbol={c.symbol} seed={c.address} size={size} />
@@ -165,12 +179,13 @@ function TokenCell({ c, size = 40 }: { c: Coin; size?: number }) {
           <span className="truncate text-[15px] font-semibold tracking-tight">{c.name}</span>
           {c.isMain && <Badge tone="accent">Platform</Badge>}
         </div>
-        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted">
+        <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs whitespace-nowrap text-muted">
           <span className="font-medium text-fg/75">${c.symbol}</span>
-          <span className="text-faint">·</span>
-          <span className="num">{short(c.creator, 3)}</span>
+          {pair && <QuoteChip symbol={c.quote.symbol} logo={c.quote.logo} />}
           <span className="text-faint">·</span>
           <span className="num">{age(c.createdAt)}</span>
+          <span className="hidden text-faint xl:inline">·</span>
+          <span className="num hidden truncate xl:inline">{short(c.creator, 3)}</span>
         </div>
       </div>
     </div>
@@ -179,41 +194,37 @@ function TokenCell({ c, size = 40 }: { c: Coin; size?: number }) {
 
 function Table({ coins }: { coins: Coin[] }) {
   return (
-    <div className="surface scroll-x overflow-hidden rounded-[22px]">
-      <table className="w-full min-w-[920px] text-left">
+    <div className="surface overflow-hidden rounded-[22px]">
+      <table className="w-full text-left">
         <thead>
           <tr className="border-b border-line text-[11px] tracking-wider text-faint uppercase">
-            <th className="w-12 py-3.5 pl-5 font-medium">#</th>
+            <th className="w-10 py-3.5 pl-5 font-medium">#</th>
             <th className="px-3 py-3.5 font-medium">Coin</th>
-            <th className="px-3 py-3.5 font-medium">Pair</th>
-            <th className="px-3 py-3.5 font-medium">24h</th>
+            <th className="hidden px-3 py-3.5 font-medium lg:table-cell">24h</th>
             <th className="px-3 py-3.5 text-right font-medium">Market cap</th>
-            <th className="px-3 py-3.5 text-right font-medium">Volume 24h</th>
+            <th className="hidden px-3 py-3.5 text-right font-medium md:table-cell">Volume 24h</th>
             <th className="px-3 py-3.5 text-right font-medium">Fees returned</th>
-            <th className="px-3 py-3.5 text-right font-medium">Holders</th>
-            <th className="w-44 py-3.5 pr-5 pl-3 font-medium">Graduation</th>
+            <th className="hidden px-3 py-3.5 text-right font-medium xl:table-cell">Holders</th>
+            <th className="hidden w-40 py-3.5 pr-5 pl-3 font-medium md:table-cell">Graduation</th>
           </tr>
         </thead>
         <tbody>
           {coins.map((c, i) => (
             <tr key={c.address} className="group relative border-b border-line transition-colors last:border-0 hover:bg-elev-2">
               <td className="num py-3.5 pl-5 text-xs text-faint">{i + 1}</td>
-              <td className="max-w-[300px] px-3 py-3.5">
+              <td className="max-w-[320px] px-3 py-3.5">
                 <Link href={`/token/${c.address}`} className="block after:absolute after:inset-0">
-                  <TokenCell c={c} />
+                  <TokenCell c={c} pair />
                 </Link>
               </td>
-              <td className="px-3 py-3.5">
-                <QuoteChip symbol={c.quote.symbol} logo={c.quote.logo} />
-              </td>
-              <td className="px-3 py-3.5">
-                <Sparkline data={c.spark} width={104} height={32} />
+              <td className="hidden px-3 py-3.5 lg:table-cell">
+                <Sparkline data={c.spark} width={96} height={32} />
               </td>
               <td className="px-3 py-3.5 text-right">
                 <div className="num text-sm font-medium">{usd(c.marketCapUsd)}</div>
                 <Change value={c.change24h} className="text-xs" />
               </td>
-              <td className="px-3 py-3.5 text-right">
+              <td className="hidden px-3 py-3.5 text-right md:table-cell">
                 <div className="num text-sm">{usd(c.volume24hUsd)}</div>
                 <div className="num text-xs text-faint">{c.trades24h} trades</div>
               </td>
@@ -221,13 +232,13 @@ function Table({ coins }: { coins: Coin[] }) {
                 <div className="num text-sm">{usd(c.feesUsd)}</div>
                 <div className="num text-xs text-faint">{tokens(c.feesQuote, c.quote.decimals, c.quote.symbol)}</div>
               </td>
-              <td className="px-3 py-3.5 text-right">
+              <td className="hidden px-3 py-3.5 text-right xl:table-cell">
                 <span className="num inline-flex items-center gap-1 text-sm text-muted">
                   <Users size={12} className="text-faint" />
                   {c.holders}
                 </span>
               </td>
-              <td className="py-3.5 pr-5 pl-3">
+              <td className="hidden py-3.5 pr-5 pl-3 md:table-cell">
                 <GraduationBar progress={c.graduationProgress} graduated={c.graduated} />
               </td>
             </tr>

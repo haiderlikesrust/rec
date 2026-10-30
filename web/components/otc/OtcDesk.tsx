@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { ArrowDown, ChevronRight, Clock, Coins as CoinsIcon, Flame, Gauge, Percent, Scale, Users, X } from "lucide-react";
+import { ArrowDown, ChevronRight, Clock, Coins as CoinsIcon, Flame, Gauge, Percent, Scale, Search, Users, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { brand, isSolanaAddress, otcPolicy, type Coin, type CoinDetail, type OtcCoin } from "@cook/shared";
@@ -33,7 +33,6 @@ function Meter({ value, color = TEAL, className }: { value: number; color?: stri
 export function OtcDesk() {
   const params = useSearchParams();
   const [selected, setSelected] = useState<string | undefined>(params.get("coin") ?? undefined);
-  const [manual, setManual] = useState("");
   const solUsd = useSolUsd();
   const { data: otc, isLoading, isError } = useOtc();
   const { data: coins } = useCoins({ sort: "active", limit: 200 });
@@ -48,7 +47,7 @@ export function OtcDesk() {
       <div className="min-w-0 space-y-6">
         <div className="grid grid-cols-3 gap-2 sm:gap-3">
           {[
-            { icon: CoinsIcon, label: "Coins with a limit", value: otc ? `${withLimit} / ${rows.length}` : "…", sub: "earned by their own fees" },
+            { icon: CoinsIcon, label: "Coins open", value: otc ? `${withLimit} / ${rows.length}` : "…", sub: "earned by their own fees" },
             { icon: Percent, label: "Spread", value: `${otcPolicy.spreadBps / 100}%`, sub: "the same 3% fee, split like every trade" },
             {
               icon: Users,
@@ -64,7 +63,7 @@ export function OtcDesk() {
                     <s.icon size={14} />
                   </IconTile>
                 </span>
-                <span className="truncate text-[11px] text-muted sm:text-xs">{s.label}</span>
+                <span className="text-[11px] leading-tight text-muted sm:text-xs">{s.label}</span>
               </div>
               <div className="num mt-2 text-xl font-medium sm:mt-3 sm:text-2xl">{s.value}</div>
               <div className="mt-0.5 hidden text-xs text-faint sm:block">{s.sub}</div>
@@ -79,16 +78,16 @@ export function OtcDesk() {
         ) : rows.length === 0 ? (
           <EmptyState title="No coins yet" detail="Once coins start paying fees, they earn OTC limits here." />
         ) : (
-          <div className="surface scroll-x overflow-hidden rounded-[22px]">
-            <table className="w-full min-w-[680px] text-left text-sm">
+          <div className="surface overflow-hidden rounded-[22px]">
+            <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-line text-[11px] tracking-wider text-faint uppercase">
-                  <th className="py-3.5 pr-3 pl-5 font-medium">Coin</th>
+                  <th className="py-3.5 pr-3 pl-4 font-medium sm:pl-5">Coin</th>
                   <th className="px-3 py-3.5 font-medium">Sell limit now</th>
-                  <th className="px-3 py-3.5 font-medium">Activity</th>
-                  <th className="px-3 py-3.5 text-right font-medium">Contributed</th>
-                  <th className="px-3 py-3.5 text-right font-medium">Burned via OTC</th>
-                  <th className="w-10 py-3.5 pr-4" />
+                  <th className="hidden px-3 py-3.5 font-medium sm:table-cell">Activity</th>
+                  <th className="hidden px-3 py-3.5 text-right font-medium xl:table-cell">Contributed</th>
+                  <th className="hidden px-3 py-3.5 text-right font-medium xl:table-cell">Burned via OTC</th>
+                  <th className="w-8 py-3.5 pr-4" />
                 </tr>
               </thead>
               <tbody>
@@ -121,17 +120,70 @@ export function OtcDesk() {
             </IconTile>
             <h3 className="font-display mt-5 text-2xl font-semibold">Pick a coin</h3>
             <p className="mt-1.5 text-sm leading-relaxed text-muted">
-              Choose a coin from the list to sell into the reserve, or paste its mint address. Every coin the reserve buys is burned in the same transaction.
+              Search for a coin, pick one from the list, or paste its mint address. Every coin the reserve buys is burned in the same transaction.
             </p>
-            <div className="mt-5 flex gap-2">
-              <Input value={manual} onChange={(e) => setManual(e.target.value.trim())} placeholder="Mint address" className="num text-xs" />
-              <Button variant="secondary" className="h-12" disabled={!isSolanaAddress(manual)} onClick={() => setSelected(manual)}>
-                Open
-              </Button>
-            </div>
+            <CoinSearch rows={rows} coinOf={coinOf} solUsd={solUsd} onPick={setSelected} />
           </Card>
         )}
       </aside>
+    </div>
+  );
+}
+
+/** Finds a coin by ticker or name among those with OTC limits, or opens any mint address pasted in. */
+function CoinSearch({
+  rows,
+  coinOf,
+  solUsd,
+  onPick,
+}: {
+  rows: OtcCoin[];
+  coinOf: Map<string, Coin>;
+  solUsd: number;
+  onPick: (coin: string) => void;
+}) {
+  const [text, setText] = useState("");
+  const q = text.trim().toLowerCase();
+  const matches = q
+    ? rows
+        .filter((r) => r.symbol.toLowerCase().includes(q) || r.name.toLowerCase().includes(q) || r.coin.toLowerCase() === q)
+        .slice(0, 6)
+    : [];
+  const pasted = isSolanaAddress(text.trim()) && !matches.some((m) => m.coin === text.trim());
+  return (
+    <div className="mt-5">
+      <div className="relative">
+        <Search size={15} className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-faint" />
+        <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="Ticker, name or mint address" className="pl-10 text-sm" />
+      </div>
+      {(matches.length > 0 || pasted) && (
+        <ul className="mt-2 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-elev">
+          {matches.map((m) => (
+            <li key={m.coin}>
+              <button onClick={() => onPick(m.coin)} className="flex w-full items-center gap-3 px-3.5 py-2.5 text-left transition-colors hover:bg-elev-2">
+                <CoinAvatar src={m.image} symbol={m.symbol} seed={m.coin} size={28} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">${m.symbol}</span>
+                  <span className="block truncate text-[11px] text-muted">{coinOf.get(m.coin)?.name ?? m.name}</span>
+                </span>
+                <span className="num text-right text-xs">
+                  {usd(m.sellLimitSol * solUsd)}
+                  <span className="block text-[10px] text-faint">limit now</span>
+                </span>
+              </button>
+            </li>
+          ))}
+          {pasted && (
+            <li>
+              <button onClick={() => onPick(text.trim())} className="flex w-full items-center justify-between gap-3 px-3.5 py-2.5 text-left text-sm transition-colors hover:bg-elev-2">
+                <span className="num truncate text-xs text-muted">{text.trim()}</span>
+                <span className="shrink-0 font-medium text-accent">Open</span>
+              </button>
+            </li>
+          )}
+        </ul>
+      )}
+      {q && matches.length === 0 && !pasted && <p className="mt-2 text-xs text-muted">No coin with an OTC limit matches that.</p>}
     </div>
   );
 }
@@ -156,7 +208,7 @@ function OtcRow({
       onClick={onSelect}
       className={clsx("group cursor-pointer border-b border-line transition-colors last:border-0", active ? "bg-elev-2" : "hover:bg-elev-2")}
     >
-      <td className="relative py-3 pr-3 pl-5">
+      <td className="relative py-3 pr-3 pl-4 sm:pl-5">
         {active && <span className="absolute top-2 bottom-2 left-0 w-[3px] rounded-r-full" style={{ background: TEAL }} />}
         <div className="flex items-center gap-3">
           <CoinAvatar src={r.image} symbol={r.symbol} seed={r.coin} size={34} />
@@ -168,16 +220,16 @@ function OtcRow({
       </td>
       <td className="px-3 py-3">
         <div className="num font-medium">{usd(r.sellLimitSol * solUsd)}</div>
-        <Meter className="mt-1.5 w-28" value={maxLimit > 0 ? r.sellLimitSol / maxLimit : 0} />
+        <Meter className="mt-1.5 w-24 sm:w-28" value={maxLimit > 0 ? r.sellLimitSol / maxLimit : 0} />
       </td>
-      <td className="px-3 py-3">
+      <td className="hidden px-3 py-3 sm:table-cell">
         <div className="flex items-center gap-2">
           <Meter className="w-16" value={r.activityBps / 10_000} color={r.activityBps >= 10_000 ? TEAL : "var(--faint)"} />
           <span className={clsx("num text-xs", r.activityBps >= 10_000 ? "text-fg" : "text-muted")}>{(r.activityBps / 100).toFixed(0)}%</span>
         </div>
       </td>
-      <td className="num px-3 py-3 text-right text-muted">{usd(r.contributedSol * solUsd)}</td>
-      <td className="num px-3 py-3 text-right text-muted">{info ? tokens(r.burned, info.decimals) : "—"}</td>
+      <td className="num hidden px-3 py-3 text-right text-muted xl:table-cell">{usd(r.contributedSol * solUsd)}</td>
+      <td className="num hidden px-3 py-3 text-right text-muted xl:table-cell">{info ? tokens(r.burned, info.decimals) : "—"}</td>
       <td className="py-3 pr-4 text-right">
         <ChevronRight size={16} className={clsx("inline transition-colors", active ? "text-fg" : "text-faint group-hover:text-fg")} />
       </td>
