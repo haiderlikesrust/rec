@@ -7,6 +7,7 @@ export const brand = {
   url: "https://recur.lol",
   chainLabel: "Built on Solana",
   poolsLabel: "Pools on Meteora",
-  x: "https://x.com/",
+  x: "https://x.com/recurdotlol",
+  xHandle: "@recurdotlol",
   docsPath: "/docs",
 } as const;

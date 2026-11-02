@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { brand } from "@cook/shared";
 import { LogoMark } from "./LogoMark";
+import { XLogo } from "./XLogo";
 
 const cols = [
   {
@@ -36,6 +37,14 @@ export function Footer() {
             <span className="font-display text-xl font-semibold">{brand.name}</span>
           </div>
           <p className="mt-4 text-sm leading-relaxed text-muted">{brand.tagline}</p>
+          <a
+            href={brand.x}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-5 inline-flex items-center gap-2 rounded-full border border-line bg-elev/60 px-3.5 py-1.5 text-sm text-fg/90 transition-colors hover:border-line-strong hover:text-fg"
+          >
+            <XLogo size={13} /> Follow {brand.xHandle}
+          </a>
           <p className="mt-6 text-xs leading-relaxed text-faint">
             {brand.chainLabel} · {brand.poolsLabel}. Coins are issued by their creators and are highly volatile. The
             OTC reserve, protection fund and airdrop pool are backend-controlled Solana wallets you can audit on-chain.

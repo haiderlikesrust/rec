@@ -16,6 +16,7 @@ export const metadata: Metadata = {
   title: { default: `${brand.name} · every fee comes back`, template: `%s · ${brand.name}` },
   description: brand.tagline,
   openGraph: { siteName: brand.name, url: brand.url, description: brand.tagline },
+  twitter: { card: "summary_large_image", site: brand.xHandle, creator: brand.xHandle },
 };
 
 export const viewport: Viewport = {

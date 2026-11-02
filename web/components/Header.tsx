@@ -9,12 +9,13 @@ import { brand } from "@cook/shared";
 import { useStats } from "@/lib/data";
 import { LogoMark } from "./LogoMark";
 import { ThemeToggle } from "./ThemeToggle";
+import { XLogo } from "./XLogo";
 import { ConnectWallet } from "./wallet/ConnectWallet";
 
 const nav = [
   { href: "/", label: "Coins", blurb: "Every coin, every pair" },
   { href: "/otc", label: "OTC", blurb: "Sell into the SOL reserve, no slippage" },
-  { href: "/protection", label: "Protection", blurb: "Claim back part of a loss" },
+  { href: "/protection", label: "Protection", blurb: "Part of a loss, paid back automatically" },
   { href: "/portfolio", label: "Portfolio", blurb: "Your coins, airdrops and payouts" },
   { href: "/docs", label: "Docs", blurb: "How the 3% comes back" },
 ];
@@ -100,6 +101,16 @@ export function Header() {
             >
               <Plus size={15} strokeWidth={2.5} /> Launch
             </Link>
+            <a
+              href={brand.x}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={`${brand.name} on X`}
+              title={`${brand.xHandle} on X`}
+              className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-line text-muted transition-colors hover:text-fg sm:flex"
+            >
+              <XLogo size={14} />
+            </a>
             <ThemeToggle />
             <ConnectWallet />
             <button
@@ -168,6 +179,14 @@ export function Header() {
               >
                 <Plus size={17} strokeWidth={2.5} /> Launch a coin
               </Link>
+              <a
+                href={brand.x}
+                target="_blank"
+                rel="noreferrer"
+                className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-line text-sm font-medium text-fg/90 transition-colors active:bg-elev-2"
+              >
+                <XLogo size={14} /> Follow {brand.xHandle}
+              </a>
               <p className="text-center text-[11px] text-faint">
                 {brand.chainLabel} · {brand.poolsLabel}
                 {demo && " · Demo mode"}

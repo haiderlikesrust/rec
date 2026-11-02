@@ -13,6 +13,7 @@ import { CoinAvatar } from "@/components/CoinAvatar";
 import { GraduationBar } from "@/components/GraduationBar";
 import { QuoteChip } from "@/components/QuoteChip";
 import { Badge, ButtonLink, Change, EmptyState, ErrorState, Skeleton } from "@/components/ui";
+import { XLogo } from "@/components/XLogo";
 import { ActivityTabs } from "./ActivityTabs";
 import { FeesPanel } from "./FeesPanel";
 import { MobileTradeBar } from "./MobileTradeBar";
@@ -21,14 +22,6 @@ import { PositionCard } from "./PositionCard";
 import { PriceChart } from "./PriceChart";
 import { TinyPrice } from "./TinyPrice";
 import { TradePanel } from "./TradePanel";
-
-function XIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-    </svg>
-  );
-}
 
 function ensureHttp(u: string) {
   return /^https?:\/\//.test(u) ? u : `https://${u}`;
@@ -175,7 +168,7 @@ export function TokenView({ address }: { address: string }) {
         <Globe size={14} />
       </SocialButton>
       <SocialButton href={twitter} label="X">
-        <XIcon size={12} />
+        <XLogo size={12} />
       </SocialButton>
       <SocialButton href={telegram} label="Telegram">
         <Send size={13} />
