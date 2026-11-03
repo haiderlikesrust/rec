@@ -16,6 +16,9 @@ export function errorMessage(e: unknown): string {
   if (!e) return "";
   const err = e as { message?: string; error?: { message?: string } };
   const msg = err.message ?? err.error?.message ?? String(e);
+  // wallets answer 4100 when the site's connection went stale (account switched, wallet locked or reset)
+  if (/not been authorized|unauthorized|\b4100\b/i.test(msg))
+    return "Your wallet isn't connected to this site anymore, or switched accounts. Disconnect, connect again and retry.";
   if (/reject|denied|declined|cancel/i.test(msg)) return "Transaction rejected in wallet.";
   if (/block height exceeded|blockhash not found|expired/i.test(msg)) return "The transaction expired before it confirmed. Try again.";
   if (/insufficient (funds|lamports)|0x1\b/i.test(msg)) return "Not enough balance to cover this and the network fee.";
