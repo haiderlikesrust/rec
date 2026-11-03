@@ -4,7 +4,7 @@ import { NATIVE_MINT, type Cluster } from "./solana";
 export const START_MCAP_USD = 2_500;
 export const GRADUATION_MCAP_USD = 30_000;
 
-export type QuoteCategory = "solana" | "currency" | "xstock" | "backpack" | "prestock" | "tessera";
+export type QuoteCategory = "solana" | "currency" | "xstock" | "backpack" | "prestock" | "tessera" | "custom";
 
 export const quoteCategories: Record<QuoteCategory, string> = {
   solana: "Solana",
@@ -13,6 +13,7 @@ export const quoteCategories: Record<QuoteCategory, string> = {
   backpack: "Backpack stocks",
   prestock: "PreStocks",
   tessera: "Tessera",
+  custom: "Custom",
 };
 
 export type QuoteSpec = {

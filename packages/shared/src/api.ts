@@ -296,6 +296,29 @@ export type LaunchRequest = {
 };
 export type LaunchResponse = TxEnvelope & { mint: Address; pool: Address };
 
+/** What Jupiter knows about a pasted token, shown before it's added as a custom pair. */
+export type TokenPreview = {
+  address: Address;
+  symbol: string;
+  name: string;
+  logo: string;
+  usdPrice: number;
+  mcapUsd: number | null;
+  liquidityUsd: number | null;
+  /** e.g. "pump.fun" */
+  launchpad: string | null;
+};
+
+/** A first buy paid in SOL on another pair: a Jupiter swap from SOL into the quote, signed before the launch. */
+export type SolToQuoteRequest = { wallet: Address; quote: Address; lamports: string };
+export type SolToQuote = TxEnvelope & { quote: Address; lamports: string; outAmount: string; minOut: string };
+
+/**
+ * A custom pair's Meteora config, paid for by the launcher. tx is null when the pair already has a current config.
+ */
+export type PairSetupRequest = { wallet: Address; quote: Address };
+export type PairSetup = TxEnvelope & { config: Address | null; rentLamports: string };
+
 export type OtcSide = "sell"; // sell coins to the reserve, which burns them in the same transaction
 export type OtcQuoteRequest = { wallet: Address; coin: Address; side: OtcSide; amount: string /* raw coin units */ };
 export type OtcQuote = TxEnvelope & {
@@ -352,6 +375,11 @@ export const api = (base: string) => {
       get<SwapQuote>(`/api/swap/quote?${qs(q)}`),
     swap: (req: SwapRequest) => post<SwapResponse>("/api/tx/swap", req),
     launch: (req: LaunchRequest) => post<LaunchResponse>("/api/tx/launch", req),
+    /** Adds any Solana token as a custom pair (it needs a Jupiter price, liquidity and a route to SOL). */
+    tokenPreview: (mint: string) => get<TokenPreview>(`/api/quotes/preview/${mint}`),
+    addQuote: (mint: string) => post<QuoteAsset>("/api/quotes/custom", { mint }),
+    pairSetup: (req: PairSetupRequest) => post<PairSetup>("/api/tx/pair-setup", req),
+    solToQuote: (req: SolToQuoteRequest) => post<SolToQuote>("/api/tx/sol-to-quote", req),
     otcQuote: (req: OtcQuoteRequest) => post<OtcQuote>("/api/otc/quote", req),
     otcConfirm: (id: string, signature: string) => post<{ ok: boolean }>("/api/otc/confirm", { id, signature }),
     /** Ask the backend to index a transaction the wallet just sent, so the UI updates without waiting for polling. */

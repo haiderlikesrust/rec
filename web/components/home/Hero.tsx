@@ -31,7 +31,7 @@ export function Hero() {
         </h1>
 
         <p className="mt-7 max-w-xl text-[17px] leading-relaxed text-muted">
-          Launch a coin in one transaction, paired with SOL, a stablecoin or a tokenized stock. Every buy and sell pays
+          Launch a coin in one transaction, paired with SOL, a stablecoin, a tokenized stock or any token. Every buy and sell pays
           3%, and creators and the team take none of it: buybacks and burns, a SOL exit reserve, loss protection, and
           airdrops to holders who bought high.
         </p>

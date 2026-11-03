@@ -1,7 +1,7 @@
 "use client";
 
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { VersionedTransaction } from "@solana/web3.js";
+import { VersionedTransaction, type Connection, type TokenBalance } from "@solana/web3.js";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import type { TxEnvelope } from "@cook/shared";
@@ -21,6 +21,24 @@ export function errorMessage(e: unknown): string {
   if (/insufficient (funds|lamports)|0x1\b/i.test(msg)) return "Not enough balance to cover this and the network fee.";
   if (/Failed to fetch|NetworkError/i.test(msg)) return "Can't reach the Recur API right now. Try again in a moment.";
   return msg.split("\n")[0].slice(0, 180);
+}
+
+/**
+ * How much of `mint` a confirmed transaction left in `owner`'s wallet (what a swap actually delivered), or
+ * `fallback` if the RPC can't return the transaction yet.
+ */
+export async function tokenDelta(connection: Connection, signature: string, owner: string, mint: string, fallback: bigint) {
+  const sum = (b?: TokenBalance[] | null) =>
+    (b ?? []).filter((x) => x.owner === owner && x.mint === mint).reduce((s, x) => s + BigInt(x.uiTokenAmount.amount), 0n);
+  for (let i = 0; i < 5; i++) {
+    const t = await connection.getTransaction(signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 }).catch(() => null);
+    if (t?.meta) {
+      const d = sum(t.meta.postTokenBalances) - sum(t.meta.preTokenBalances);
+      return d > 0n ? d : fallback;
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return fallback;
 }
 
 /**
@@ -48,8 +66,9 @@ export function useSolanaTx() {
       try {
         const res = await build();
         if (res.demo || !res.tx) {
+          // demo mode, or nothing left to do (a pair that is already set up)
           const signature = res.signature ?? "demo";
-          setState({ status: "success", message: `${label}: done (demo, nothing sent on-chain)` });
+          setState({ status: "success", message: res.demo ? `${label}: done (demo, nothing sent on-chain)` : `${label}: done` });
           queryClient.invalidateQueries();
           return { res, signature };
         }

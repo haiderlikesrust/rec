@@ -133,7 +133,7 @@ export default function DocsPage() {
           <section id="overview" className="scroll-mt-24">
             <p className="!mt-0 text-lg leading-relaxed">
               {brand.name} is a coin launchpad on Solana. Every coin has a fixed 1B supply and trades in its own Meteora pool
-              from the first second, paired with SOL, a stablecoin or one of 120+ tokenized stocks. Unlike Pons or pump.fun,{" "}
+              from the first second, paired with SOL, a stablecoin, one of 120+ tokenized stocks or any token you paste in. Unlike Pons or pump.fun,{" "}
               <strong>none of the trading fee goes to the creator or the team</strong>. Every buy and sell pays 3%; after
               Meteora&apos;s protocol share, all of it goes back to the people trading: burns, a SOL exit reserve, a fund that
               covers losses, and airdrops to holders who are underwater.

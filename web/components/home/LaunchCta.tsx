@@ -3,7 +3,7 @@ import { ButtonLink, IconTile } from "@/components/ui";
 
 const steps = [
   { icon: Sparkles, title: "Name it", body: "Name, ticker, image and socials." },
-  { icon: Wallet, title: "Pick a pair", body: "SOL, a stablecoin or one of 120+ tokenized stocks." },
+  { icon: Wallet, title: "Pick a pair", body: "SOL, a stablecoin, one of 120+ tokenized stocks or any token you paste in." },
   { icon: Lock, title: "Launch", body: "1B supply on a Meteora curve: $2.5k start, graduates at $30k." },
 ];
 

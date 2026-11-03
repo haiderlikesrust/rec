@@ -2,6 +2,8 @@ import type {
   Balances,
   LaunchRequest,
   LaunchResponse,
+  PairSetup,
+  SolToQuote,
   SwapQuote,
   SwapRequest,
   SwapResponse,
@@ -36,6 +38,12 @@ export interface Engine {
   swapQuote(c: CoinRow, side: SwapSide, amount: bigint, slippageBps: number, wallet?: string): Promise<SwapQuote>;
   swap(c: CoinRow, req: SwapRequest): Promise<SwapResponse>;
   launch(req: LaunchRequest, metadataUri: string): Promise<LaunchResponse>;
+  /** A custom pair's config, created with the launcher as payer; no transaction when a current one exists. */
+  pairSetup(wallet: string, quote: string): Promise<PairSetup>;
+  /** Jupiter swap from SOL into a quote, for a first buy paid in SOL. Demo mode settles it immediately. */
+  solToQuote(wallet: string, quote: string, lamports: bigint): Promise<SolToQuote>;
+  /** Throws a UserError when a mint can't be a custom pair; returns its decimals (null in demo mode, which has no chain). */
+  checkQuoteMint(mint: string): Promise<{ decimals: number } | null>;
   /** OTC trade as one transaction co-signed by the OTC wallet. Demo mode settles it immediately. */
   otcTx(q: OtcQuoteRow, c: CoinRow): Promise<TxEnvelope>;
   /** True once `signature` landed successfully and carries `memo` signed by the given backend wallet. */

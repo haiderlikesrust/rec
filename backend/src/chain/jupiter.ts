@@ -2,8 +2,8 @@ import { VersionedTransaction, type PublicKey } from "@solana/web3.js";
 import { config } from "../config";
 
 /**
- * Jupiter swap API, used only by the fee wallet to convert quote assets (USDC, xStocks, Backpack stocks, ...) to
- * SOL and back. Set JUPITER_API / JUPITER_API_KEY for a paid tier; the default is the keyless lite host.
+ * Jupiter swap API: the fee wallet converts quote assets (USDC, xStocks, Backpack stocks, ...) to SOL and back,
+ * and launchers paying a first buy in SOL swap into the pair's quote. Set JUPITER_API / JUPITER_API_KEY for a paid tier; the default is the keyless lite host.
  */
 const headers = (): Record<string, string> => ({
   "content-type": "application/json",
@@ -19,7 +19,8 @@ export async function jupQuote(inputMint: string, outputMint: string, amount: bi
   return (await res.json()) as JupQuote;
 }
 
-export async function jupSwapTx(quote: JupQuote, user: PublicKey): Promise<VersionedTransaction> {
+/** The swap as an unsigned transaction for `user` to sign, and the block height it stays valid until. */
+export async function jupSwapTx(quote: JupQuote, user: PublicKey): Promise<{ tx: VersionedTransaction; lastValidBlockHeight?: number }> {
   const res = await fetch(`${config.jupiterApi}/swap/v1/swap`, {
     method: "POST",
     headers: headers(),
@@ -33,6 +34,6 @@ export async function jupSwapTx(quote: JupQuote, user: PublicKey): Promise<Versi
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) throw new Error(`Jupiter swap ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const { swapTransaction } = (await res.json()) as { swapTransaction: string };
-  return VersionedTransaction.deserialize(Buffer.from(swapTransaction, "base64"));
+  const { swapTransaction, lastValidBlockHeight } = (await res.json()) as { swapTransaction: string; lastValidBlockHeight?: number };
+  return { tx: VersionedTransaction.deserialize(Buffer.from(swapTransaction, "base64")), lastValidBlockHeight };
 }

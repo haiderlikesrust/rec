@@ -20,11 +20,38 @@ export function syncQuotes() {
   }
 }
 
-type JupToken = { id: string; usdPrice?: number; icon?: string; decimals?: number };
+export type JupToken = {
+  id: string;
+  name?: string;
+  symbol?: string;
+  usdPrice?: number;
+  icon?: string;
+  decimals?: number;
+  liquidity?: number;
+  mcap?: number;
+  launchpad?: string;
+};
+
+/** Jupiter's token API for up to 40 mints at a time. Throws when Jupiter is unreachable. */
+export async function jupTokens(ids: string[]): Promise<JupToken[]> {
+  const res = await fetch(`${config.jupiterApi}/tokens/v2/search?query=${ids.join(",")}`, {
+    headers: config.jupiterKey ? { "x-api-key": config.jupiterKey } : {},
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) throw new Error(String(res.status));
+  return ((await res.json()) as JupToken[]).filter((t) => ids.includes(t.id));
+}
+
+/** Fresh USD price for one quote right before it's used (custom pairs are only refreshed while they have coins). */
+export async function refreshQuotePrice(mint: string) {
+  const t = (await jupTokens([mint]).catch(() => []))[0];
+  if (t?.usdPrice) run("UPDATE quote SET usd = ?, price_at = ? WHERE mint = ?", t.usdPrice, Math.floor(Date.now() / 1000), mint);
+}
 
 /** Live USD prices (and logos) for every quote from Jupiter's token API. Keeps the last good price on failure. */
 export async function refreshPrices() {
-  const quotes = all<QuoteRow>("SELECT * FROM quote");
+  // custom pairs nobody has launched on yet are priced when they're used
+  const quotes = all<QuoteRow>("SELECT * FROM quote WHERE category != 'custom' OR mint IN (SELECT quote FROM coin)");
   // devnet mints have no market; price them like their mainnet twins
   const lookup = new Map(quotes.map((q) => [q.mint, q.mint]));
   if (config.cluster === "devnet") {
@@ -35,12 +62,7 @@ export async function refreshPrices() {
   const got = new Map<string, JupToken>();
   for (let i = 0; i < ids.length; i += 40) {
     try {
-      const res = await fetch(`${config.jupiterApi}/tokens/v2/search?query=${ids.slice(i, i + 40).join(",")}`, {
-        headers: config.jupiterKey ? { "x-api-key": config.jupiterKey } : {},
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!res.ok) throw new Error(String(res.status));
-      for (const t of (await res.json()) as JupToken[]) got.set(t.id, t);
+      for (const t of await jupTokens(ids.slice(i, i + 40))) got.set(t.id, t);
     } catch (e) {
       log(`prices: Jupiter unavailable (${(e as Error).message}); keeping last prices`);
       return false;

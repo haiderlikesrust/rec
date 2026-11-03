@@ -360,6 +360,22 @@ input[type="number"] {
   scrollbar-width: thin;
 }
 
+/* a slim scrollbar that stays visible, so a row that overflows reads as scrollable */
+.thin-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+.thin-scrollbar::-webkit-scrollbar {
+  height: 6px;
+}
+.thin-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 999px;
+}
+.thin-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .no-scrollbar {
   scrollbar-width: none;
 }

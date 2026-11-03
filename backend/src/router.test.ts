@@ -143,3 +143,24 @@ test("fees flow from trades into the five wallets, and losses are paid out autom
   assert.equal(engine.bal(late, NATIVE_MINT) - lateBefore, 22_500_000n, "paid 45% of the loss once the wallet can cover it");
   assert.ok(all("SELECT * FROM ledger").length > 0);
 });
+
+test("a first buy paid in SOL on another pair swaps into the quote, then launches with what arrived", async () => {
+  const usdc = one<{ mint: string }>("SELECT mint FROM quote WHERE symbol = 'USDC'")!.mint;
+  const creator = fakeKey();
+  const solBefore = engine.bal(creator, NATIVE_MINT);
+  const usdcBefore = engine.bal(creator, usdc);
+  const swap = await engine.solToQuote(creator, usdc, 10n ** 9n);
+  const got = big(swap.outAmount);
+  assert.ok(got > 0n, "the swap returns the quote it bought");
+  assert.equal(engine.bal(creator, NATIVE_MINT), solBefore - 10n ** 9n);
+  assert.equal(engine.bal(creator, usdc), usdcBefore + got);
+
+  const setup = await engine.pairSetup(creator, usdc);
+  assert.equal(setup.tx, null, "a listed pair needs no setup transaction");
+  const { mint } = await engine.launch(
+    { wallet: creator, name: "Paid", symbol: "PAID", description: "", image: "", website: "", twitter: "", telegram: "", quote: usdc, initialBuy: got.toString() },
+    "http://x/",
+  );
+  assert.equal(engine.bal(creator, usdc), usdcBefore, "the whole swap went into the first buy");
+  assert.ok(big(one<{ balance: string }>("SELECT balance FROM holder WHERE coin = ? AND wallet = ?", mint, creator)!.balance) > 0n);
+});

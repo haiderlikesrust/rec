@@ -13,6 +13,8 @@ import {
   type Balances,
   type LaunchRequest,
   type LaunchResponse,
+  type PairSetup,
+  type SolToQuote,
   type SwapQuote,
   type SwapRequest,
   type SwapResponse,
@@ -291,6 +293,28 @@ export class DemoEngine implements Engine {
   async launch(req: LaunchRequest, uriBase: string): Promise<LaunchResponse> {
     const { mint, pool } = this.createCoin(req, uriBase, this.at());
     return { tx: null, demo: true, signature: fakeSig(), mint, pool };
+  }
+
+  async pairSetup(_wallet: string, quote: string): Promise<PairSetup> {
+    return { tx: null, demo: true, signature: fakeSig(), config: this.configFor(quote).address, rentLamports: "0" };
+  }
+
+  // swaps at the live USD prices, with no fee or slippage
+  async solToQuote(wallet: string, quote: string, lamports: bigint): Promise<SolToQuote> {
+    const q = quoteRow(quote);
+    if (!q || q.usd <= 0) throw new UserError("No live price for that token yet.");
+    const out = BigInt(Math.floor((toUnits(lamports, 9) / solPerUnit(quote)) * 10 ** q.decimals));
+    tx(() => {
+      this.add(wallet, NATIVE_MINT, -lamports, "SOL");
+      this.add(wallet, quote, out);
+    });
+    const amount = out.toString();
+    return { tx: null, demo: true, signature: fakeSig(), quote, lamports: lamports.toString(), outAmount: amount, minOut: amount };
+  }
+
+  // no chain to read: the custom pair takes Jupiter's decimals
+  async checkQuoteMint() {
+    return null;
   }
 
   // ---------------------------------------------------------------- OTC and claims settle instantly

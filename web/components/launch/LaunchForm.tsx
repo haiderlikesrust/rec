@@ -2,13 +2,14 @@
 
 import clsx from "clsx";
 import { GraduationCap, Globe, ImagePlus, Loader2, Lock, Rocket, Send, Zap } from "lucide-react";
+import { useConnection } from "@solana/wallet-adapter-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { brand, buyTaxBpsAt, GRADUATION_MCAP_USD, LAUNCH_FEE_SOL, NATIVE_MINT, SNIPE, START_MCAP_USD, type QuoteAsset } from "@cook/shared";
 import { buckets } from "@/lib/buckets";
 import { client, useBalances, useQuotes, useStats } from "@/lib/data";
-import { bps, formatRaw, sol, toRaw, tokens, units, usd } from "@/lib/format";
-import { useSolanaTx } from "@/lib/tx";
+import { bps, formatRaw, num, sol, toRaw, tokens, units, usd } from "@/lib/format";
+import { tokenDelta, useSolanaTx } from "@/lib/tx";
 import { useStickyTop } from "@/lib/useStickyTop";
 import { useAddress } from "@/lib/wallet";
 import { CoinAvatar } from "@/components/CoinAvatar";
@@ -26,6 +27,8 @@ const textareaClass =
 
 const LAUNCH_FEE_LAMPORTS = BigInt(Math.round(LAUNCH_FEE_SOL * 1e9));
 const SOL_RESERVE = 30_000_000n; // ~0.03 SOL for rent and network fees on top of the launch fee
+// rent for a custom pair's Meteora config, paid by the first launch on it (shown before the exact figure is known)
+const PAIR_SETUP_LAMPORTS = 6_000_000n;
 
 function XIcon({ size = 14 }: { size?: number }) {
   return (
@@ -124,6 +127,7 @@ export function LaunchForm() {
   const { data: stats } = useStats();
   const balances = useBalances(address);
   const tx = useSolanaTx();
+  const { connection } = useConnection();
   const fileRef = useRef<HTMLInputElement>(null);
   const [aside, setAside] = useState<HTMLElement | null>(null);
   const asideTop = useStickyTop(aside);
@@ -149,22 +153,41 @@ export function LaunchForm() {
   const [telegram, setTelegram] = useState("");
   const [quoteAddr, setQuoteAddr] = useState<string>("");
   const [initialBuy, setInitialBuy] = useState("");
+  // on a non-SOL pair the first buy can be paid in SOL: it's swapped into the pair's token just before the launch
+  const [payWith, setPayWith] = useState<"sol" | "quote">("sol");
+  // custom pairs this launcher added (the API lists them for everyone once a coin launches on them)
+  const [added, setAdded] = useState<QuoteAsset[]>([]);
 
-  const quotes = useMemo(() => (allQuotes ?? []).filter((q) => q.available), [allQuotes]);
+  const quotes = useMemo(() => {
+    const listed = (allQuotes ?? []).filter((q) => q.available);
+    return [...listed, ...added.filter((a) => !listed.some((q) => q.address === a.address))];
+  }, [allQuotes, added]);
   const quote: QuoteAsset | undefined =
     quotes.find((q) => q.address === quoteAddr) ?? quotes.find((q) => q.address === NATIVE_MINT) ?? quotes[0];
-  useEffect(() => setInitialBuy(""), [quote?.address]);
+  const solQuote = quotes.find((q) => q.address === NATIVE_MINT);
+  useEffect(() => {
+    setInitialBuy("");
+    setPayWith("sol");
+  }, [quote?.address]);
 
   const native = quote?.address === NATIVE_MINT;
-  const solUsd = stats?.solUsd ?? 0;
+  const custom = quote?.category === "custom";
+  const paySol = !native && payWith === "sol";
+  const inSol = native || paySol;
+  const solUsd = stats?.solUsd || solQuote?.usdPerUnit || 0;
   const b = balances.data;
   const quoteBalance = !b || !quote ? undefined : BigInt(native ? b.sol : b.tokens[quote.address] ?? "0");
   const solBalance = b ? BigInt(b.sol) : undefined;
 
-  const initialRaw = quote ? toRaw(initialBuy, quote.decimals) : 0n;
-  const initialUsd = quote ? units(initialRaw, quote.decimals) * quote.usdPerUnit : 0;
-  const totalLamports = LAUNCH_FEE_LAMPORTS + (native ? initialRaw : 0n);
-  const insufficient = (solBalance !== undefined && solBalance < totalLamports) || (!native && quoteBalance !== undefined && initialRaw > quoteBalance);
+  const initialRaw = quote ? toRaw(initialBuy, inSol ? 9 : quote.decimals) : 0n;
+  const initialUsd = inSol ? units(initialRaw, 9) * solUsd : quote ? units(initialRaw, quote.decimals) * quote.usdPerUnit : 0;
+  const estQuote = paySol && quote && quote.solPerUnit > 0 ? units(initialRaw, 9) / quote.solPerUnit : 0;
+  const setupLamports = custom && !quote?.config ? PAIR_SETUP_LAMPORTS : 0n;
+  const totalLamports = LAUNCH_FEE_LAMPORTS + setupLamports + (inSol ? initialRaw : 0n);
+  const insufficient =
+    (solBalance !== undefined && solBalance < totalLamports) || (!inSol && quoteBalance !== undefined && initialRaw > quoteBalance);
+  // what the wallet will be asked to sign, in order
+  const signs = [custom && "set up the pair", paySol && initialRaw > 0n && `swap SOL for ${quote?.symbol}`, "launch"].filter(Boolean) as string[];
 
   const errors: string[] = [];
   if (!name.trim()) errors.push("Name your coin");
@@ -197,13 +220,39 @@ export function LaunchForm() {
   }
 
   function maxBuy() {
-    if (!quote || quoteBalance === undefined) return;
-    const v = native ? (quoteBalance > LAUNCH_FEE_LAMPORTS + SOL_RESERVE ? quoteBalance - LAUNCH_FEE_LAMPORTS - SOL_RESERVE : 0n) : quoteBalance;
-    setInitialBuy(formatRaw(v, quote.decimals));
+    if (!quote) return;
+    if (inSol) {
+      if (solBalance === undefined) return;
+      const spare = LAUNCH_FEE_LAMPORTS + SOL_RESERVE + setupLamports;
+      setInitialBuy(formatRaw(solBalance > spare ? solBalance - spare : 0n, 9));
+    } else if (quoteBalance !== undefined) setInitialBuy(formatRaw(quoteBalance, quote.decimals));
+  }
+
+  function pickQuote(q: QuoteAsset) {
+    if (q.category === "custom") setAdded((a) => (a.some((x) => x.address === q.address) ? a : [...a, q]));
+    setQuoteAddr(q.address);
   }
 
   async function submit() {
     if (!address || !quote || errors.length) return;
+    // a custom pair's first launch pays for its Meteora config; once it exists this step sends nothing
+    if (custom) {
+      const r = await tx.run(`Set up the ${quote.symbol} pair`, () => client.pairSetup({ wallet: address, quote: quote.address }));
+      if (!r) return;
+    }
+    let buy = initialRaw;
+    if (paySol && initialRaw > 0n) {
+      const r = await tx.run(`Swap ${initialBuy} SOL for ${quote.symbol}`, () =>
+        client.solToQuote({ wallet: address, quote: quote.address, lamports: initialRaw.toString() }),
+      );
+      if (!r) return;
+      buy = r.res.demo
+        ? BigInt(r.res.outAmount)
+        : await tokenDelta(connection, r.signature, address, quote.address, BigInt(r.res.minOut));
+      // from here it's a first buy in the pair's token, so a failed or rejected launch retries without swapping again
+      setPayWith("quote");
+      setInitialBuy(formatRaw(buy, quote.decimals));
+    }
     const r = await tx.run(`Launch ${symbol.toUpperCase()}`, () =>
       client.launch({
         wallet: address,
@@ -215,7 +264,7 @@ export function LaunchForm() {
         twitter: twitter.trim(),
         telegram: telegram.trim(),
         quote: quote.address,
-        initialBuy: initialRaw.toString(),
+        initialBuy: buy.toString(),
       }),
     );
     if (r) router.push(`/token/${r.res.mint}`);
@@ -317,11 +366,18 @@ export function LaunchForm() {
         <StepCard
           n={3}
           title="Market"
-          sub="Pick what your coin trades against: SOL, a stablecoin or a tokenized stock. Whatever the pair, the protection fund and OTC reserve always receive SOL."
+          sub="Pick what your coin trades against: SOL, a stablecoin, a tokenized stock or any token by its address. Whatever the pair, the protection fund and OTC reserve always receive SOL."
         >
           {quotesLoading && <p className="mb-3 text-xs text-muted">Loading pairs…</p>}
           {quotesError && <p className="mb-3 text-xs text-down">Couldn&apos;t load pairs from the Recur API.</p>}
-          <QuotePicker quotes={quotes} value={quote} onChange={(q) => setQuoteAddr(q.address)} />
+          <QuotePicker quotes={quotes} value={quote} onChange={pickQuote} />
+          {custom && quote && (
+            <p className="mt-3 rounded-2xl border border-line bg-sunk px-4 py-3 text-xs leading-relaxed text-muted">
+              <span className="font-medium text-fg">Custom pair.</span> Your coin is priced in {quote.symbol}, so its market cap
+              moves with {quote.symbol}&apos;s price too.
+              {!quote.config && <> The first launch on this pair sets it up on Meteora: about 0.006 SOL rent and one extra signature.</>}
+            </p>
+          )}
 
           <div className="mt-4 grid grid-cols-2 gap-3">
             <div className="rounded-2xl bg-sunk px-4 py-3">
@@ -343,12 +399,33 @@ export function LaunchForm() {
           </p>
 
           <div className="mt-6">
+            {!native && quote && (
+              <div className="mb-3 inline-flex rounded-xl border border-line bg-sunk p-0.5 text-xs" role="group" aria-label="Pay the first buy with">
+                {(["sol", "quote"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    aria-pressed={payWith === m}
+                    onClick={() => {
+                      setPayWith(m);
+                      setInitialBuy("");
+                    }}
+                    className={clsx(
+                      "rounded-lg px-3 py-1.5 font-medium transition-colors",
+                      payWith === m ? "bg-elev-2 text-fg shadow-card" : "text-muted hover:text-fg",
+                    )}
+                  >
+                    Pay with {m === "sol" ? "SOL" : quote.symbol}
+                  </button>
+                ))}
+              </div>
+            )}
             <Field
               label="Your first buy (optional)"
               hint={
-                address && quoteBalance !== undefined && quote ? (
+                address && quote && (inSol ? solBalance : quoteBalance) !== undefined ? (
                   <button type="button" onClick={maxBuy} className="num transition-colors hover:text-fg">
-                    Balance {tokens(quoteBalance, quote.decimals)} {quote.symbol}
+                    Balance {inSol ? tokens(solBalance!, 9) : tokens(quoteBalance!, quote.decimals)} {inSol ? "SOL" : quote.symbol}
                   </button>
                 ) : (
                   "skips the anti-snipe fee"
@@ -364,13 +441,21 @@ export function LaunchForm() {
                   className="num h-14 pr-28 text-lg"
                 />
                 <span className="absolute top-1/2 right-3 -translate-y-1/2">
-                  {quote && <QuoteChip symbol={quote.symbol} logo={quote.logo} />}
+                  {quote && (inSol ? <QuoteChip symbol="SOL" logo={solQuote?.logo ?? ""} /> : <QuoteChip symbol={quote.symbol} logo={quote.logo} />)}
                 </span>
               </div>
             </Field>
-            <p className="mt-2 text-[11px] text-faint">
-              {initialRaw > 0n && quote && quote.usdPerUnit > 0 ? <span className="num text-muted">≈ {usd(initialUsd)} · </span> : null}
-              You buy first, in the launch transaction itself, at the normal 3% with no anti-snipe surcharge.
+            <p className="mt-2 text-[11px] leading-relaxed text-faint">
+              {paySol && initialRaw > 0n && estQuote > 0 ? (
+                <span className="num text-muted">
+                  ≈ {num(estQuote, 6)} {quote?.symbol} ({usd(initialUsd)}) ·{" "}
+                </span>
+              ) : initialRaw > 0n && initialUsd > 0 ? (
+                <span className="num text-muted">≈ {usd(initialUsd)} · </span>
+              ) : null}
+              {paySol
+                ? `Your SOL is swapped into ${quote?.symbol} through Jupiter right before the launch, then you buy first in the launch transaction itself, at the normal 3% with no anti-snipe surcharge.`
+                : "You buy first, in the launch transaction itself, at the normal 3% with no anti-snipe surcharge."}
             </p>
           </div>
         </StepCard>
@@ -390,11 +475,13 @@ export function LaunchForm() {
                   {initialRaw > 0n && quote && (
                     <>
                       {" "}
-                      · first buy {initialBuy} {quote.symbol}
-                      {quote.usdPerUnit > 0 && <> ({usd(initialUsd)})</>}
+                      · first buy {initialBuy} {inSol ? "SOL" : quote.symbol}
+                      {paySol && <> → {quote.symbol}</>}
+                      {initialUsd > 0 && <> ({usd(initialUsd)})</>}
                     </>
                   )}
-                  {native && initialRaw > 0n && <> · total {sol(units(totalLamports, 9))}</>}
+                  {setupLamports > 0n && <> · pair setup ~{sol(units(setupLamports, 9))}</>}
+                  {(inSol && initialRaw > 0n) || setupLamports > 0n ? <> · total {sol(units(totalLamports, 9))}</> : null}
                 </div>
               </div>
             </div>
@@ -411,6 +498,11 @@ export function LaunchForm() {
               )}
             </div>
           </div>
+          {address && signs.length > 1 && tx.state.status === "idle" && (
+            <p className="mt-3 text-[11px] text-faint">
+              Your wallet asks you to sign {signs.length} transactions: {signs.join(", then ")}.
+            </p>
+          )}
           <TxStatus state={tx.state} className="mt-3" />
         </div>
       </div>

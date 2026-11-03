@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 const tint: Record<string, string> = {
   SOL: "var(--b-protection)",
@@ -12,12 +12,25 @@ const tint: Record<string, string> = {
 
 export const quoteTint = (symbol: string) => tint[symbol] ?? "var(--b-main)";
 
+// IPFS logos (pump.fun's, for one) also try other gateways: ipfs.io is down or blocked on some networks
+const IPFS_GATEWAYS = ["https://ipfs.io/ipfs/", "https://4everland.io/ipfs/", "https://gateway.pinata.cloud/ipfs/"];
+const logoSources = (logo: string) => {
+  const cid = logo.match(/^(?:ipfs:\/\/|https?:\/\/[^/]+\/ipfs\/)(.+)$/)?.[1];
+  return cid ? [...new Set([logo.startsWith("ipfs://") ? IPFS_GATEWAYS[0] + cid : logo, ...IPFS_GATEWAYS.map((g) => g + cid)])] : [logo];
+};
+
 /**
  * A quote asset's official logo. Issuer logos are often large images on slow hosts, so a tinted ticker monogram shows
  * until the image has loaded, and stays if it can't load.
  */
 export function QuoteLogo({ symbol, logo, size = 20, className }: { symbol: string; logo?: string | null; size?: number; className?: string }) {
   const [state, setState] = useState<"loading" | "loaded" | "failed">("loading");
+  const sources = useMemo(() => (logo ? logoSources(logo) : []), [logo]);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    setAttempt(0);
+    setState("loading");
+  }, [logo]);
   const color = quoteTint(symbol);
   const monogram = (
     <span
@@ -34,12 +47,12 @@ export function QuoteLogo({ symbol, logo, size = 20, className }: { symbol: stri
       {state === "loading" && <span className="absolute inset-0">{monogram}</span>}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={logo}
+        src={sources[attempt] ?? logo}
         alt=""
         width={size}
         height={size}
         onLoad={() => setState("loaded")}
-        onError={() => setState("failed")}
+        onError={() => (attempt + 1 < sources.length ? setAttempt(attempt + 1) : setState("failed"))}
         className={clsx(
           "relative h-full w-full rounded-full bg-sunk object-cover shadow-[0_0_0_1px_var(--line)] transition-opacity",
           state === "loading" ? "opacity-0" : "opacity-100",

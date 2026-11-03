@@ -65,7 +65,7 @@ export function CoinExplorer() {
       <SectionHeading
         eyebrow="Explore"
         title="Every coin, every pair"
-        sub="Coins pair with SOL, stablecoins or 120+ tokenized stocks. Every one pays the same 3% fee, and it flows back to holders."
+        sub="Coins pair with SOL, stablecoins, 120+ tokenized stocks or any custom token. Every one pays the same 3% fee, and it flows back to holders."
       />
 
       <div className="mt-7 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">

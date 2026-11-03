@@ -10,14 +10,18 @@ import {
 } from "@meteora-ag/dynamic-bonding-curve-sdk";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  ExtensionType,
+  TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   calculateEpochFee,
   createAssociatedTokenAccountIdempotentInstruction,
   createBurnCheckedInstruction,
   createTransferCheckedInstruction,
   getAssociatedTokenAddressSync,
+  getExtensionTypes,
   getMint,
   getTransferFeeConfig,
+  unpackMint,
   type Mint,
 } from "@solana/spl-token";
 import {
@@ -39,6 +43,8 @@ import {
   type Balances,
   type LaunchRequest,
   type LaunchResponse,
+  type PairSetup,
+  type SolToQuote,
   type SwapQuote,
   type SwapRequest,
   type SwapResponse,
@@ -72,6 +78,13 @@ const hasTransferFee = (mint: Mint) => {
 };
 const lowFeeWallet = (symbol: string) =>
   new UserError(`Launches on the ${symbol} pair open once the platform's fee wallet is topped up with SOL. Try again shortly.`);
+// Token-2022 extensions Meteora takes on a quote without a token badge (a zero, locked transfer fee is fine too)
+const PLAIN_EXTENSIONS = [ExtensionType.MetadataPointer, ExtensionType.TokenMetadata, ExtensionType.TransferFeeConfig];
+// a custom pair's config the launcher paid for counts as current this long after setup, however the price moved
+const PENDING_CONFIG_SECONDS = 15 * 60;
+// kv prefix for custom-pair configs built in pairSetup that may not have landed yet
+const PENDING = "pending-config:";
+type PendingConfig = { quote: string; usd: number; threshold: string; decimals: number; at: number };
 // polls in a row a transaction may fail to index before the indexer moves past it
 const MAX_INGEST_TRIES = 5;
 // burns and airdrops send many small transactions, so the default priority fee stays low
@@ -240,6 +253,11 @@ export class ChainEngine implements Engine {
   async ensureConfig(quoteMint: string) {
     const q = quoteRow(quoteMint);
     if (!q || !q.available) throw new UserError("That quote asset isn't available.");
+    if (q.category === "custom") {
+      const custom = await this.customConfig(quoteMint);
+      if (!custom) throw new UserError(`Set up the ${q.symbol} pair first.`);
+      return custom;
+    }
     const cfg = activeConfig(quoteMint);
     if (cfg && Math.abs(q.usd - cfg.quote_usd) / cfg.quote_usd < config.configDriftBps / 10_000) return cfg;
     let p = this.configInFlight.get(quoteMint);
@@ -299,6 +317,104 @@ export class ChainEngine implements Engine {
     return activeConfig(quoteMint)!;
   }
 
+  // ---------------------------------------------------------------- custom pairs
+
+  /**
+   * Custom pairs are any token a launcher pastes in. The launcher's wallet pays for its config (~0.006 SOL rent)
+   * rather than the fee wallet, so made-up pairs can't drain it.
+   */
+  async checkQuoteMint(address: string) {
+    const info = await this.conn.getAccountInfo(this.pk(address), "confirmed");
+    if (!info || !(info.owner.equals(TOKEN_PROGRAM_ID) || info.owner.equals(TOKEN_2022_PROGRAM_ID)))
+      throw new UserError("That address isn't a token mint.");
+    const mint = unpackMint(this.pk(address), info, info.owner);
+    // a frozen pool vault would trap every trader's quote
+    if (mint.freezeAuthority) throw new UserError("This token's issuer can freeze accounts, the pool's included. Pick a token without a freeze authority.");
+    if (getExtensionTypes(mint.tlvData).some((e) => !PLAIN_EXTENSIONS.includes(e)) || hasTransferFee(mint))
+      throw new UserError("This token uses Token-2022 features (transfer fees, hooks or similar) Meteora only allows on tokens it has approved.");
+    this.tokenPrograms.set(address, info.owner);
+    return { decimals: mint.decimals };
+  }
+
+  async pairSetup(wallet: string, quoteMint: string): Promise<PairSetup> {
+    const q = quoteRow(quoteMint);
+    if (!q || !q.available) throw new UserError("That quote asset isn't available.");
+    if (q.category !== "custom") return { tx: null, demo: false, config: activeConfig(quoteMint)?.address ?? null, rentLamports: "0" };
+    const ready = await this.customConfig(quoteMint);
+    if (ready) return { tx: null, demo: false, config: ready.address, rentLamports: "0" };
+    const program = await this.tokenProgram(quoteMint);
+    const mint = await getMint(this.conn, this.pk(quoteMint), "confirmed", program);
+    const kp = Keypair.generate();
+    let params: ReturnType<typeof configParams>;
+    let tx: Transaction;
+    try {
+      params = configParams(q.usd, mint.decimals, hasTransferFee(mint));
+      tx = await this.dbc.partner.createConfig2({
+        ...params,
+        config: kp.publicKey,
+        feeClaimer: this.keys.fees.publicKey,
+        leftoverReceiver: this.keys.fees.publicKey,
+        quoteMint: this.pk(quoteMint),
+        payer: this.pk(wallet),
+        transferFeeParameters: null,
+      });
+    } catch (e) {
+      throw new UserError(`Meteora can't set up a ${q.symbol} pair: ${(e as Error).message.slice(0, 160)}`);
+    }
+    const pending: PendingConfig = {
+      quote: quoteMint,
+      usd: q.usd,
+      threshold: params.migrationQuoteThreshold.toString(),
+      decimals: mint.decimals,
+      at: Math.floor(Date.now() / 1000),
+    };
+    kvSet(`${PENDING}${kp.publicKey.toBase58()}`, JSON.stringify(pending));
+    const rent = await this.conn.getMinimumBalanceForRentExemption(this.dbc.program.account.poolConfig.size);
+    return { ...(await this.forUser(tx, wallet, [kp])), config: kp.publicKey.toBase58(), rentLamports: String(rent) };
+  }
+
+  /**
+   * A custom pair's current config: the active one while the quote's price stays in its band, else one a launcher
+   * paid for in pairSetup that has landed since. Undefined when the next launcher has to set one up.
+   */
+  private async customConfig(quoteMint: string) {
+    const q = quoteRow(quoteMint)!;
+    const inBand = (usd: number) => Math.abs(q.usd - usd) / usd < config.configDriftBps / 10_000;
+    const cfg = activeConfig(quoteMint);
+    if (cfg && inBand(cfg.quote_usd)) return cfg;
+    const now = Math.floor(Date.now() / 1000);
+    const pending = all<{ k: string; v: string }>("SELECT k, v FROM kv WHERE k LIKE ?", `${PENDING}%`)
+      .map((r) => ({ key: r.k, address: r.k.slice(PENDING.length), ...(JSON.parse(r.v) as PendingConfig) }))
+      .sort((a, b) => b.at - a.at);
+    for (const p of pending) {
+      if (p.quote !== quoteMint) {
+        if (now - p.at > 86_400) run("DELETE FROM kv WHERE k = ?", p.key);
+        continue;
+      }
+      const info = await this.conn.getAccountInfo(this.pk(p.address), "confirmed");
+      if (!info?.owner.equals(this.dbc.program.programId)) {
+        // never signed, or still landing
+        if (now - p.at > PENDING_CONFIG_SECONDS) run("DELETE FROM kv WHERE k = ?", p.key);
+        continue;
+      }
+      run("UPDATE config SET active = 0 WHERE quote = ?", quoteMint);
+      run(
+        "INSERT OR IGNORE INTO config (address, quote, quote_usd, threshold, created_at) VALUES (?, ?, ?, ?, ?)",
+        p.address,
+        quoteMint,
+        p.usd,
+        p.threshold,
+        p.at,
+      );
+      run("UPDATE quote SET decimals = ? WHERE mint = ?", p.decimals, quoteMint);
+      run("DELETE FROM kv WHERE k = ?", p.key);
+      log(`config ${p.address} for custom pair ${q.symbol} at $${p.usd}, paid by its launcher`);
+      // the launcher just paid for it: it holds for a while even if a volatile quote moves past the band
+      if (now - p.at <= PENDING_CONFIG_SECONDS || inBand(p.usd)) return activeConfig(quoteMint)!;
+    }
+    return undefined;
+  }
+
   // ---------------------------------------------------------------- launch
 
   async launch(req: LaunchRequest, uriBase: string): Promise<LaunchResponse> {
@@ -327,6 +443,24 @@ export class ChainEngine implements Engine {
     });
     const pool = deriveDbcPoolAddress(this.pk(req.quote), mint.publicKey, this.pk(cfg.address)).toBase58();
     return { ...(await this.forUser(tx, req.wallet, [mint])), mint: mintAddr, pool };
+  }
+
+  async solToQuote(wallet: string, quote: string, lamports: bigint): Promise<SolToQuote> {
+    const symbol = quoteRow(quote)?.symbol ?? "this token";
+    const q = await jupQuote(NATIVE_MINT, quote, lamports, 100).catch((e: Error) => {
+      log(`sol-to-quote ${symbol}: ${e.message}`);
+      throw new UserError(`Jupiter has no SOL to ${symbol} route right now. Pay your first buy in ${symbol} instead, or try again.`);
+    });
+    const { tx, lastValidBlockHeight } = await jupSwapTx(q, this.pk(wallet));
+    return {
+      tx: Buffer.from(tx.serialize()).toString("base64"),
+      demo: false,
+      lastValidBlockHeight,
+      quote,
+      lamports: lamports.toString(),
+      outAmount: q.outAmount,
+      minOut: q.otherAmountThreshold,
+    };
   }
 
   // ---------------------------------------------------------------- trading
@@ -577,7 +711,7 @@ export class ChainEngine implements Engine {
   async convert(fromMint: string, toMint: string, raw: bigint) {
     if (fromMint === toMint || raw === 0n) return { out: raw, sig: "" };
     const quote = await jupQuote(fromMint, toMint, raw, 100);
-    const tx = await jupSwapTx(quote, this.keys.fees.publicKey);
+    const { tx } = await jupSwapTx(quote, this.keys.fees.publicKey);
     const sig = await this.send(tx, [this.keys.fees]);
     // the guaranteed minimum; anything above it stays in the fee wallet for the next batch
     return { out: BigInt(quote.otherAmountThreshold), sig };

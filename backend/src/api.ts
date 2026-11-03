@@ -2,6 +2,7 @@ import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import {
   LAUNCH_FEE_SOL,
+  NATIVE_MINT,
   PROTECTION_PAYOUT_BPS,
   clusters,
   isSolanaAddress,
@@ -11,9 +12,11 @@ import {
   type CoinSort,
   type LaunchRequest,
   type OtcQuoteRequest,
+  type PairSetupRequest,
   type PlatformStats,
   type Position,
   type ProtectionStatus,
+  type SolToQuoteRequest,
   type SwapRequest,
   type Trade,
   type WalletSummary,
@@ -22,9 +25,10 @@ import { config, log, roles } from "./config";
 import { lease } from "./lease";
 import { all, big, kvGet, kvSet, one, type CoinRow, type HolderRow, type QuoteRow, type TradeRow } from "./db";
 import { UserError, type Engine } from "./engine";
+import { addCustomQuote, previewToken } from "./custom";
 import { otcConfirm, otcQuote } from "./flows";
 import { getCoin } from "./ledger";
-import { solUsd, toQuoteAsset, toUnits } from "./prices";
+import { quoteRow, refreshQuotePrice, solUsd, toQuoteAsset, toUnits } from "./prices";
 import {
   allCoins,
   coinCandles24h,
@@ -61,9 +65,21 @@ export function createApi(engine: Engine) {
   // ---------------------------------------------------------------- reads
 
   app.get("/api/quotes", (ctx) =>
-    // a quote needs a live USD price: it sets where the curve starts and graduates
-    ctx.json(all<QuoteRow>("SELECT * FROM quote WHERE available = 1 AND usd > 0 ORDER BY rowid").map(toQuoteAsset)),
+    // a quote needs a live USD price: it sets where the curve starts and graduates. Custom pairs are listed once a
+    // coin has launched on them; until then only the launcher who added one sees it.
+    ctx.json(
+      all<QuoteRow>(
+        "SELECT * FROM quote WHERE available = 1 AND usd > 0 AND (category != 'custom' OR mint IN (SELECT quote FROM coin)) ORDER BY rowid",
+      ).map(toQuoteAsset),
+    ),
   );
+
+  app.get("/api/quotes/preview/:mint", async (ctx) => ctx.json(await previewToken(ctx.req.param("mint"))));
+
+  app.post("/api/quotes/custom", async (ctx) => {
+    const { mint } = await ctx.req.json<{ mint: string }>();
+    return ctx.json(toQuoteAsset(await addCustomQuote(engine, (mint ?? "").trim())));
+  });
 
   app.get("/api/stats", (ctx) => {
     const since = now() - 86_400;
@@ -381,6 +397,35 @@ export function createApi(engine: Engine) {
     return ctx.json(await engine.swap(c, { ...req, slippageBps: Math.min(Math.max(Number(req.slippageBps) || 100, 10), 5000) }));
   });
 
+  /** The pair a launch request names, with a fresh price for custom pairs (they move fast and aren't polled). */
+  const launchQuote = async (mint: string) => {
+    let q = quoteRow(mint);
+    if (q?.category === "custom") {
+      await refreshQuotePrice(mint);
+      q = quoteRow(mint);
+    }
+    if (!q || !q.available) throw new UserError("That quote asset isn't available.");
+    if (!(q.usd > 0)) throw new UserError(`No live USD price for ${q.symbol} yet, so its curve can't be priced. Try another pair.`);
+    return q;
+  };
+
+  app.post("/api/tx/pair-setup", async (ctx) => {
+    const req = await ctx.req.json<PairSetupRequest>();
+    if (!isSolanaAddress(req.wallet)) throw new UserError("Connect a wallet first.");
+    const q = await launchQuote(req.quote);
+    return ctx.json(await engine.pairSetup(req.wallet, q.mint));
+  });
+
+  app.post("/api/tx/sol-to-quote", async (ctx) => {
+    const req = await ctx.req.json<SolToQuoteRequest>();
+    if (!isSolanaAddress(req.wallet)) throw new UserError("Connect a wallet first.");
+    const q = quoteRow(req.quote);
+    if (!q || !q.available || q.mint === NATIVE_MINT) throw new UserError("That quote asset isn't available.");
+    const lamports = big(req.lamports);
+    if (lamports <= 0n) throw new UserError("Enter an amount.");
+    return ctx.json(await engine.solToQuote(req.wallet, q.mint, lamports));
+  });
+
   app.post("/api/tx/launch", async (ctx) => {
     const req = await ctx.req.json<LaunchRequest>();
     if (!isSolanaAddress(req.wallet)) throw new UserError("Connect a wallet first.");
@@ -388,9 +433,7 @@ export function createApi(engine: Engine) {
     const symbol = (req.symbol ?? "").trim().replace(/^\$/, "").toUpperCase();
     if (!name || name.length > 32) throw new UserError("Name must be 1–32 characters.");
     if (!/^[A-Z0-9]{1,10}$/.test(symbol)) throw new UserError("Ticker must be 1–10 letters or digits.");
-    const q = one<QuoteRow>("SELECT * FROM quote WHERE mint = ?", req.quote);
-    if (!q || !q.available) throw new UserError("That quote asset isn't available.");
-    if (!(q.usd > 0)) throw new UserError(`No live USD price for ${q.symbol} yet, so its curve can't be priced. Try another pair.`);
+    await launchQuote(req.quote);
     const clean = { ...req, name, symbol, description: (req.description ?? "").slice(0, 1000) };
     // metadata JSON is served from here (or pinned to IPFS by the engine when configured)
     const uriBase = `${config.publicUrl}/api/metadata/`;
