@@ -2,6 +2,7 @@ import { NATIVE_MINT, PROTECTION_MIN_PAYOUT_SOL, otcPolicy, protectionPayout, sp
 import { config, log } from "./config";
 import { all, big, claimByCoin, kvGet, kvSet, one, run, tx, type ClaimRow, type CoinRow, type LossRow, type OtcQuoteRow } from "./db";
 import { memoFor, type Engine } from "./engine";
+import { leaderOf } from "./bloodline";
 import { getCoin, ledger, quoteDecimals, recordAirdrop, recordBurn, recordTrade } from "./ledger";
 import { solPerUnit, solUsd, toUnits } from "./prices";
 import { coinPotSol, holdersOf, isRugged, now, owedProtectionSol, treasury } from "./services";
@@ -15,6 +16,7 @@ const lamports = (sol: number) => BigInt(Math.floor(sol * LAMPORTS));
 // referral rebate, plus any OTC tax paid in SOL) 10/10/30/40/10:
 //   coin buyback  → buy the coin in its own pool and burn it
 //   airdrop       → quote asset to the airdrop wallet (paid out continuously by runAirdrops)
+//   (a copy that doesn't lead its Bloodline family sends these two to the family's leader instead)
 //   OTC reserve   → converted to SOL, sent to the OTC wallet (the coin earns 2× credit)
 //   protection    → converted to SOL, sent to the protection wallet
 //   platform burn → converted to SOL, held for the next $RECR buy-and-burn
@@ -54,26 +56,42 @@ async function processCoin(engine: Engine, c0: CoinRow, at: number) {
   const toQuote = async (lam: bigint) => (lam > 0n ? (await engine.convert(NATIVE_MINT, c.quote, lam)).out : 0n);
   const toSol = async (raw: bigint) => (raw > 0n ? (await engine.convert(c.quote, NATIVE_MINT, raw)).out : 0n);
 
+  // a copy that doesn't lead its family sends its buyback and airdrop shares to the leader (see bloodline.ts)
+  const lead = leaderOf(c, at);
+  const routed = lead.mint !== c.mint;
+  const note = routed ? `bloodline: from ${c.symbol} (${c.mint})` : undefined;
+  /** One share's quote and SOL, in the quote of the coin it goes to. */
+  const into = async (raw: bigint, lam: bigint) => {
+    if (lead.quote === c.quote) return raw + (await toQuote(lam));
+    const solAmount = lam + (await toSol(raw));
+    return solAmount > 0n ? (await engine.convert(NATIVE_MINT, lead.quote, solAmount)).out : 0n;
+  };
+
   // 1. coin buyback & burn
-  const buyQuote = a.coinBuyback + (await toQuote(b.coinBuyback));
+  const buyQuote = await into(a.coinBuyback, b.coinBuyback);
   if (buyQuote > 0n) {
-    const { burned, sig } = await engine.buybackAndBurn(getCoin(c.mint)!, buyQuote);
-    recordBurn(c.mint, burned, toUnits(buyQuote, q.decimals) * solPerUnit(c.quote), "coin");
-    ledger({ coin: c.mint, kind: "coin-burn", mint: c.mint, amount: burned, tx: sig });
+    const { burned, sig } = await engine.buybackAndBurn(getCoin(lead.mint)!, buyQuote);
+    recordBurn(lead.mint, burned, toUnits(buyQuote, quoteDecimals(lead.quote)) * solPerUnit(lead.quote), "coin");
+    ledger({ coin: lead.mint, kind: "coin-burn", mint: lead.mint, amount: burned, tx: sig, note });
   }
 
   // 2. airdrop bucket
-  const dropQuote = a.airdrop + (await toQuote(b.airdrop));
+  const dropQuote = await into(a.airdrop, b.airdrop);
   if (dropQuote > 0n) {
-    const [r] = await engine.sendTokens("fees", c.quote, [{ to: engine.wallets.airdrop, amount: dropQuote }]);
-    const row = getCoin(c.mint)!;
+    const [r] = await engine.sendTokens("fees", lead.quote, [{ to: engine.wallets.airdrop, amount: dropQuote }]);
+    const row = getCoin(lead.mint)!;
     run(
       "UPDATE coin SET airdrop_quote = ?, airdrop_balance = ? WHERE mint = ?",
       (big(row.airdrop_quote) + dropQuote).toString(),
       (big(row.airdrop_balance) + dropQuote).toString(),
-      c.mint,
+      lead.mint,
     );
-    ledger({ coin: c.mint, kind: "to-airdrop", mint: c.quote, amount: dropQuote, tx: r?.sig });
+    ledger({ coin: lead.mint, kind: "to-airdrop", mint: lead.quote, amount: dropQuote, tx: r?.sig, note });
+  }
+  if (routed) {
+    const sentSol = toUnits(a.coinBuyback + a.airdrop, q.decimals) * solPerUnit(c.quote) + Number(b.coinBuyback + b.airdrop) / LAMPORTS;
+    run("UPDATE coin SET blood_sent_sol = blood_sent_sol + ? WHERE mint = ?", sentSol, c.mint);
+    run("UPDATE coin SET blood_received_sol = blood_received_sol + ? WHERE mint = ?", sentSol, lead.mint);
   }
 
   // 3. SOL buckets

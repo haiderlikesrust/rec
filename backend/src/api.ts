@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import {
+  BLOODLINE,
   LAUNCH_FEE_SOL,
   NATIVE_MINT,
   PROTECTION_PAYOUT_BPS,
@@ -25,6 +26,7 @@ import { config, log, roles } from "./config";
 import { lease } from "./lease";
 import { all, big, kvGet, kvSet, one, type CoinRow, type HolderRow, type QuoteRow, type TradeRow } from "./db";
 import { UserError, type Engine } from "./engine";
+import { bloodlineInfo, bloodlineTags, checkLaunch, tagOf } from "./bloodline";
 import { addCustomQuote, previewToken } from "./custom";
 import { otcConfirm, otcQuote } from "./flows";
 import { getCoin } from "./ledger";
@@ -123,7 +125,7 @@ export function createApi(engine: Engine) {
     const quote = ctx.req.query("quote");
     const search = ctx.req.query("search")?.toLowerCase().trim();
     const limit = Math.min(Number(ctx.req.query("limit") ?? 100), 500);
-    let list = allCoins();
+    let list = allCoins(bloodlineTags());
     if (quote && quote !== "all") list = list.filter((c) => c.quote.address === quote || c.quote.category === quote);
     if (search)
       list = list.filter(
@@ -134,7 +136,7 @@ export function createApi(engine: Engine) {
 
   app.get("/api/trending", (ctx) =>
     ctx.json(
-      allCoins()
+      allCoins(bloodlineTags())
         .filter((c) => c.volume24hUsd > 0)
         .sort((a, b) => b.volume24hUsd - a.volume24hUsd || b.trades24h - a.trades24h)
         .slice(0, 10),
@@ -148,7 +150,7 @@ export function createApi(engine: Engine) {
     const q = quotesMap().get(c.quote)!;
     const trades24h = one<{ n: number }>("SELECT COUNT(*) AS n FROM trade WHERE coin = ? AND ts >= ? AND kind = 'trade'", mint, now() - 86_400)!.n;
     const detail: CoinDetail = {
-      ...shapeCoin(c, q, coinCandles24h(mint), trades24h),
+      ...shapeCoin(c, q, coinCandles24h(mint), trades24h, tagOf(c)),
       buckets: {
         coinBurned: c.coin_burned,
         solToOtc: c.sol_to_otc,
@@ -229,9 +231,22 @@ export function createApi(engine: Engine) {
 
   app.get("/api/coins/:address/holders", (ctx) => ctx.json(holdersOf(address(ctx, "address"))));
 
+  app.get("/api/coins/:address/bloodline", (ctx) => {
+    const c = getCoin(address(ctx, "address"));
+    if (!c) return ctx.json({ error: "not found" }, 404);
+    return ctx.json(bloodlineInfo(c));
+  });
+
+  /** The family a launch with this ticker and name would join, and the entry it pays on that pair. */
+  app.get("/api/bloodline/check", (ctx) => {
+    const symbol = (ctx.req.query("symbol") ?? "").trim().replace(/^\$/, "").toUpperCase();
+    const name = (ctx.req.query("name") ?? "").trim();
+    return ctx.json(checkLaunch(symbol, name, ctx.req.query("quote") ?? NATIVE_MINT));
+  });
+
   app.get("/api/wallet/:address", (ctx) => {
     const wallet = address(ctx, "address");
-    const coins = new Map(allCoins().map((c) => [c.address, c]));
+    const coins = new Map(allCoins(bloodlineTags(), false).map((c) => [c.address, c]));
     const positions: Position[] = all<HolderRow>("SELECT * FROM holder WHERE wallet = ? AND (balance != '0' OR airdrops != '0')", wallet)
       .filter((h) => coins.has(h.coin))
       .map((h) => {
@@ -434,10 +449,23 @@ export function createApi(engine: Engine) {
     if (!name || name.length > 32) throw new UserError("Name must be 1–32 characters.");
     if (!/^[A-Z0-9]{1,10}$/.test(symbol)) throw new UserError("Ticker must be 1–10 letters or digits.");
     await launchQuote(req.quote);
-    const clean = { ...req, name, symbol, description: (req.description ?? "").slice(0, 1000) };
+    // a copy launched while its family has an alive leader pays the Bloodline entry (see bloodline.ts)
+    const check = checkLaunch(symbol, name, req.quote);
+    let entry: { raw: bigint; to: string } | undefined;
+    if (check.entry) {
+      const need = BigInt(check.entry.quoteRaw);
+      const offered = big(req.entry);
+      if (offered * 100n < need * 98n)
+        throw new UserError(
+          `$${symbol} copies $${check.family!.og.symbol}, so it pays the $${BLOODLINE.entryUsd} Bloodline entry. Refresh the form to see it, then launch again.`,
+        );
+      // the figure the form showed, unless the price moved more than 10% since
+      entry = { raw: offered * 10n > need * 11n ? need : offered, to: check.entry.to.address };
+    }
+    const clean = { ...req, name, symbol, description: (req.description ?? "").slice(0, 1000), entry: entry?.raw.toString() };
     // metadata JSON is served from here (or pinned to IPFS by the engine when configured)
     const uriBase = `${config.publicUrl}/api/metadata/`;
-    const res = await engine.launch(clean, uriBase);
+    const res = await engine.launch(clean, uriBase, entry);
     return ctx.json(res);
   });
 

@@ -111,6 +111,12 @@ export function FeesPanel({ coin, solUsd }: { coin: CoinDetail; solUsd: number }
           </li>
         ))}
       </ul>
+      {coin.bloodline && coin.bloodline.leader.address !== coin.address && (
+        <p className="mt-3 rounded-xl bg-blood-soft px-3 py-2 text-[11px] leading-relaxed text-muted">
+          Its buyback and airdrop shares go to <span className="font-medium text-blood">${coin.bloodline.leader.symbol}</span>, which leads
+          its Bloodline family.
+        </p>
+      )}
       <p className="mt-3 text-[11px] leading-relaxed text-faint">
         Meteora&apos;s protocol share: <span className="num text-muted">{usd(meteoraUsd)}</span>. Everything else is split
         into the buckets above.

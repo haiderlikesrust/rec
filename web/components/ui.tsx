@@ -91,7 +91,7 @@ export function Badge({
   className,
 }: {
   children: ReactNode;
-  tone?: "neutral" | "accent" | "up" | "down" | "outline";
+  tone?: "neutral" | "accent" | "up" | "down" | "outline" | "blood";
   className?: string;
 }) {
   return (
@@ -103,6 +103,7 @@ export function Badge({
         tone === "accent" && "bg-accent-soft text-accent",
         tone === "up" && "bg-up-soft text-up",
         tone === "down" && "bg-down-soft text-down",
+        tone === "blood" && "bg-blood-soft text-blood",
         className,
       )}
     >

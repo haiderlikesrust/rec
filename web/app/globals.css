@@ -29,6 +29,9 @@
   --b-main: #f29d0c;
   --b-coin: #e8455f;
   --b-airdrop: #3a86ff;
+  /* Bloodline: families of look-alike coins */
+  --blood: #b3124a;
+  --blood-soft: rgba(179, 18, 74, 0.09);
   --sh-card: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 1px 2px rgba(13, 12, 22, 0.04), 0 8px 24px -12px rgba(13, 12, 22, 0.1);
   --sh-pop: 0 24px 60px -24px rgba(13, 12, 22, 0.28);
   --glow-a: rgba(106, 86, 255, 0.16);
@@ -62,6 +65,8 @@
     --b-main: #ffb224;
     --b-coin: #ff5c7a;
     --b-airdrop: #4ca2ff;
+    --blood: #ff6b9e;
+    --blood-soft: rgba(255, 107, 158, 0.13);
     --sh-card: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 12px 32px -16px rgba(0, 0, 0, 0.6);
     --sh-pop: 0 30px 80px -30px rgba(0, 0, 0, 0.85);
     --glow-a: rgba(143, 128, 255, 0.2);
@@ -95,6 +100,8 @@
   --b-main: #ffb224;
   --b-coin: #ff5c7a;
   --b-airdrop: #4ca2ff;
+  --blood: #ff6b9e;
+  --blood-soft: rgba(255, 107, 158, 0.13);
   --sh-card: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 12px 32px -16px rgba(0, 0, 0, 0.6);
   --sh-pop: 0 30px 80px -30px rgba(0, 0, 0, 0.85);
   --glow-a: rgba(143, 128, 255, 0.2);
@@ -127,6 +134,8 @@
   --color-b-main: var(--b-main);
   --color-b-coin: var(--b-coin);
   --color-b-airdrop: var(--b-airdrop);
+  --color-blood: var(--blood);
+  --color-blood-soft: var(--blood-soft);
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
   --shadow-card: var(--sh-card);

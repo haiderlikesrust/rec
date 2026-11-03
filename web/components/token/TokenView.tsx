@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { ArrowLeft, Check, Copy, ExternalLink, Globe, GraduationCap, Send } from "lucide-react";
+import { ArrowLeft, Check, Copy, Droplet, ExternalLink, Globe, GraduationCap, Send } from "lucide-react";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { isSolanaAddress, type CoinDetail } from "@cook/shared";
@@ -15,6 +15,7 @@ import { QuoteChip } from "@/components/QuoteChip";
 import { Badge, ButtonLink, Change, EmptyState, ErrorState, Skeleton } from "@/components/ui";
 import { XLogo } from "@/components/XLogo";
 import { ActivityTabs } from "./ActivityTabs";
+import { BloodlinePanel } from "./BloodlinePanel";
 import { FeesPanel } from "./FeesPanel";
 import { MobileTradeBar } from "./MobileTradeBar";
 import { OtcPanel } from "./OtcPanel";
@@ -203,6 +204,22 @@ export function TokenView({ address }: { address: string }) {
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted">
                   <QuoteChip symbol={q.symbol} logo={q.logo} pair={coin.symbol} />
                   {coin.isMain && <Badge tone="accent">Platform token</Badge>}
+                  {coin.bloodline &&
+                    (coin.bloodline.unpaid ? (
+                      <Badge tone="down">
+                        <Droplet size={11} /> Copy of ${coin.bloodline.og.symbol} · skipped the entry
+                      </Badge>
+                    ) : coin.bloodline.og.address === coin.address ? (
+                      <Badge tone="blood">
+                        <Droplet size={11} /> OG · {coin.bloodline.members - 1} {coin.bloodline.members === 2 ? "copy" : "copies"}
+                      </Badge>
+                    ) : (
+                      <Link href={`/token/${coin.bloodline.og.address}`}>
+                        <Badge tone="blood">
+                          <Droplet size={11} /> Copy of ${coin.bloodline.og.symbol}
+                        </Badge>
+                      </Link>
+                    ))}
                   {coin.graduated && (
                     <Badge tone="up">
                       <GraduationCap size={11} /> Graduated
@@ -258,7 +275,7 @@ export function TokenView({ address }: { address: string }) {
         </div>
 
         {/* trading stays in view on desktop: the column sticks, and scrolls with the page when it's taller than the screen */}
-        <aside ref={setAside} style={{ top: asideTop }} className="space-y-4 lg:sticky lg:col-start-2 lg:row-span-5 lg:row-start-1">
+        <aside ref={setAside} style={{ top: asideTop }} className="space-y-4 lg:sticky lg:col-start-2 lg:row-span-6 lg:row-start-1">
           {/* phones trade from the bottom bar's sheet instead */}
           <div className="hidden lg:block">
             <TradePanel coin={coin} />
@@ -272,7 +289,10 @@ export function TokenView({ address }: { address: string }) {
         <div className="min-w-0 lg:col-start-1 lg:row-start-4">
           <ActivityTabs coin={coin} />
         </div>
-        <div className="grid min-w-0 grid-cols-1 items-start gap-4 lg:col-start-1 lg:row-start-5 xl:grid-cols-2">
+        <div className="min-w-0 lg:col-start-1 lg:row-start-5">
+          <BloodlinePanel coin={coin} />
+        </div>
+        <div className="grid min-w-0 grid-cols-1 items-start gap-4 lg:col-start-1 lg:row-start-6 xl:grid-cols-2">
           <FeesPanel coin={coin} solUsd={solUsd} />
           <OtcPanel coin={coin} solUsd={solUsd} />
         </div>

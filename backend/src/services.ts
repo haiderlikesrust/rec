@@ -6,6 +6,7 @@ import {
   otcActivityBps,
   otcPolicy,
   otcSellLimitSol,
+  type BloodlineTag,
   type Coin,
   type CoinProtection,
   type CoinSort,
@@ -28,7 +29,7 @@ export function quotesMap() {
 
 type CandleRow = { coin: string; t: number; o: number; h: number; l: number; c: number; v: number };
 
-export function shapeCoin(c: CoinRow, q: QuoteRow, candles24h: CandleRow[], trades24h = 0): Coin {
+export function shapeCoin(c: CoinRow, q: QuoteRow, candles24h: CandleRow[], trades24h = 0, bloodline: BloodlineTag | null = null): Coin {
   const qa = toQuoteAsset(q);
   const supply = toUnits(c.total_supply, c.decimals);
   const t0 = now() - 86_400;
@@ -88,10 +89,15 @@ export function shapeCoin(c: CoinRow, q: QuoteRow, candles24h: CandleRow[], trad
     holders: c.holders,
     burned: c.burned,
     spark,
+    bloodline,
   };
 }
 
-export function allCoins(): Coin[] {
+/**
+ * Every coin, with its Bloodline tag from `tags`. Copies that skipped their Bloodline entry are left out unless
+ * `listedOnly` is false.
+ */
+export function allCoins(tags: Map<string, BloodlineTag> = new Map(), listedOnly = true): Coin[] {
   const since = now() - 86_400;
   const rows = all<CoinRow>("SELECT * FROM coin");
   const quotes = quotesMap();
@@ -108,8 +114,8 @@ export function allCoins(): Coin[] {
     ),
   );
   return rows
-    .filter((c) => quotes.has(c.quote))
-    .map((c) => shapeCoin(c, quotes.get(c.quote)!, byCoin.get(c.mint) ?? [], counts.get(c.mint) ?? 0));
+    .filter((c) => quotes.has(c.quote) && (!listedOnly || c.entry_status !== "unpaid"))
+    .map((c) => shapeCoin(c, quotes.get(c.quote)!, byCoin.get(c.mint) ?? [], counts.get(c.mint) ?? 0, tags.get(c.mint) ?? null));
 }
 
 export function coinCandles24h(mint: string) {

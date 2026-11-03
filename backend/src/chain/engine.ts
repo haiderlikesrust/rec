@@ -33,10 +33,12 @@ import {
   Transaction,
   TransactionInstruction,
   VersionedTransaction,
+  type TokenBalance,
   type VersionedTransactionResponse,
 } from "@solana/web3.js";
 import BN from "bn.js";
 import {
+  ENTRY_RENT_LAMPORTS,
   GRADUATION_MCAP_USD,
   NATIVE_MINT,
   START_MCAP_USD,
@@ -52,6 +54,7 @@ import {
   type TxEnvelope,
 } from "@cook/shared";
 import { storeMetadata } from "../api";
+import { recordEntry } from "../bloodline";
 import { config, log, type Role } from "../config";
 import { COIN_DECIMALS, SUPPLY_RAW, curveFor } from "../curve";
 import { all, big, kvGet, kvSet, one, run, type CoinRow, type OtcQuoteRow } from "../db";
@@ -417,32 +420,75 @@ export class ChainEngine implements Engine {
 
   // ---------------------------------------------------------------- launch
 
-  async launch(req: LaunchRequest, uriBase: string): Promise<LaunchResponse> {
+  async launch(req: LaunchRequest, uriBase: string, entry?: { raw: bigint; to: string }): Promise<LaunchResponse> {
     const cfg = await this.ensureConfig(req.quote);
     const mint = Keypair.generate();
     const mintAddr = mint.publicKey.toBase58();
     storeMetadata(mintAddr, req);
     const uri = (await pinJson(mintAddr)) ?? `${uriBase}${mintAddr}.json`;
-    kvSet(`launch:${mintAddr}`, JSON.stringify({ ...req, uri }));
+    kvSet(`launch:${mintAddr}`, JSON.stringify({ ...req, uri, entry: entry?.raw.toString(), entryFor: entry?.to }));
     const user = this.pk(req.wallet);
     const initial = big(req.initialBuy);
+    const createPoolParam = {
+      name: req.name,
+      symbol: req.symbol,
+      uri,
+      payer: user,
+      poolCreator: user,
+      config: this.pk(cfg.address),
+      baseMint: mint.publicKey,
+    };
+    // a copy's Bloodline entry is bought together with the creator's own buy: Meteora charges a new pool's first swap
+    // the normal fee but a second swap in the launch the anti-snipe fee, so there is only one
+    const total = initial + (entry?.raw ?? 0n);
+    const referralTokenAccount = total > 0n ? await this.referral(req.quote) : null;
     const tx = await this.dbc.creator.createPoolWithFirstBuy({
-      createPoolParam: {
-        name: req.name,
-        symbol: req.symbol,
-        uri,
-        payer: user,
-        poolCreator: user,
-        config: this.pk(cfg.address),
-        baseMint: mint.publicKey,
-      },
+      createPoolParam,
       firstBuyParam:
-        initial > 0n
-          ? { buyer: user, buyAmount: new BN(initial.toString()), minimumAmountOut: new BN(0), referralTokenAccount: await this.referral(req.quote) }
+        total > 0n
+          ? { buyer: user, receiver: user, buyAmount: new BN(total.toString()), minimumAmountOut: new BN(0), referralTokenAccount }
           : undefined,
     });
+    if (entry) {
+      // the coins the entry's amount buys first move on to the airdrop wallet in the same transaction, plus rent for the
+      // token accounts they're airdropped into
+      const entryTokens = await this.firstBuyOut(cfg.address, req.quote, entry.raw, referralTokenAccount !== null);
+      const airdrop = this.pk(this.wallets.airdrop);
+      const from = this.ata(user, mintAddr, TOKEN_PROGRAM_ID);
+      const to = this.ata(airdrop, mintAddr, TOKEN_PROGRAM_ID);
+      tx.add(
+        createAssociatedTokenAccountIdempotentInstruction(user, to, airdrop, mint.publicKey, TOKEN_PROGRAM_ID),
+        createTransferCheckedInstruction(from, mint.publicKey, to, user, entryTokens, COIN_DECIMALS, [], TOKEN_PROGRAM_ID),
+        SystemProgram.transfer({ fromPubkey: user, toPubkey: airdrop, lamports: ENTRY_RENT_LAMPORTS }),
+      );
+    }
     const pool = deriveDbcPoolAddress(this.pk(req.quote), mint.publicKey, this.pk(cfg.address)).toBase58();
     return { ...(await this.forUser(tx, req.wallet, [mint])), mint: mintAddr, pool };
+  }
+
+  /** Coins the first buy of `amount` on a new pool from this config gets, computed the way the program will. */
+  private async firstBuyOut(configAddress: string, quote: string, amount: bigint, hasReferral: boolean) {
+    const poolConfig = await this.dbc.state.getPoolConfig(configAddress);
+    if (!poolConfig) throw new UserError("The pair's config isn't on-chain yet. Try again in a few seconds.");
+    const [currentPoint, quoteMint] = await Promise.all([
+      getCurrentPoint(this.conn, poolConfig.activationType as ActivationType),
+      this.quoteMintState(quote),
+    ]);
+    const fresh = {
+      poolState: { sqrtPrice: poolConfig.sqrtStartPrice, quoteReserve: new BN(0), activationPoint: currentPoint, hasSwap: 0, volatilityTracker: { volatilityAccumulator: new BN(0) } },
+    };
+    const q = this.dbc.pool.swapQuote2({
+      ...(quoteMint && { quoteMint: quoteMint.mint, currentEpoch: quoteMint.currentEpoch }),
+      virtualPool: fresh as unknown as Parameters<DynamicBondingCurveClient["pool"]["swapQuote2"]>[0]["virtualPool"],
+      config: poolConfig,
+      swapBaseForQuote: false,
+      hasReferral,
+      eligibleForFirstSwapWithMinFee: true,
+      currentPoint,
+      swapMode: SwapMode.ExactIn,
+      amountIn: new BN(amount.toString()),
+    });
+    return asBig(q.outputAmount);
   }
 
   async solToQuote(wallet: string, quote: string, lamports: bigint): Promise<SolToQuote> {
@@ -728,7 +774,8 @@ export class ChainEngine implements Engine {
     const out: { to: string; sig: string }[] = [];
     const native = mint === NATIVE_MINT;
     const program = native ? TOKEN_PROGRAM_ID : await this.tokenProgram(mint);
-    const decimals = native ? 9 : quoteDecimals(mint);
+    // a coin (a Bloodline entry) or a quote
+    const decimals = native ? 9 : (getCoin(mint)?.decimals ?? quoteDecimals(mint));
     const source = native ? null : this.ata(key.publicKey, mint, program);
     const perTx = native ? 18 : 6;
     for (let i = 0; i < items.length; i += perTx) {
@@ -803,9 +850,20 @@ export class ChainEngine implements Engine {
     const keys = accountKeys(tx);
     const feePayer = keys[0]!;
     const events = decodeEvents(tx);
+    // a copy's Bloodline entry: a buy in its launch whose coins went to the airdrop wallet (pool → coins bought)
+    const entries = new Map<string, bigint>();
+    const toAirdrop = (mint: string) => {
+      const sum = (b?: TokenBalance[] | null) =>
+        (b ?? []).filter((x) => x.owner === this.wallets.airdrop && x.mint === mint).reduce((s, x) => s + BigInt(x.uiTokenAmount.amount), 0n);
+      return sum(tx.meta?.postTokenBalances) - sum(tx.meta?.preTokenBalances);
+    };
     for (const ev of events) {
       if (ev.program === "dbc" && ev.name === "EvtInitializePool") {
-        await this.onLaunch(asKey(field(ev.data, "pool")), asKey(field(ev.data, "config")), asKey(field(ev.data, "creator")), asKey(field(ev.data, "base_mint")), ts);
+        const pool = asKey(field(ev.data, "pool"));
+        const mint = asKey(field(ev.data, "base_mint"));
+        const entry = toAirdrop(mint);
+        if (entry > 0n) entries.set(pool, entry);
+        await this.onLaunch(pool, asKey(field(ev.data, "config")), asKey(field(ev.data, "creator")), mint, ts, entry);
         continue;
       }
       if (ev.program === "dbc" && ev.name === "EvtCurveComplete") {
@@ -820,10 +878,9 @@ export class ChainEngine implements Engine {
       const qDec = quoteDecimals(c.quote);
       // the referral rebate is ours only when the referral account was the fee wallet's
       const ours = keys.includes(this.ata(this.wallets.fees, c.quote, await this.tokenProgram(c.quote)).toBase58());
-      recordTrade({
-        id: `${signature}:${swapIndex++}`,
+      const id = `${signature}:${swapIndex++}`;
+      const trade = {
         coin: c.mint,
-        trader: feePayer,
         isBuy: f.isBuy,
         quoteAmount: f.quoteAmount,
         tokenAmount: f.tokenAmount,
@@ -835,17 +892,34 @@ export class ChainEngine implements Engine {
         quoteReserve: ev.program === "dbc" ? f.quoteReserve : undefined,
         ts,
         tx: signature,
+      };
+      // a copy's launch buy carries its Bloodline entry: that part is the airdrop wallet's, at its share of the quote
+      const entryTokens = f.isBuy ? entries.get(f.pool) : undefined;
+      if (entryTokens !== undefined && entryTokens <= f.tokenAmount) {
+        entries.delete(f.pool);
+        const paid = big(JSON.parse(kvGet(`launch:${c.mint}`) ?? "{}").entry);
+        const quoteE = paid > 0n && paid <= f.quoteAmount ? paid : (f.quoteAmount * entryTokens) / f.tokenAmount;
+        const part = (x: bigint) => (x * quoteE) / (f.quoteAmount || 1n);
+        const e = { quoteAmount: quoteE, tokenAmount: entryTokens, tax: part(trade.tax), meteora: part(trade.meteora), claimable: part(trade.claimable), referral: part(trade.referral) };
+        recordTrade({ ...trade, ...e, id: `${id}:entry`, trader: this.wallets.airdrop, kind: "trade" });
+        if (f.tokenAmount === entryTokens) continue;
+        for (const k of ["quoteAmount", "tokenAmount", "tax", "meteora", "claimable", "referral"] as const) trade[k] -= e[k];
+      }
+      recordTrade({
+        ...trade,
+        id,
+        trader: feePayer,
         kind: feePayer === this.wallets.fees ? "buyback" : "trade",
       });
     }
   }
 
-  private async onLaunch(pool: string, cfgAddress: string, creator: string, mint: string, ts: number) {
+  private async onLaunch(pool: string, cfgAddress: string, creator: string, mint: string, ts: number, entryTokens = 0n) {
     if (getCoin(mint)) return;
     const cfg = one<{ quote: string; quote_usd: number; threshold: string }>("SELECT quote, quote_usd, threshold FROM config WHERE address = ?", cfgAddress);
     if (!cfg) return; // not one of ours
     const saved = kvGet(`launch:${mint}`);
-    const meta: Partial<LaunchRequest> & { uri?: string } = saved ? JSON.parse(saved) : await this.readMetadata(mint);
+    const meta: Partial<LaunchRequest> & { uri?: string; entryFor?: string } = saved ? JSON.parse(saved) : await this.readMetadata(mint);
     const curve = curveFor(START_MCAP_USD / cfg.quote_usd, GRADUATION_MCAP_USD / cfg.quote_usd);
     recordLaunch({
       mint,
@@ -869,6 +943,7 @@ export class ChainEngine implements Engine {
       threshold: big(cfg.threshold),
       totalSupply: SUPPLY_RAW,
     });
+    recordEntry(mint, entryTokens, big(meta.entry), meta.entryFor ?? null, !!saved, ts);
     log(`launch ${meta.symbol} ${mint}`);
   }
 

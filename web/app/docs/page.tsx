@@ -3,6 +3,8 @@ import {
   ArrowLeftRight,
   Coins,
   Crosshair,
+  Crown,
+  Droplet,
   Flame,
   Gift,
   GraduationCap,
@@ -16,6 +18,8 @@ import {
   Wallet,
 } from "lucide-react";
 import {
+  BLOODLINE,
+  ENTRY_RENT_LAMPORTS,
   PROTECTION_CAP_X_TAX,
   PROTECTION_MIN_PAYOUT_SOL,
   PROTECTION_PAYOUT_BPS,
@@ -69,6 +73,7 @@ const sections: DocsSection[] = [
   { id: "otc", label: "OTC reserve", group: "Mechanics" },
   { id: "protection", label: "Protection fund", group: "Mechanics" },
   { id: "airdrops", label: "High-entry airdrop", group: "Mechanics" },
+  { id: "bloodline", label: "Bloodline: copies", group: "Mechanics" },
   { id: "wallets", label: "Treasury wallets", group: "Mechanics" },
   { id: "faq", label: "FAQ", group: "More" },
   { id: "risks", label: "Risks", group: "More" },
@@ -82,7 +87,15 @@ const BEN_TIER = [...protectionTiers].reverse().find((t) => BEN_HOLD >= t.minHol
 const TOP_TIER_PCT = Math.max(...protectionTiers.map((t) => t.coverageBps)) / 100;
 const SHARE = communityShareBps(false) / 10_000;
 const SHARE_REF = communityShareBps(true) / 10_000;
-const k = (n: number) => `$${n / 1000}k`;
+const k = (n: number) => `${n / 1000}k`;
+// the share of supply a copy's entry buys at launch, on the same curve every coin starts on (3% fee)
+const ENTRY_SUPPLY_PCT = (() => {
+  const p0 = START_MCAP_USD / 1e9;
+  const pm = GRADUATION_MCAP_USD / 1e9;
+  const liquidity = (1e9 * Math.sqrt(p0) * pm) / (pm - p0);
+  const out = liquidity * (1 / Math.sqrt(p0) - 1 / (Math.sqrt(p0) + (BLOODLINE.entryUsd * 0.97) / liquidity));
+  return (out / 1e9) * 100;
+})();
 
 export default function DocsPage() {
   const ten = splitFees(10_000 * SHARE);
@@ -474,7 +487,73 @@ export default function DocsPage() {
             </ul>
           </RuleCard>
 
-          <H2 id="wallets" n={12}>
+          <H2 id="bloodline" n={12}>
+            Bloodline: copies feed the original
+          </H2>
+          <p>
+            A vamp copies a coin that&apos;s working, with the same name, a near-identical ticker like C4T or C@T and the same story,
+            and tries to pull its buyers away with a better-sounding number. Other launchpads try to block copies. {brand.name}{" "}
+            lets them launch, and makes them pay the coin they copied.
+          </p>
+          <StepCards
+            steps={[
+              { icon: Crown, title: "CAT launches", body: "The first coin with a name is the OG. While people trade it, it leads its family." },
+              {
+                icon: Droplet,
+                title: "C4T copies it",
+                body: `The copy's launch opens with a $${BLOODLINE.entryUsd} buy of C4T that its creator never receives: about ${ENTRY_SUPPLY_PCT.toFixed(1)}% of C4T's supply, airdropped to CAT's holders.`,
+              },
+              {
+                icon: Flame,
+                title: "C4T trades",
+                body: "Its coin-buyback share buys and burns CAT, and its airdrop share pays CAT's high-entry holders. Every C4T trade pumps CAT.",
+              },
+              {
+                icon: Repeat,
+                title: "CAT goes quiet",
+                body: `After ${BLOODLINE.aliveHours} hours without real trading, the busiest member leads. If that's C4T, CAT's shares and every other copy's flow to C4T.`,
+              },
+            ]}
+          />
+          <RuleCard icon={Droplet} color="var(--blood)" title="The rules">
+            <ul>
+              <li>
+                <strong>Families.</strong> Coins whose ticker or name reads the same once look-alike characters are folded together
+                join one family: 0 reads as O, 1 and L as I, 4 and @ as A, 5 and $ as S, Cyrillic and Greek look-alikes as their Latin
+                twins, with accents, spaces and punctuation dropped. CAT, C4T, C@T and &quot;Cat&quot; all read as CAT.
+              </li>
+              <li>
+                <strong>The leader.</strong> The OG leads while it&apos;s alive: at least {BLOODLINE.aliveTraders} traders and $
+                {BLOODLINE.aliveVolumeUsd} of volume in the last {BLOODLINE.aliveHours} hours. Once it goes quiet, the alive member
+                with the best mix of {BLOODLINE.aliveHours}-hour volume, traders and market cap leads. If every member is quiet,
+                the best member over its whole life leads.
+              </li>
+              <li>
+                <strong>What the others send.</strong> Every member that doesn&apos;t lead sends its coin-buyback (10%) and
+                high-entry airdrop (10%) shares to the leader, converted into the leader&apos;s pair. Its protection and OTC shares
+                stay with it, so its own buyers keep their cover and exit.
+              </li>
+              <li>
+                <strong>The entry.</strong> A copy launched while its family&apos;s leader is alive pays ${BLOODLINE.entryUsd} in its
+                pair&apos;s token as the launch&apos;s first buy, ahead of its creator&apos;s own buy, plus about{" "}
+                {(ENTRY_RENT_LAMPORTS / 1e9).toFixed(2)} SOL for its recipients&apos; token accounts. Those coins go to up to{" "}
+                {BLOODLINE.recipients} of the leader&apos;s holders, weighted by what each put in and counted up to{" "}
+                {BLOODLINE.maxEntryBoost}× for holders whose entry is above the price, with no wallet taking more than{" "}
+                {BLOODLINE.maxShareBps / 100}%. Coins received by transfer don&apos;t count, and neither coin&apos;s creator gets any.
+              </li>
+              <li>
+                <strong>Normal launches pay nothing extra.</strong> Neither does a copy of a family that has gone quiet: it still
+                sends its shares to the leader until it leads itself.
+              </li>
+              <li>
+                <strong>No way around it.</strong> A copy created straight on Meteora with a {brand.name} config skips the launch
+                form but not the rules: it still feeds its leader, and if it skipped the entry it&apos;s left off every{" "}
+                {brand.name} list.
+              </li>
+            </ul>
+          </RuleCard>
+
+          <H2 id="wallets" n={13}>
             Treasury wallets
           </H2>
           <RuleCard icon={Wallet} color="var(--accent)" title="Plain Solana wallets, not custom programs">
@@ -501,7 +580,7 @@ export default function DocsPage() {
             <DocsTreasury />
           </RuleCard>
 
-          <H2 id="faq" n={13}>
+          <H2 id="faq" n={14}>
             FAQ
           </H2>
           <Faq
@@ -527,6 +606,10 @@ export default function DocsPage() {
                 "Yes. The 3% is part of the Meteora pool itself, so every swap pays it no matter which app sends it.",
               ],
               [
+                "What if someone copies my coin?",
+                `Let them. While your coin leads its family, the copy's buyback buys and burns yours, its airdrop pays your holders, and if your coin was alive when it launched, it paid a $${BLOODLINE.entryUsd} entry that was airdropped to your holders. If your coin goes quiet and a copy carries on, the copy leads instead: the family follows whoever the market keeps alive.`,
+              ],
+              [
                 "Can liquidity be pulled?",
                 "No. Before graduation the supply sits in Meteora's bonding curve, which nobody can withdraw from. At graduation it migrates to a DAMM v2 pool whose LP position is permanently locked.",
               ],
@@ -537,7 +620,7 @@ export default function DocsPage() {
             ]}
           />
 
-          <H2 id="risks" n={14}>
+          <H2 id="risks" n={15}>
             Risks
           </H2>
           <RiskCallout>
@@ -558,6 +641,10 @@ export default function DocsPage() {
               <li>
                 <strong>Token-2022 quotes.</strong> Many tokenized stocks are Token-2022 mints; a pair only works once Meteora has
                 issued that mint a token badge.
+              </li>
+              <li>
+                <strong>Bloodline matches tickers and names, not logos.</strong> A copy with a different name and ticker but the same
+                image isn&apos;t caught. An unrelated coin can also share a common word with another and land in its family.
               </li>
               <li>Coins are issued by their creators, are highly volatile, and may have no value. Listing is not an endorsement.</li>
               <li>Tokenized-stock quote assets carry their issuer&apos;s risks and may be restricted in some jurisdictions.</li>

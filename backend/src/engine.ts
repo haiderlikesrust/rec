@@ -37,7 +37,8 @@ export interface Engine {
   // ---- user transactions (built here, signed by the user's wallet)
   swapQuote(c: CoinRow, side: SwapSide, amount: bigint, slippageBps: number, wallet?: string): Promise<SwapQuote>;
   swap(c: CoinRow, req: SwapRequest): Promise<SwapResponse>;
-  launch(req: LaunchRequest, metadataUri: string): Promise<LaunchResponse>;
+  /** `entry`: a Bloodline copy's entry in raw quote, bought first for the airdrop wallet, and the leader it goes to. */
+  launch(req: LaunchRequest, metadataUri: string, entry?: { raw: bigint; to: string }): Promise<LaunchResponse>;
   /** A custom pair's config, created with the launcher as payer; no transaction when a current one exists. */
   pairSetup(wallet: string, quote: string): Promise<PairSetup>;
   /** Jupiter swap from SOL into a quote, for a first buy paid in SOL. Demo mode settles it immediately. */

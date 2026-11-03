@@ -3,6 +3,7 @@ import { config, loadWallets, log } from "./config";
 import { createApi } from "./api";
 import { db, run } from "./db";
 import type { Engine, Job } from "./engine";
+import { runEntries } from "./bloodline";
 import { processFees, runAirdrops, runProtection, sweep } from "./jobs";
 import { lease, releaseLease, renewLease } from "./lease";
 import { SYSTEM } from "./ledger";
@@ -80,6 +81,8 @@ for (const job of [
   // burns and airdrops run continuously: these loop every few seconds
   { name: "fees", ms: config.feesEveryMs, run: () => processFees(engine) },
   { name: "airdrops", ms: config.airdropsEveryMs, run: () => runAirdrops(engine) },
+  // copies' Bloodline entries, airdropped to their leaders' holders
+  { name: "bloodline", ms: config.airdropsEveryMs, run: () => runEntries(engine) },
   { name: "protection", ms: config.protectionEveryMs, run: () => runProtection(engine) },
   { name: "sweep", ms: 15_000, run: () => sweep(engine) },
   ...engine.jobs(),

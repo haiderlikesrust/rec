@@ -1,4 +1,4 @@
-import { big, one, run, tx, type CoinRow, type HolderRow } from "./db";
+import { big, joinFamily, one, run, tx, type CoinRow, type HolderRow } from "./db";
 import { solPerUnit, toUnits } from "./prices";
 
 /**
@@ -71,6 +71,7 @@ export function recordLaunch(l: LaunchInput) {
     l.threshold.toString(),
     l.totalSupply.toString(),
   );
+  if (getCoin(l.mint)!.family === "") joinFamily(l.mint, l.symbol, l.name);
 }
 
 export type TradeInput = {
@@ -255,8 +256,8 @@ export function recordTransfer(coinMint: string, wallet: string, delta: bigint) 
   });
 }
 
-/** Burned supply, from a coin buyback, a platform-token buyback, or coins sold to the OTC reserve. */
-export function recordBurn(coinMint: string, amount: bigint, valueSol: number, source: "coin" | "main" | "otc") {
+/** Burned supply, from a coin buyback, a platform-token buyback, coins sold to the OTC reserve, or an entry nobody could get. */
+export function recordBurn(coinMint: string, amount: bigint, valueSol: number, source: "coin" | "main" | "otc" | "entry") {
   const c = getCoin(coinMint);
   if (!c) return;
   run(

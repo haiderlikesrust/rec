@@ -4,6 +4,7 @@
  * equivalents) are numbers. Addresses are base58 public keys. The UI displays USD; coins trade in their quote asset.
  */
 
+import type { BloodlineCheck, BloodlineInfo, BloodlineTag } from "./bloodline";
 import type { PayoutLimit } from "./fees";
 import type { QuoteCategory } from "./quotes";
 import type { Cluster } from "./solana";
@@ -72,6 +73,8 @@ export type Coin = {
   holders: number;
   burned: string; // raw coin units burned
   spark: number[]; // last 24h hourly closes, in quote units
+  /** its family of look-alike coins (see bloodline.ts); null when it has no copies */
+  bloodline: BloodlineTag | null;
 };
 
 export type BucketTotals = {
@@ -293,6 +296,8 @@ export type LaunchRequest = {
   telegram: string;
   quote: Address; // quote mint
   initialBuy: string; // raw quote; 0 for none
+  /** a copy's Bloodline entry in raw quote, as the launch form showed it (see bloodline.ts) */
+  entry?: string;
 };
 export type LaunchResponse = TxEnvelope & { mint: Address; pool: Address };
 
@@ -364,6 +369,9 @@ export const api = (base: string) => {
         `/api/coins/${address}/trades?limit=${limit}${opts.buybacks === false ? "&buybacks=0" : ""}${opts.trader ? `&trader=${opts.trader}` : ""}`,
       ),
     holders: (address: string) => get<Holder[]>(`/api/coins/${address}/holders`),
+    bloodline: (address: string) => get<BloodlineInfo>(`/api/coins/${address}/bloodline`),
+    /** The family a launch with this ticker and name would join, and the entry it would pay on that pair. */
+    bloodlineCheck: (q: { symbol: string; name: string; quote: string }) => get<BloodlineCheck>(`/api/bloodline/check?${qs(q)}`),
     wallet: (address: string) => get<WalletSummary>(`/api/wallet/${address}`),
     balances: (address: string) => get<Balances>(`/api/balances/${address}`),
     protection: () => get<ProtectionStatus>("/api/protection"),

@@ -1,5 +1,6 @@
 import path from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import { bloodKey } from "@cook/shared";
 import { config } from "./config";
 
 /**
@@ -49,7 +50,12 @@ CREATE TABLE IF NOT EXISTS coin (
   -- protection: SOL committed to this coin's sellers so far (its pot is sol_to_protection minus this)
   protection_paid REAL NOT NULL DEFAULT 0,
   -- rug heuristic
-  creator_bought TEXT NOT NULL DEFAULT '0', creator_sold TEXT NOT NULL DEFAULT '0'
+  creator_bought TEXT NOT NULL DEFAULT '0', creator_sold TEXT NOT NULL DEFAULT '0',
+  -- Bloodline (see bloodline.ts): look-alike keys, the family's OG, fee shares routed to leaders, and a copy's entry
+  ticker_key TEXT NOT NULL DEFAULT '', name_key TEXT NOT NULL DEFAULT '', family TEXT NOT NULL DEFAULT '',
+  blood_sent_sol REAL NOT NULL DEFAULT 0, blood_received_sol REAL NOT NULL DEFAULT 0,
+  entry_status TEXT, entry_tokens TEXT NOT NULL DEFAULT '0', entry_sol REAL NOT NULL DEFAULT 0, entry_for TEXT,
+  entry_sent TEXT NOT NULL DEFAULT '0', entry_recipients INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS coin_quote ON coin(quote);
 CREATE INDEX IF NOT EXISTS coin_pool ON coin(pool);
@@ -90,6 +96,10 @@ CREATE TABLE IF NOT EXISTS airdrop (
 CREATE INDEX IF NOT EXISTS airdrop_recipient ON airdrop(recipient);
 -- airdrop money allocated to a holder but not sent yet (sent once it is worth AIRDROP_MIN_PAYOUT_USD)
 CREATE TABLE IF NOT EXISTS airdrop_owed (coin TEXT NOT NULL, wallet TEXT NOT NULL, amount TEXT NOT NULL, PRIMARY KEY (coin, wallet));
+-- a copy's Bloodline entry, shared out to the leader's holders (tx NULL until sent)
+CREATE TABLE IF NOT EXISTS entry_drop (
+  coin TEXT NOT NULL, wallet TEXT NOT NULL, amount TEXT NOT NULL, tx TEXT, ts INTEGER NOT NULL, PRIMARY KEY (coin, wallet)
+);
 CREATE TABLE IF NOT EXISTS otc_quote (
   id TEXT PRIMARY KEY, coin TEXT NOT NULL, wallet TEXT NOT NULL, side TEXT NOT NULL, amount_in TEXT NOT NULL,
   amount_out TEXT NOT NULL, tax TEXT NOT NULL, sol_gross REAL NOT NULL, price_sol REAL NOT NULL, created_at INTEGER NOT NULL,
@@ -128,6 +138,23 @@ if (!coinColumns.has("protection_paid")) {
   for (const c of all<{ amount: string; breakdown: string }>("SELECT amount, breakdown FROM protection_claim WHERE status != 'expired'"))
     for (const [coin, sol] of claimByCoin(c.amount, c.breakdown)) run("UPDATE coin SET protection_paid = protection_paid + ? WHERE mint = ?", sol, coin);
 }
+if (!coinColumns.has("family")) {
+  db.exec(`ALTER TABLE coin ADD COLUMN ticker_key TEXT NOT NULL DEFAULT '';
+    ALTER TABLE coin ADD COLUMN name_key TEXT NOT NULL DEFAULT '';
+    ALTER TABLE coin ADD COLUMN family TEXT NOT NULL DEFAULT '';
+    ALTER TABLE coin ADD COLUMN blood_sent_sol REAL NOT NULL DEFAULT 0;
+    ALTER TABLE coin ADD COLUMN blood_received_sol REAL NOT NULL DEFAULT 0;
+    ALTER TABLE coin ADD COLUMN entry_status TEXT;
+    ALTER TABLE coin ADD COLUMN entry_tokens TEXT NOT NULL DEFAULT '0';
+    ALTER TABLE coin ADD COLUMN entry_sol REAL NOT NULL DEFAULT 0;
+    ALTER TABLE coin ADD COLUMN entry_for TEXT;
+    ALTER TABLE coin ADD COLUMN entry_sent TEXT NOT NULL DEFAULT '0';
+    ALTER TABLE coin ADD COLUMN entry_recipients INTEGER NOT NULL DEFAULT 0;`);
+  // coins launched before Bloodline join their families in launch order
+  for (const c of all<{ mint: string; symbol: string; name: string }>("SELECT mint, symbol, name FROM coin ORDER BY created_at, rowid"))
+    joinFamily(c.mint, c.symbol, c.name);
+}
+db.exec("CREATE INDEX IF NOT EXISTS coin_family ON coin(family)");
 const lossColumns = new Set(all<{ name: string }>("PRAGMA table_info(loss)").map((c) => c.name));
 if (!lossColumns.has("processed")) {
   db.exec("ALTER TABLE loss ADD COLUMN processed INTEGER NOT NULL DEFAULT 0");
@@ -148,6 +175,26 @@ export function claimByCoin(amount: string, breakdown: string): [string, number]
   const total = weights.reduce((s, w) => s + w, 0);
   const sol = Number(BigInt(amount)) / 1e9;
   return items.map((b, i) => [b.coin, total > 0 ? (sol * weights[i]!) / total : sol / items.length]);
+}
+
+/**
+ * Stores a coin's look-alike keys and puts it in the family of the earliest coin that shares one (its ticker or name
+ * reading the same as the other's ticker or name), or starts its own.
+ */
+export function joinFamily(mint: string, symbol: string, name: string) {
+  const t = bloodKey(symbol);
+  const n = bloodKey(name);
+  const keys = [t, n].filter(Boolean);
+  const match = keys.length
+    ? one<{ family: string }>(
+        `SELECT family FROM coin WHERE mint != ? AND family != '' AND (ticker_key IN (${keys.map(() => "?").join(",")}) OR name_key IN (${keys.map(() => "?").join(",")}))
+         ORDER BY created_at, rowid LIMIT 1`,
+        mint,
+        ...keys,
+        ...keys,
+      )
+    : undefined;
+  run("UPDATE coin SET ticker_key = ?, name_key = ?, family = ? WHERE mint = ?", t, n, match?.family ?? mint, mint);
 }
 
 let depth = 0;
@@ -250,6 +297,17 @@ export type CoinRow = {
   protection_paid: number;
   creator_bought: string;
   creator_sold: string;
+  ticker_key: string;
+  name_key: string;
+  family: string;
+  blood_sent_sol: number;
+  blood_received_sol: number;
+  entry_status: "pending" | "done" | "unpaid" | null;
+  entry_tokens: string;
+  entry_sol: number;
+  entry_for: string | null;
+  entry_sent: string;
+  entry_recipients: number;
 };
 
 export type TradeRow = {

@@ -1,13 +1,24 @@
 "use client";
 
 import clsx from "clsx";
-import { GraduationCap, Globe, ImagePlus, Loader2, Lock, Rocket, Send, Zap } from "lucide-react";
+import { Droplet, GraduationCap, Globe, ImagePlus, Loader2, Lock, Rocket, Send, Zap } from "lucide-react";
 import { useConnection } from "@solana/wallet-adapter-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
-import { brand, buyTaxBpsAt, GRADUATION_MCAP_USD, LAUNCH_FEE_SOL, NATIVE_MINT, SNIPE, START_MCAP_USD, type QuoteAsset } from "@cook/shared";
+import {
+  BLOODLINE,
+  brand,
+  buyTaxBpsAt,
+  GRADUATION_MCAP_USD,
+  LAUNCH_FEE_SOL,
+  NATIVE_MINT,
+  SNIPE,
+  START_MCAP_USD,
+  type BloodlineCheck,
+  type QuoteAsset,
+} from "@cook/shared";
 import { buckets } from "@/lib/buckets";
-import { client, useBalances, useQuotes, useStats } from "@/lib/data";
+import { client, useBalances, useBloodlineCheck, useQuotes, useStats } from "@/lib/data";
 import { bps, formatRaw, num, sol, toRaw, tokens, units, usd } from "@/lib/format";
 import { tokenDelta, useSolanaTx } from "@/lib/tx";
 import { useStickyTop } from "@/lib/useStickyTop";
@@ -108,6 +119,53 @@ function AntiSnipeChart() {
   );
 }
 
+/** Shown when the ticker or name reads like an existing coin's: the family it joins, and the entry a copy pays. */
+function BloodlineNotice({ check, ticker, entryCost }: { check: BloodlineCheck; ticker: string; entryCost: string }) {
+  const f = check.family;
+  if (!f) return null;
+  const e = check.entry;
+  return (
+    <div className="mt-6 overflow-hidden rounded-2xl border border-blood/30 bg-blood-soft">
+      <div className="flex items-center gap-3 px-4 pt-4">
+        <div className="relative shrink-0">
+          <CoinAvatar src={f.og.image} symbol={f.og.symbol} seed={f.og.address} size={38} />
+          <span className="absolute -right-1 -bottom-1 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-blood text-white shadow-[0_0_0_2px_var(--bg-elev)]">
+            <Droplet size={10} fill="currentColor" />
+          </span>
+        </div>
+        <div className="min-w-0">
+          <div className="text-sm font-semibold">
+            ${ticker} joins the ${f.og.symbol} bloodline
+          </div>
+          <div className="text-xs text-muted">
+            {f.members === 1 ? "Its ticker or name reads the same" : `${f.members} coins already in the family`}
+            {f.leader.address !== f.og.address && <> · ${f.leader.symbol} leads</>}
+          </div>
+        </div>
+      </div>
+      {e ? (
+        <ul className="mt-3 space-y-2 border-t border-blood/20 px-4 py-3 text-xs leading-relaxed text-muted">
+          <li>
+            <span className="font-medium text-fg">Copies pay an entry.</span> Your launch opens with a{" "}
+            <span className="num text-fg">{usd(e.usd)}</span> buy of ${ticker} ({entryCost}) that you never receive: those coins
+            are airdropped to ${e.to.symbol}&apos;s holders. Your own first buy comes right after it.
+          </li>
+          <li>
+            While ${f.leader.symbol} leads the family, ${ticker}&apos;s buyback and airdrop shares go to it. Outgrow it and ${ticker}{" "}
+            leads.
+          </li>
+          <li className="text-faint">Pick a ticker and name of your own to launch without the entry.</li>
+        </ul>
+      ) : (
+        <p className="mt-3 border-t border-blood/20 px-4 py-3 text-xs leading-relaxed text-muted">
+          No coin in this family has traded in the last {BLOODLINE.aliveHours} hours, so there&apos;s no entry. Until ${ticker} leads
+          the family, its buyback and airdrop shares go to whichever member does.
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** Wallets and explorers need an absolute image URL in token metadata. */
 const absoluteImage = (src: string) => {
   const s = src.trim();
@@ -179,20 +237,37 @@ export function LaunchForm() {
   const quoteBalance = !b || !quote ? undefined : BigInt(native ? b.sol : b.tokens[quote.address] ?? "0");
   const solBalance = b ? BigInt(b.sol) : undefined;
 
+  // a copy of a coin whose family is alive pays the Bloodline entry; the check waits for typing to settle
+  const [checked, setChecked] = useState({ symbol: "", name: "" });
+  useEffect(() => {
+    const t = setTimeout(() => setChecked({ symbol: symbol.trim(), name: name.trim() }), 350);
+    return () => clearTimeout(t);
+  }, [symbol, name]);
+  const blood = useBloodlineCheck({ ...checked, quote: quote?.address });
+  const settled = checked.symbol === symbol.trim() && checked.name === name.trim() && !blood.isLoading;
+  const entry = blood.data?.entry ?? null;
+  const entryRaw = entry ? BigInt(entry.quoteRaw) : 0n;
+  const entryRent = entry ? BigInt(entry.rentLamports) : 0n;
+  // the SOL that buys the entry: itself on the SOL pair, or swapped into the pair's token with 1% room for the price
+  const entrySol =
+    !entry || !quote ? 0n : native ? entryRaw : paySol ? BigInt(Math.ceil(units(entryRaw, quote.decimals) * quote.solPerUnit * 1.01 * 1e9)) : 0n;
+
   const initialRaw = quote ? toRaw(initialBuy, inSol ? 9 : quote.decimals) : 0n;
   const initialUsd = inSol ? units(initialRaw, 9) * solUsd : quote ? units(initialRaw, quote.decimals) * quote.usdPerUnit : 0;
   const estQuote = paySol && quote && quote.solPerUnit > 0 ? units(initialRaw, 9) / quote.solPerUnit : 0;
   const setupLamports = custom && !quote?.config ? PAIR_SETUP_LAMPORTS : 0n;
-  const totalLamports = LAUNCH_FEE_LAMPORTS + setupLamports + (inSol ? initialRaw : 0n);
+  const swapLamports = paySol ? initialRaw + entrySol : 0n;
+  const totalLamports = LAUNCH_FEE_LAMPORTS + setupLamports + entryRent + (inSol ? initialRaw + entrySol : 0n);
   const insufficient =
-    (solBalance !== undefined && solBalance < totalLamports) || (!inSol && quoteBalance !== undefined && initialRaw > quoteBalance);
+    (solBalance !== undefined && solBalance < totalLamports) || (!inSol && quoteBalance !== undefined && initialRaw + entryRaw > quoteBalance);
   // what the wallet will be asked to sign, in order
-  const signs = [custom && "set up the pair", paySol && initialRaw > 0n && `swap SOL for ${quote?.symbol}`, "launch"].filter(Boolean) as string[];
+  const signs = [custom && "set up the pair", swapLamports > 0n && `swap SOL for ${quote?.symbol}`, "launch"].filter(Boolean) as string[];
 
   const errors: string[] = [];
   if (!name.trim()) errors.push("Name your coin");
   if (!symbol.trim()) errors.push("Pick a ticker");
   if (!quote) errors.push("No quote asset available");
+  if ((symbol.trim() || name.trim()) && !settled) errors.push("Checking the ticker…");
   if (address && insufficient) errors.push("Not enough balance");
 
   async function upload(file: File) {
@@ -223,9 +298,9 @@ export function LaunchForm() {
     if (!quote) return;
     if (inSol) {
       if (solBalance === undefined) return;
-      const spare = LAUNCH_FEE_LAMPORTS + SOL_RESERVE + setupLamports;
+      const spare = LAUNCH_FEE_LAMPORTS + SOL_RESERVE + setupLamports + entryRent + entrySol;
       setInitialBuy(formatRaw(solBalance > spare ? solBalance - spare : 0n, 9));
-    } else if (quoteBalance !== undefined) setInitialBuy(formatRaw(quoteBalance, quote.decimals));
+    } else if (quoteBalance !== undefined) setInitialBuy(formatRaw(quoteBalance > entryRaw ? quoteBalance - entryRaw : 0n, quote.decimals));
   }
 
   function pickQuote(q: QuoteAsset) {
@@ -241,14 +316,16 @@ export function LaunchForm() {
       if (!r) return;
     }
     let buy = initialRaw;
-    if (paySol && initialRaw > 0n) {
-      const r = await tx.run(`Swap ${initialBuy} SOL for ${quote.symbol}`, () =>
-        client.solToQuote({ wallet: address, quote: quote.address, lamports: initialRaw.toString() }),
+    if (swapLamports > 0n) {
+      const r = await tx.run(`Swap ${formatRaw(swapLamports, 9)} SOL for ${quote.symbol}`, () =>
+        client.solToQuote({ wallet: address, quote: quote.address, lamports: swapLamports.toString() }),
       );
       if (!r) return;
-      buy = r.res.demo
+      const got = r.res.demo
         ? BigInt(r.res.outAmount)
         : await tokenDelta(connection, r.signature, address, quote.address, BigInt(r.res.minOut));
+      // the entry comes out of what arrived; the rest is the first buy
+      buy = got > entryRaw ? got - entryRaw : 0n;
       // from here it's a first buy in the pair's token, so a failed or rejected launch retries without swapping again
       setPayWith("quote");
       setInitialBuy(formatRaw(buy, quote.decimals));
@@ -265,6 +342,7 @@ export function LaunchForm() {
         telegram: telegram.trim(),
         quote: quote.address,
         initialBuy: buy.toString(),
+        entry: entry ? entryRaw.toString() : undefined,
       }),
     );
     if (r) router.push(`/token/${r.res.mint}`);
@@ -337,6 +415,13 @@ export function LaunchForm() {
               {uploadError && <p className="text-xs text-down sm:col-span-2">{uploadError}</p>}
             </div>
           </div>
+          {blood.data && settled && quote && (
+            <BloodlineNotice
+              check={blood.data}
+              ticker={symbol || "TICKER"}
+              entryCost={native || paySol ? `≈ ${sol(units(entrySol, 9))}` : `${tokens(entryRaw, quote.decimals)} ${quote.symbol}`}
+            />
+          )}
         </StepCard>
 
         <StepCard n={2} title="Story & links" sub="Optional, but coins with a story and socials get found.">
@@ -481,7 +566,19 @@ export function LaunchForm() {
                     </>
                   )}
                   {setupLamports > 0n && <> · pair setup ~{sol(units(setupLamports, 9))}</>}
-                  {(inSol && initialRaw > 0n) || setupLamports > 0n ? <> · total {sol(units(totalLamports, 9))}</> : null}
+                  {entry && quote && (
+                    <span className="text-blood">
+                      {" "}
+                      · Bloodline entry {usd(entry.usd)}
+                      {!inSol && (
+                        <>
+                          {" "}
+                          ({tokens(entryRaw, quote.decimals)} {quote.symbol})
+                        </>
+                      )}
+                    </span>
+                  )}
+                  {(inSol && initialRaw > 0n) || setupLamports > 0n || entry ? <> · total {sol(units(totalLamports, 9))}</> : null}
                 </div>
               </div>
             </div>

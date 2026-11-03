@@ -164,3 +164,76 @@ test("a first buy paid in SOL on another pair swaps into the quote, then launche
   assert.equal(engine.bal(creator, usdc), usdcBefore, "the whole swap went into the first buy");
   assert.ok(big(one<{ balance: string }>("SELECT balance FROM holder WHERE coin = ? AND wallet = ?", mint, creator)!.balance) > 0n);
 });
+
+test("Bloodline: a copy pays its entry to the leader's holders and feeds the leader its buyback and airdrop", async () => {
+  const { BLOODLINE, bloodKey } = await import("@cook/shared");
+  const { checkLaunch, familyState, runEntries } = await import("./bloodline");
+  const { createApi } = await import("./api");
+  const app = createApi(engine);
+  assert.equal(bloodKey("C4T"), "CAT");
+  assert.equal(bloodKey("C@T"), "CAT");
+  assert.equal(bloodKey("Сat"), "CAT", "a Cyrillic С reads as C");
+  assert.equal(bloodKey("0FFICIA1"), bloodKey("Official"));
+
+  const at = Math.floor(Date.now() / 1000);
+  const meta = { description: "", image: "", website: "", twitter: "", telegram: "", quote: NATIVE_MINT, initialBuy: "0" };
+  const ogCreator = fakeKey();
+  const og = engine.createCoin({ ...meta, wallet: ogCreator, name: "Cat", symbol: "CAT" }, "http://x/", at - 3600).mint;
+  // five holders keep the OG alive; the last one buys highest
+  const holders = Array.from({ length: 5 }, () => fakeKey());
+  holders.forEach((h, i) => engine.trade(getCoin(og)!, h, "buy", 3n * 10n ** 9n, at - 1800 + i));
+
+  assert.equal(checkLaunch("DOG", "Dog", NATIVE_MINT).family, null, "an unrelated launch joins no family");
+  const check = checkLaunch("C4T", "C@T", NATIVE_MINT);
+  assert.equal(check.family?.og.address, og);
+  assert.ok(check.entry, "copying an alive coin costs the entry");
+  assert.equal(check.entry!.to.address, og);
+
+  const launch = (body: object) =>
+    app.request("/api/tx/launch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const copier = fakeKey();
+  const req = { ...meta, wallet: copier, name: "C@T", symbol: "C4T", initialBuy: (10n ** 9n).toString() };
+  const refused = await launch(req);
+  assert.equal(refused.status, 400, "a copy can't launch without its entry");
+  assert.match(((await refused.json()) as { error: string }).error, /Bloodline entry/);
+
+  const res = await launch({ ...req, entry: check.entry!.quoteRaw });
+  assert.equal(res.status, 200);
+  const copy = ((await res.json()) as { mint: string }).mint;
+  const c = getCoin(copy)!;
+  assert.equal(c.family, og, "the copy joins the OG's family");
+  assert.equal(c.entry_status, "pending");
+  const entryTokens = big(c.entry_tokens);
+  assert.equal(engine.bal(engine.wallets.airdrop, copy), entryTokens, "the entry's coins sit in the airdrop wallet");
+  const own = big(one<{ balance: string }>("SELECT balance FROM holder WHERE coin = ? AND wallet = ?", copy, copier)!.balance);
+  assert.ok(own > 0n && own < entryTokens, "the launcher gets only their own buy, bought after the entry at a higher price");
+
+  await runEntries(engine, at);
+  assert.equal(getCoin(copy)!.entry_status, "done");
+  const drops = all<{ wallet: string; amount: string }>("SELECT wallet, amount FROM entry_drop WHERE coin = ?", copy);
+  assert.equal(drops.reduce((s, d) => s + big(d.amount), 0n), entryTokens, "all of the entry went out");
+  assert.deepEqual(new Set(drops.map((d) => d.wallet)), new Set(holders), "to the OG's holders, not its creator or the copier");
+  // nobody over the cap (the cap can't be below an even split), give or take rounding dust
+  const capBps = BigInt(Math.max(BLOODLINE.maxShareBps, Math.ceil(10_000 / drops.length)));
+  assert.ok(drops.every((d) => big(d.amount) * 10_000n <= entryTokens * capBps + 10_000n * BigInt(drops.length)));
+  for (const d of drops) assert.equal(engine.bal(d.wallet, copy), big(d.amount));
+
+  // two wallets trade the copy; it isn't alive, so its buyback and airdrop shares go to the OG
+  for (const w of [fakeKey(), fakeKey()]) engine.trade(getCoin(copy)!, w, "buy", 2n * 10n ** 9n, at + 60);
+  const ogBefore = getCoin(og)!;
+  await processFees(engine, at + 120);
+  const ogAfter = getCoin(og)!;
+  assert.equal(big(getCoin(copy)!.coin_burned), 0n, "the copy's buyback didn't buy the copy");
+  assert.ok(big(ogAfter.coin_burned) > big(ogBefore.coin_burned), "it bought and burned the OG");
+  assert.ok(big(ogAfter.airdrop_quote) > big(ogBefore.airdrop_quote), "and funded the OG's airdrop");
+  assert.ok(getCoin(copy)!.blood_sent_sol > 0 && Math.abs(getCoin(copy)!.blood_sent_sol - ogAfter.blood_received_sol) < 1e-9);
+
+  // 13 hours on, the OG has gone quiet and the copy is busy: the copy leads
+  const later = at + 13 * 3600;
+  for (const w of [fakeKey(), fakeKey(), fakeKey()]) engine.trade(getCoin(copy)!, w, "buy", 3n * 10n ** 9n, later - 600);
+  const s = familyState(og, later)!;
+  assert.equal(s.rule, "alive");
+  assert.equal(s.leader.mint, copy);
+  // and once both are quiet, the best of them overall
+  assert.equal(familyState(og, later + 13 * 3600)!.rule, "best");
+});

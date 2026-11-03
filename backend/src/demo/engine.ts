@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { Keypair } from "@solana/web3.js";
 import bs58 from "bs58";
 import {
+  ENTRY_RENT_LAMPORTS,
   GRADUATION_MCAP_USD,
   LAUNCH_FEE_SOL,
   METEORA_PROTOCOL_SHARE_BPS,
@@ -22,6 +23,7 @@ import {
   type TxEnvelope,
 } from "@cook/shared";
 import { storeMetadata } from "../api";
+import { recordEntry } from "../bloodline";
 import type { Role } from "../config";
 import { all, big, kvGet, kvSet, one, run, tx, type CoinRow, type OtcQuoteRow } from "../db";
 import { UserError, type Engine } from "../engine";
@@ -248,7 +250,7 @@ export class DemoEngine implements Engine {
   }
 
   /** Creates a coin like initialize_virtual_pool would, plus the creator's bundled first buy. */
-  createCoin(req: LaunchRequest, uriBase: string, at: number, isMain = false) {
+  createCoin(req: LaunchRequest, uriBase: string, at: number, isMain = false, entry?: { raw: bigint; to: string }) {
     const q = quoteRow(req.quote);
     if (!q) throw new UserError("Unknown quote asset.");
     const cfg = this.configFor(req.quote);
@@ -284,14 +286,23 @@ export class DemoEngine implements Engine {
         threshold: big(cfg.threshold),
         totalSupply: SUPPLY_RAW,
       });
+      if (entry) {
+        // a copy's Bloodline entry: the first buy, for the airdrop wallet, plus rent for the accounts it's sent to
+        this.add(req.wallet, req.quote, -entry.raw, q.symbol);
+        this.add(this.wallets.airdrop, req.quote, entry.raw);
+        this.add(req.wallet, NATIVE_MINT, -BigInt(ENTRY_RENT_LAMPORTS), "SOL for the Bloodline entry");
+        this.add(this.wallets.airdrop, NATIVE_MINT, BigInt(ENTRY_RENT_LAMPORTS));
+        const { fill } = this.trade(getCoin(mint)!, this.wallets.airdrop, "buy", entry.raw, at, "trade", true);
+        recordEntry(mint, fill.amountOut, entry.raw, entry.to, true, at);
+      }
       const initial = big(req.initialBuy);
       if (initial > 0n) this.trade(getCoin(mint)!, req.wallet, "buy", initial, at, "trade", true);
       return { mint, pool };
     });
   }
 
-  async launch(req: LaunchRequest, uriBase: string): Promise<LaunchResponse> {
-    const { mint, pool } = this.createCoin(req, uriBase, this.at());
+  async launch(req: LaunchRequest, uriBase: string, entry?: { raw: bigint; to: string }): Promise<LaunchResponse> {
+    const { mint, pool } = this.createCoin(req, uriBase, this.at(), false, entry);
     return { tx: null, demo: true, signature: fakeSig(), mint, pool };
   }
 

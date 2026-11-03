@@ -39,6 +39,18 @@ export const useWalletSummary = (address?: string) =>
 /** Native SOL (lamports) and SPL balances by mint, from the chain or the demo ledger. */
 export const useBalances = (address?: string) =>
   useQuery({ queryKey: ["balances", address], queryFn: () => client.balances(address!), enabled: !!address, ...live });
+/** A coin's Bloodline family: who leads, and what its copies sent it. */
+export const useBloodline = (address?: string) =>
+  useQuery({ queryKey: ["bloodline", address], queryFn: () => client.bloodline(address!), enabled: !!address, ...live });
+/** The family a launch with this ticker and name would join, and its entry on that pair. */
+export const useBloodlineCheck = (q: { symbol: string; name: string; quote?: string }) =>
+  useQuery({
+    queryKey: ["bloodline-check", q],
+    queryFn: () => client.bloodlineCheck({ symbol: q.symbol, name: q.name, quote: q.quote! }),
+    enabled: !!q.quote && !!(q.symbol || q.name),
+    refetchInterval: 30_000,
+    retry: 1,
+  });
 export const useProtection = () => useQuery({ queryKey: ["protection"], queryFn: client.protection, ...live });
 export const useOtc = () => useQuery({ queryKey: ["otc"], queryFn: client.otc, ...live });
 /** One coin's OTC limits, including this wallet's remaining daily allowance. */
