@@ -1,10 +1,10 @@
 "use client";
 
 import clsx from "clsx";
-import { Clock, Crown, Flame, GraduationCap, LayoutGrid, List, Rocket, Search, Users } from "lucide-react";
+import { Clock, Crown, Egg, Flame, GraduationCap, LayoutGrid, List, Rocket, Search, Users } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { quoteCategories, type Coin, type CoinSort, type QuoteCategory } from "@cook/shared";
+import { brand, quoteCategories, type Coin, type CoinSort, type QuoteCategory } from "@cook/shared";
 import { useCoins, useQuotes } from "@/lib/data";
 import { age, short, tokens, usd } from "@/lib/format";
 import { CoinAvatar } from "@/components/CoinAvatar";
@@ -65,7 +65,7 @@ export function CoinExplorer() {
       <SectionHeading
         eyebrow="Explore"
         title="Every coin, every pair"
-        sub="Coins pair with SOL, stablecoins, 120+ tokenized stocks or any custom token. Every one pays the same 3% fee, and it flows back to holders."
+        sub="Coins pair with SOL, stablecoins, 120+ tokenized stocks or any custom token. Every one pays the same 3%, and all of it cushions holders."
       />
 
       <div className="mt-7 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -76,13 +76,11 @@ export function CoinExplorer() {
                 key={t.value}
                 onClick={() => setSort(t.value)}
                 className={clsx(
-                  "inline-flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-sm whitespace-nowrap transition-all",
-                  sort === t.value
-                    ? "border-line-strong bg-elev-2 text-fg shadow-card"
-                    : "border-line text-muted hover:border-line-strong hover:text-fg",
+                  "font-display inline-flex h-10 items-center gap-1.5 rounded-full px-4 text-sm font-semibold whitespace-nowrap transition-all",
+                  sort === t.value ? "bg-fg text-bg" : "bg-elev text-muted shadow-card hover:text-fg",
                 )}
               >
-                <t.icon size={14} className={sort === t.value ? "text-accent" : ""} />
+                <t.icon size={15} className={sort === t.value ? "text-accent" : ""} />
                 {t.label}
               </button>
             ))}
@@ -95,14 +93,14 @@ export function CoinExplorer() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search name, ticker, address"
-              className="h-10 w-full rounded-full border border-line bg-elev pr-4 pl-10 text-sm outline-none transition-all placeholder:text-faint hover:border-line-strong focus:border-accent focus:shadow-[0_0_0_4px_var(--accent-soft)]"
+              className="h-11 w-full rounded-full border-[1.5px] border-line-strong bg-sunk pr-4 pl-10 text-sm font-semibold outline-none transition-all placeholder:font-normal placeholder:text-faint hover:border-muted/40 focus:border-sky focus:bg-elev focus:shadow-[0_0_0_4px_var(--sky-soft)]"
             />
           </div>
           <select
             value={quote}
             onChange={(e) => setQuote(e.target.value)}
             aria-label="Pair"
-            className="h-10 min-w-0 flex-1 rounded-full border border-line bg-elev px-3.5 text-sm outline-none hover:border-line-strong focus:border-accent sm:flex-none"
+            className="h-11 min-w-0 flex-1 rounded-full border-[1.5px] border-line-strong bg-sunk px-4 text-sm font-semibold outline-none hover:border-muted/40 focus:border-sky sm:flex-none"
           >
             <option value="all">Any pair</option>
             {(Object.keys(quoteCategories) as QuoteCategory[]).map((cat) => {
@@ -119,14 +117,14 @@ export function CoinExplorer() {
               );
             })}
           </select>
-          <div className="hidden shrink-0 rounded-full border border-line bg-sunk/80 p-1 sm:flex">
+          <div className="hidden shrink-0 rounded-full bg-sunk p-1 shadow-[inset_0_0_0_1px_var(--line)] sm:flex">
             {(["list", "grid"] as const).map((v) => (
               <button
                 key={v}
                 aria-label={`${v} view`}
                 onClick={() => changeView(v)}
                 className={clsx(
-                  "flex h-8 w-8 items-center justify-center rounded-full transition-all",
+                  "flex h-9 w-9 items-center justify-center rounded-full transition-all",
                   view === v ? "bg-elev-2 text-fg shadow-[inset_0_0_0_1px_var(--line-strong)]" : "text-muted hover:text-fg",
                 )}
               >
@@ -170,17 +168,29 @@ export function CoinExplorer() {
   );
 }
 
+/** A coin's place in its Nest: the original with its copies, or a copy and whom it feeds. */
+function NestBadge({ c }: { c: Coin }) {
+  const n = c.bloodline;
+  if (!n) return null;
+  return (
+    <Badge tone="nest" className="shrink-0">
+      <Egg size={10} />
+      {n.og.address === c.address ? `${brand.nest} of ${n.members}` : `Copy of $${n.og.symbol}`}
+    </Badge>
+  );
+}
+
 function TokenCell({ c, size = 40, pair = false }: { c: Coin; size?: number; pair?: boolean }) {
   return (
     <div className="flex min-w-0 items-center gap-3">
       <CoinAvatar src={c.image} symbol={c.symbol} seed={c.address} size={size} />
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
-          <span className="truncate text-[15px] font-semibold tracking-tight">{c.name}</span>
-          {c.isMain && <Badge tone="accent">Platform</Badge>}
+          <span className="font-display truncate text-[15px] font-semibold">{c.name}</span>
+          <NestBadge c={c} />
         </div>
         <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs whitespace-nowrap text-muted">
-          <span className="font-medium text-fg/75">${c.symbol}</span>
+          <span className="font-bold text-fg/75">${c.symbol}</span>
           {pair && <QuoteChip symbol={c.quote.symbol} logo={c.quote.logo} />}
           <span className="text-faint">·</span>
           <span className="num">{age(c.createdAt)}</span>
@@ -194,10 +204,10 @@ function TokenCell({ c, size = 40, pair = false }: { c: Coin; size?: number; pai
 
 function Table({ coins }: { coins: Coin[] }) {
   return (
-    <div className="surface overflow-hidden rounded-[22px]">
+    <div className="surface overflow-hidden rounded-[24px]">
       <table className="w-full text-left">
         <thead>
-          <tr className="border-b border-line text-[11px] tracking-wider text-faint uppercase">
+          <tr className="font-display border-b border-line text-[11px] tracking-[0.08em] text-faint uppercase">
             <th className="w-10 py-3.5 pl-5 font-medium">#</th>
             <th className="px-3 py-3.5 font-medium">Coin</th>
             <th className="hidden px-3 py-3.5 font-medium lg:table-cell">24h</th>
@@ -221,8 +231,8 @@ function Table({ coins }: { coins: Coin[] }) {
                 <Sparkline data={c.spark} width={96} height={32} />
               </td>
               <td className="px-3 py-3.5 text-right">
-                <div className="num text-sm font-medium">{usd(c.marketCapUsd)}</div>
-                <Change value={c.change24h} className="text-xs" />
+                <div className="num text-sm font-bold">{usd(c.marketCapUsd)}</div>
+                <Change value={c.change24h} className="text-xs font-semibold" />
               </td>
               <td className="hidden px-3 py-3.5 text-right md:table-cell">
                 <div className="num text-sm">{usd(c.volume24hUsd)}</div>
@@ -251,25 +261,25 @@ function Table({ coins }: { coins: Coin[] }) {
 
 function MobileList({ coins }: { coins: Coin[] }) {
   return (
-    <ul className="surface divide-y divide-line overflow-hidden rounded-[22px] sm:hidden">
+    <ul className="surface divide-y divide-line overflow-hidden rounded-[24px] sm:hidden">
       {coins.map((c) => (
         <li key={c.address}>
           <Link href={`/token/${c.address}`} className="flex items-center gap-3 px-4 py-3.5 transition-colors active:bg-elev-2">
             <CoinAvatar src={c.image} symbol={c.symbol} seed={c.address} size={40} />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
-                <span className="truncate text-[15px] font-semibold tracking-tight">{c.name}</span>
-                {c.isMain && <Badge tone="accent">Platform</Badge>}
+                <span className="font-display truncate text-[15px] font-semibold">{c.name}</span>
+                <NestBadge c={c} />
               </div>
               <div className="mt-1 flex items-center gap-1.5 text-xs text-muted">
-                <span className="font-medium text-fg/75">${c.symbol}</span>
+                <span className="font-bold text-fg/75">${c.symbol}</span>
                 <QuoteChip symbol={c.quote.symbol} logo={c.quote.logo} />
               </div>
               <GraduationBar className="mt-2" progress={c.graduationProgress} graduated={c.graduated} />
             </div>
             <div className="shrink-0 text-right">
-              <div className="num text-sm font-medium">{usd(c.marketCapUsd)}</div>
-              <Change value={c.change24h} className="text-xs" />
+              <div className="num text-sm font-bold">{usd(c.marketCapUsd)}</div>
+              <Change value={c.change24h} className="text-xs font-semibold" />
               <Sparkline data={c.spark} width={64} height={22} className="mt-1 ml-auto block" />
             </div>
           </Link>
@@ -283,7 +293,7 @@ function Grid({ coins }: { coins: Coin[] }) {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {coins.map((c) => (
-        <Link key={c.address} href={`/token/${c.address}`} className="surface surface-hover group rounded-[22px] p-5">
+        <Link key={c.address} href={`/token/${c.address}`} className="surface surface-hover group rounded-[24px] p-5">
           <div className="flex items-start justify-between gap-3">
             <TokenCell c={c} size={44} />
             <QuoteChip symbol={c.quote.symbol} logo={c.quote.logo} />
@@ -292,7 +302,7 @@ function Grid({ coins }: { coins: Coin[] }) {
           <div className="mt-4 flex items-end justify-between gap-3">
             <div>
               <div className="text-xs text-muted">Market cap</div>
-              <div className="num mt-0.5 text-xl font-medium">{usd(c.marketCapUsd)}</div>
+              <div className="num font-display mt-0.5 text-2xl font-bold">{usd(c.marketCapUsd)}</div>
               <Change value={c.change24h} pill className="mt-1 text-xs" />
             </div>
             <Sparkline data={c.spark} width={128} height={48} strokeWidth={2} />
@@ -316,7 +326,7 @@ function Grid({ coins }: { coins: Coin[] }) {
 
 function ListSkeleton() {
   return (
-    <div className="surface space-y-1 rounded-[22px] p-5">
+    <div className="surface space-y-1 rounded-[24px] p-5">
       {Array.from({ length: 8 }).map((_, i) => (
         <div key={i} className="flex items-center gap-4 py-2.5">
           <Skeleton className="h-10 w-10 rounded-full" />

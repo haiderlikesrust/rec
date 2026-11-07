@@ -4,6 +4,7 @@ import {
   BLOODLINE,
   LAUNCH_FEE_SOL,
   NATIVE_MINT,
+  brand,
   PROTECTION_PAYOUT_BPS,
   clusters,
   isSolanaAddress,
@@ -85,31 +86,30 @@ export function createApi(engine: Engine) {
 
   app.get("/api/stats", (ctx) => {
     const since = now() - 86_400;
-    const sums = one<{ fees: number; meteora: number; airdropped: number; burnedValue: number; protection: number; coins: number }>(
-      `SELECT COALESCE(SUM(fees_sol), 0) AS fees, COALESCE(SUM(meteora_sol), 0) AS meteora, COALESCE(SUM(airdropped_sol), 0) AS airdropped,
-         COALESCE(SUM(burned_value_sol), 0) AS burnedValue, COALESCE(SUM(sol_to_protection), 0) AS protection, COUNT(*) AS coins FROM coin`,
+    const sums = one<{ fees: number; meteora: number; routed: number; coins: number }>(
+      `SELECT COALESCE(SUM(fees_sol), 0) AS fees, COALESCE(SUM(meteora_sol), 0) AS meteora, COALESCE(SUM(blood_sent_sol), 0) AS routed,
+         COUNT(*) AS coins FROM coin`,
     )!;
     const vol = one<{ v: number }>("SELECT COALESCE(SUM(sol_value), 0) AS v FROM trade WHERE ts >= ? AND kind = 'trade'", since)!.v;
-    const main = one<CoinRow>("SELECT * FROM coin WHERE is_main = 1");
+    const otcPaid = one<{ s: number }>(
+      "SELECT COALESCE(SUM(CAST(amount_out AS REAL)), 0) / 1e9 AS s FROM otc_quote WHERE status = 'done' AND side = 'sell'",
+    )!.s;
     const sUsd = solUsd();
     const stats: PlatformStats = {
       cluster: config.cluster,
       demo: engine.demo,
       solUsd: sUsd,
       coins: sums.coins,
-      mainToken: main?.mint ?? null,
       volume24hSol: vol,
       volume24hUsd: vol * sUsd,
       totalFeesSol: sums.fees,
       totalFeesUsd: sums.fees * sUsd,
       meteoraFeesSol: sums.meteora,
-      mainBurned: kvGet("main_burned") ?? "0",
-      mainSupply: main?.total_supply ?? "0",
       otcReserveSol: treasury.otcSol,
       protectionFundSol: treasury.protectionSol,
       protectionPaidSol: toUnits(kvGet("protection_paid") ?? "0", 9),
-      airdroppedSol: sums.airdropped,
-      coinsBurnedSol: sums.burnedValue,
+      otcPaidSol: otcPaid,
+      nestRoutedSol: sums.routed,
       treasury: roles.map((r) => ({
         role: r.role,
         label: r.label,
@@ -152,30 +152,14 @@ export function createApi(engine: Engine) {
     const detail: CoinDetail = {
       ...shapeCoin(c, q, coinCandles24h(mint), trades24h, tagOf(c)),
       buckets: {
-        coinBurned: c.coin_burned,
         solToOtc: c.sol_to_otc,
         solToProtection: c.sol_to_protection,
-        solToMainBuyback: c.sol_to_main,
-        airdropQuote: c.airdrop_quote,
         meteoraQuote: c.meteora_quote,
         pendingQuote: (big(c.income_quote) - big(c.split_quote)).toString(),
+        sentToLeaderSol: c.blood_sent_sol,
+        receivedFromCopiesSol: c.blood_received_sol,
       },
       otc: otcCoin(c),
-      airdropsPaid: c.airdrops_paid,
-      airdropRecipientsLastEpoch: c.airdrop_last_recipients,
-      buybacks24h: (() => {
-        const rows = all<{ token_amount: string; quote_amount: string }>(
-          "SELECT token_amount, quote_amount FROM trade WHERE coin = ? AND kind = 'buyback' AND ts >= ?",
-          mint,
-          now() - 86_400,
-        );
-        const quote = rows.reduce((s, r) => s + big(r.quote_amount), 0n);
-        return {
-          count: rows.length,
-          tokenAmount: rows.reduce((s, r) => s + big(r.token_amount), 0n).toString(),
-          usd: toUnits(quote, q.decimals) * q.usd,
-        };
-      })(),
       protection: coinProtection(c),
     };
     return ctx.json(detail);
@@ -202,13 +186,12 @@ export function createApi(engine: Engine) {
   app.get("/api/coins/:address/trades", (ctx) => {
     const mint = address(ctx, "address");
     const limit = Math.min(Number(ctx.req.query("limit") ?? 50), 200);
-    // buybacks run every few seconds; the UI hides them from the feed by default (?buybacks=0)
-    const hideBuybacks = ctx.req.query("buybacks") === "0";
     // ?trader= narrows the feed to one wallet ("my trades")
     const trader = ctx.req.query("trader");
     if (trader && !isSolanaAddress(trader)) throw new UserError("Invalid wallet address.");
+    // the old fee buybacks stay in the table but aren't shown
     const rows = all<TradeRow>(
-      `SELECT * FROM trade WHERE coin = ? ${hideBuybacks ? "AND kind != 'buyback'" : ""} ${trader ? "AND trader = ?" : ""}
+      `SELECT * FROM trade WHERE coin = ? AND kind != 'buyback' ${trader ? "AND trader = ?" : ""}
        ORDER BY ts DESC, rowid DESC LIMIT ?`,
       mint,
       ...(trader ? [trader] : []),
@@ -247,7 +230,7 @@ export function createApi(engine: Engine) {
   app.get("/api/wallet/:address", (ctx) => {
     const wallet = address(ctx, "address");
     const coins = new Map(allCoins(bloodlineTags(), false).map((c) => [c.address, c]));
-    const positions: Position[] = all<HolderRow>("SELECT * FROM holder WHERE wallet = ? AND (balance != '0' OR airdrops != '0')", wallet)
+    const positions: Position[] = all<HolderRow>("SELECT * FROM holder WHERE wallet = ? AND balance != '0'", wallet)
       .filter((h) => coins.has(h.coin))
       .map((h) => {
         const c = coins.get(h.coin)!;
@@ -270,31 +253,11 @@ export function createApi(engine: Engine) {
           realizedPnlUsd: realized * usd,
           firstBuyAt: h.first_buy_at,
           taxPaid: h.tax_paid,
-          airdropEligible: bal > 0 && avgEntry > c.price,
-          airdropsReceived: h.airdrops,
         };
       });
-    const quotes = quotesMap();
-    const drops = all<{ coin: string; amount: string; ts: number; tx: string }>(
-      "SELECT coin, amount, ts, tx FROM airdrop WHERE recipient = ? ORDER BY ts DESC LIMIT 200",
-      wallet,
-    );
     const summary: WalletSummary = {
       address: wallet,
       positions,
-      airdrops: drops.map((d) => {
-        const c = coins.get(d.coin);
-        const q = c ? quotes.get(c.quote.address) : undefined;
-        return {
-          coin: d.coin,
-          symbol: c?.symbol ?? "?",
-          amount: d.amount,
-          quoteSymbol: q?.symbol ?? "SOL",
-          quoteDecimals: q?.decimals ?? 9,
-          t: d.ts,
-          tx: d.tx,
-        };
-      }),
       protection: walletProtection(wallet),
     };
     return ctx.json(summary);
@@ -449,7 +412,7 @@ export function createApi(engine: Engine) {
     if (!name || name.length > 32) throw new UserError("Name must be 1–32 characters.");
     if (!/^[A-Z0-9]{1,10}$/.test(symbol)) throw new UserError("Ticker must be 1–10 letters or digits.");
     await launchQuote(req.quote);
-    // a copy launched while its family has an alive leader pays the Bloodline entry (see bloodline.ts)
+    // a copy launched while its Nest has an alive leader pays the Nest entry (see bloodline.ts)
     const check = checkLaunch(symbol, name, req.quote);
     let entry: { raw: bigint; to: string } | undefined;
     if (check.entry) {
@@ -457,7 +420,7 @@ export function createApi(engine: Engine) {
       const offered = big(req.entry);
       if (offered * 100n < need * 98n)
         throw new UserError(
-          `$${symbol} copies $${check.family!.og.symbol}, so it pays the $${BLOODLINE.entryUsd} Bloodline entry. Refresh the form to see it, then launch again.`,
+          `$${symbol} copies $${check.family!.og.symbol}, so it pays the $${BLOODLINE.entryUsd} ${brand.nest} entry. Refresh the form to see it, then launch again.`,
         );
       // the figure the form showed, unless the price moved more than 10% since
       entry = { raw: offered * 10n > need * 11n ? need : offered, to: check.entry.to.address };

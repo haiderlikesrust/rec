@@ -1,6 +1,5 @@
 import type { SQLInputValue } from "node:sqlite";
 import {
-  AIRDROP_MIN_USD,
   PROTECTION_PAYOUT_BPS,
   coverageBpsForHold,
   otcActivityBps,
@@ -66,7 +65,6 @@ export function shapeCoin(c: CoinRow, q: QuoteRow, candles24h: CandleRow[], trad
     creator: c.creator,
     createdAt: c.created_at,
     quote: qa,
-    isMain: c.is_main === 1,
     decimals: c.decimals,
     price: c.price,
     priceSol: c.price * qa.solPerUnit,
@@ -141,14 +139,12 @@ export function sortCoins(list: Coin[], sort: CoinSort) {
 export const isRugged = (c: CoinRow) =>
   big(c.creator_bought) > 0n && big(c.creator_sold) * 2n >= big(c.creator_bought) && c.price <= c.ath * 0.3;
 
-// ---------------------------------------------------------------- holders and airdrops
+// ---------------------------------------------------------------- holders
 
 export function holdersOf(mint: string): Holder[] {
   const c = one<CoinRow>("SELECT * FROM coin WHERE mint = ?", mint);
   if (!c) return [];
   const qDec = quoteDecimals(c.quote);
-  const usdPerQuote = solPerUnit(c.quote) * solUsd();
-  const minQuote = usdPerQuote > 0 ? AIRDROP_MIN_USD / usdPerQuote : Infinity;
   const supply = toUnits(c.total_supply, c.decimals);
   const rows = all<HolderRow>("SELECT * FROM holder WHERE coin = ? AND balance != '0'", mint);
   const out = rows
@@ -158,7 +154,6 @@ export function holdersOf(mint: string): Holder[] {
       const basis = toUnits(h.cost_basis, qDec);
       const value = bal * c.price;
       const avgEntry = bal > 0 ? basis / bal : 0;
-      const eligible = avgEntry > c.price && value >= minQuote && h.wallet !== c.creator;
       return {
         address: h.wallet,
         balance: h.balance,
@@ -166,13 +161,9 @@ export function holdersOf(mint: string): Holder[] {
         avgEntry,
         costBasis: h.cost_basis,
         unrealized: value - basis,
-        airdropEligible: eligible,
-        airdropWeight: eligible ? basis - value : 0,
       };
     })
     .sort((a, b) => (big(b.balance) > big(a.balance) ? 1 : -1));
-  const total = out.reduce((s, h) => s + h.airdropWeight, 0);
-  for (const h of out) h.airdropWeight = total > 0 ? h.airdropWeight / total : 0;
   return out;
 }
 

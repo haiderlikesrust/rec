@@ -1,38 +1,58 @@
-# Recur design system
+# Cushion design system
 
-Premium-minimal, crypto-native but calm. The five fee buckets are the brand **spectrum**; it appears in the logo
-ring, accent gradients, featured-card borders and every split visual. Dark-first, with a warm light theme.
+"Night & ember", dark only. A deep navy base (never black) with a slow aurora behind everything, rounded **Fredoka**
+display type over **Nunito**, soft-shadowed panels with barely-there edges, pill buttons. Friendly and confident,
+never corporate. Adapted from the Ripburn "cloud & ember" system, tuned for one dark theme.
+
+## Product facts the UI must reflect
+- Every trade pays 3%. Meteora keeps its share; the rest is split **50% OTC reserve, 50% protection fund**. Nothing
+  else: no buybacks, no burns from fees, no airdrops from fees, no platform token, 0% to creators and the team.
+- **The Nest** (code name: bloodline): look-alike copies of a coin (CAT, C4T, C@T) join the original's Nest. While
+  the leader leads, each copy sends its whole 50/50 split to the leader's OTC credit and protection pot. A copy
+  launched while the leader is alive pays a $500 entry, airdropped to the leader's holders. Use `brand.nest` for the
+  name in copy, the gold `nest` tokens for color, and a `Bird`/`Egg`-style lucide icon (the Nest uses `Egg`).
+- Brand strings come from `brand` in `@cook/shared` (`brand.name`, `brand.tagline`, `brand.nest`…). Never hard-code
+  "Recur" or a platform ticker.
 
 ## Tokens (app/globals.css)
 - Surfaces: `bg-bg` page, `bg-elev` card, `bg-elev-2` raised/hover/active, `bg-sunk` inset wells and inputs.
 - Text: `text-fg`, `text-muted` (secondary), `text-faint` (tertiary/meta).
-- Lines: `border-line` (default hairline), `border-line-strong` (hover/active).
-- Accent: `text-accent` / `bg-accent-soft`; `--accent-2` teal for gradients. Up/down: `text-up`, `bg-up-soft`, `text-down`, `bg-down-soft`.
-- Buckets: always via `bucketColor[key]` from `lib/buckets.ts` (protection violet, OTC teal, platform burn amber, coin burn coral, airdrop blue).
-- Shadows: `shadow-card` (default card), `shadow-pop` (floating/featured).
+- Lines: `border-line` (hairline), `border-line-strong` (hover/active, input edges).
+- Brand: `--accent` ember → `--accent-2` gold. `.spectrum` (gradient background), `.text-spectrum` (gradient text,
+  one phrase per headline at most), `.btn-primary` (the main action, with a light sweep).
+- Meaning: `up`/`up-soft` mint (gains, buys, protection paying out), `down`/`down-soft` rose (losses, sells),
+  `sky`/`sky-soft` (OTC, links, focus), `violet`/`violet-soft` (demo, misc), `nest`/`nest-soft` gold (the Nest).
+- Buckets: always via `bucketColor[key]` from `lib/buckets.ts` (protection mint, OTC sky). There are two.
+- Shadows: `shadow-card` (default), `shadow-pop` (floating, hover, featured).
 
 ## Utility classes
-- `.surface`: card background + hairline + shadow. Add `.surface-hover` for clickable cards (lift and pop shadow).
-- `.ring-spectrum`: 1px spectrum gradient border, for one featured element per view, never more.
-- `.glass`: translucent blurred background (sticky bars).
-- `.spectrum` (background gradient), `.text-spectrum` (gradient text, used sparingly on display headlines).
-- `.font-display` (Bricolage Grotesque, tight tracking): page titles, section titles, big hero numbers.
-- `.num` (Geist Mono, tabular): every number, address, amount.
-- `.eyebrow`: tiny mono uppercase label above titles and inside cards.
-- `.shimmer` (skeletons), `.live-dot` (pulsing green dot), `.mask-fade-x`, `animate-fade-up`, `animate-marquee`, `animate-spin-slow`.
+- `.surface`: card background + faint edge + soft shadow. Add `.surface-hover` for clickable cards (lift).
+- `.ring-spectrum`: warm gradient edge, for one featured element per view, never more.
+- `.glass`: translucent blurred background (sticky bars, sheets).
+- `.font-display` (Fredoka): page titles, section titles, card titles, buttons, chips, big hero numbers.
+- `.num`: tabular figures for every number, amount and address (same Nunito face, even widths).
+- `.eyebrow`: small Fredoka uppercase label above titles and inside cards.
+- `.squish` (gentle cushion bounce, the logo), `.shimmer` (skeletons), `.live-dot`, `.mask-fade-x`,
+  `animate-fade-up`, `animate-marquee`, `animate-float`.
 
 ## Primitives (components/ui.tsx)
-`Card` (`featured`, `hover`), `CardHeader` (`icon`), `Button` / `ButtonLink` (primary = gradient with glow, secondary, ghost, up, down; sizes sm/md/lg),
-`Badge`, `Eyebrow`, `SectionHeading`, `PageHeader` (`eyebrow`), `IconTile` (tinted icon square), `Skeleton`,
-`ErrorState`, `EmptyState`, `Segmented` (pill tabs), `Field`, `Input`, `Stat`, `Row`, `Change` (`pill`), `AnimatedNumber`.
-Also `QuoteChip`, `CoinAvatar`, `Sparkline`, `GraduationBar`, `FeeSplitBar`, `LogoMark`, `home/FeeRing`.
+`Card` (`featured`, `hover`), `CardHeader` (`icon`), `Button` / `ButtonLink` (primary = ember gradient pill,
+secondary, ghost, up, down; sizes sm/md/lg), `Badge` (neutral, outline, accent, up, down, sky, nest), `Eyebrow`,
+`SectionHeading`, `PageHeader` (`eyebrow`), `IconTile`, `Skeleton`, `ErrorState`, `EmptyState`, `Segmented`,
+`Field`, `Input`, `Stat`, `Row`, `Change` (`pill`), `AnimatedNumber`. Also `QuoteChip`, `CoinAvatar`, `Sparkline`,
+`GraduationBar`, `FeeSplitBar`, `LogoMark` (the cushion).
 
 ## Rules
-- Radii: cards `rounded-[22px]`, hero/feature blocks `rounded-[32px]`, inputs `rounded-2xl`, buttons `rounded-xl`, tabs/chips `rounded-full`.
-- Spacing: card padding `p-5 sm:p-6` (hero cards `p-8`); sections separated by `space-y-20 sm:space-y-28` on long pages, `gap-4` grids.
-- Every page opens with `PageHeader` (eyebrow + display title + one-line sub), optionally with a key metric aside.
-- Use `IconTile` + lucide icons to give each card a visual anchor; tint with the relevant bucket color.
-- Numbers are big and confident: key metrics `num text-2xl`+ or `font-display text-4xl`+; meta in `text-xs text-faint`.
-- Tables: inside `.surface rounded-[22px]`, uppercase 11px faint headers, row hover `bg-elev-2`, 14px vertical padding.
-- Motion: subtle only (fade-up on mount, hover lift, count-up numbers). Respect reduced motion (handled globally).
-- Mobile: 16px gutters, no horizontal page scroll; tables scroll inside their container.
+- Radii: cards `rounded-[24px]`, hero/feature blocks `rounded-[32px]`, inner wells `rounded-2xl`, inputs
+  `rounded-2xl`, buttons/tabs/chips `rounded-full`.
+- Spacing: card padding `p-5 sm:p-6` (feature blocks `p-6 sm:p-8`); long pages separate sections with
+  `space-y-20 sm:space-y-28`; grids use `gap-4` (`gap-5` on wide layouts).
+- Every page opens with `PageHeader` (eyebrow + display title + one-line sub), optionally a key metric aside.
+- Layout: lead with what the visitor came for; use asymmetric two-column grids on desktop (`lg:grid-cols-[1.4fr_1fr]`
+  and similar) instead of long single columns; group related numbers into one panel of stat tiles rather than many
+  small cards; one featured element per view.
+- Give each card a visual anchor: `IconTile` + a lucide icon tinted with the relevant meaning color.
+- Numbers are big and confident: key metrics `num font-display text-3xl`+; meta in `text-xs text-faint`.
+- Tables: inside `.surface rounded-[24px]`, `eyebrow`-style headers, row hover `bg-elev-2`, 14px vertical padding.
+- Motion: soft and springy (fade-up on mount, hover lift, count-up numbers). Reduced motion is handled globally.
+- Mobile: 16px gutters, no horizontal page scroll; tables scroll inside their container; tap targets ≥ 40px.

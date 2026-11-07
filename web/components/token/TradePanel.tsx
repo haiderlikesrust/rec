@@ -134,7 +134,7 @@ export function TradePanel({ coin, initialSide = "buy" }: { coin: Coin; initialS
   const outValue = units(out, outDecimals) * outUsd;
 
   return (
-    <section className="ring-spectrum shadow-pop relative rounded-[22px] p-4 sm:p-5">
+    <section className="ring-spectrum shadow-pop relative rounded-[28px] p-4 sm:p-5">
       <div className="flex items-center gap-2">
         <div className="grid flex-1 grid-cols-2 rounded-full border border-line bg-sunk/80 p-1">
           {(["buy", "sell"] as const).map((s) => (
@@ -210,7 +210,7 @@ export function TradePanel({ coin, initialSide = "buy" }: { coin: Coin; initialS
             placeholder="0"
             value={amount}
             onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))}
-            className="num min-w-0 flex-1 bg-transparent text-[32px] leading-none font-medium outline-none placeholder:text-faint"
+            className="num min-w-0 flex-1 bg-transparent text-[32px] leading-none font-bold outline-none placeholder:text-faint"
             aria-label={`Amount of ${inSymbol}`}
           />
           <AssetPill {...inAsset} />
@@ -252,7 +252,7 @@ export function TradePanel({ coin, initialSide = "buy" }: { coin: Coin; initialS
           )}
         </div>
         <div className="mt-2 flex items-center gap-3">
-          <div className="num min-w-0 flex-1 truncate text-[32px] leading-none font-medium">
+          <div className="num min-w-0 flex-1 truncate text-[32px] leading-none font-bold">
             {amountRaw > 0n ? (
               quoteQuery.isError ? (
                 <span className="text-sm text-down">{errorMessage(quoteQuery.error)}</span>
@@ -314,8 +314,8 @@ export function TradePanel({ coin, initialSide = "buy" }: { coin: Coin; initialS
       </div>
       <TxStatus state={tx.state} className="mt-3" />
       <p className="mt-3 px-1 text-[11px] leading-relaxed text-faint">
-        3% of the {quote.symbol} side goes to burns, the OTC reserve, the protection fund and high-entry airdrops, after
-        Meteora&apos;s protocol share. None goes to the creator or the team.
+        3% of the {quote.symbol} side, after Meteora&apos;s protocol share, is split in half between the OTC reserve and the
+        protection fund. None goes to the creator or the team.
       </p>
     </section>
   );

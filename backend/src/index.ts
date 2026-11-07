@@ -4,7 +4,7 @@ import { createApi } from "./api";
 import { db, run } from "./db";
 import type { Engine, Job } from "./engine";
 import { runEntries } from "./bloodline";
-import { processFees, runAirdrops, runProtection, sweep } from "./jobs";
+import { processFees, runProtection, sweep } from "./jobs";
 import { lease, releaseLease, renewLease } from "./lease";
 import { SYSTEM } from "./ledger";
 import { refreshPrices, syncQuotes } from "./prices";
@@ -15,8 +15,8 @@ for (const k of Object.values(keys)) SYSTEM.add(k.publicKey.toBase58());
 
 syncQuotes();
 await refreshPrices();
-// $RECR is launched through the app first, then MAIN_TOKEN_MINT is set: mark it whenever the server starts
-if (config.mainToken) run("UPDATE coin SET is_main = CASE WHEN mint = ? THEN 1 ELSE 0 END", config.mainToken);
+// there is no platform token any more
+run("UPDATE coin SET is_main = 0 WHERE is_main = 1");
 
 let engine: Engine;
 /** Runs once, the first time this server becomes the leader. */
@@ -78,11 +78,10 @@ function every(job: Job, leaderOnly = true) {
 every({ name: "treasury", ms: 10_000, run: refreshTreasuryBalances }, false);
 for (const job of [
   { name: "prices", ms: 60_000, run: refreshPrices },
-  // burns and airdrops run continuously: these loop every few seconds
+  // fees are split continuously: this loops every few seconds
   { name: "fees", ms: config.feesEveryMs, run: () => processFees(engine) },
-  { name: "airdrops", ms: config.airdropsEveryMs, run: () => runAirdrops(engine) },
-  // copies' Bloodline entries, airdropped to their leaders' holders
-  { name: "bloodline", ms: config.airdropsEveryMs, run: () => runEntries(engine) },
+  // copies' Nest entries, airdropped to their leaders' holders
+  { name: "nest", ms: config.entriesEveryMs, run: () => runEntries(engine) },
   { name: "protection", ms: config.protectionEveryMs, run: () => runProtection(engine) },
   { name: "sweep", ms: 15_000, run: () => sweep(engine) },
   ...engine.jobs(),

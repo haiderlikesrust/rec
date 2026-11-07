@@ -13,26 +13,26 @@ export function OtcPanel({ coin, solUsd }: { coin: CoinDetail; solUsd: number })
   const color = bucketColor.otcReserve;
 
   return (
-    <section className="surface rounded-[22px] p-5">
+    <section className="surface rounded-[24px] p-5 sm:p-6">
       <div className="flex items-center gap-3">
-        <IconTile color={color} size={36}>
+        <IconTile color={color} size={40}>
           <ArrowLeftRight size={16} />
         </IconTile>
         <div className="min-w-0">
-          <h3 className="text-[15px] font-semibold tracking-tight">OTC exit</h3>
+          <h3 className="font-display text-[17px] font-semibold">OTC exit</h3>
           <p className="text-xs text-muted">Sell into SOL with zero slippage</p>
         </div>
       </div>
 
       <div className="mt-5 flex items-end justify-between gap-4">
         <div>
-          <div className="text-[11px] tracking-wider text-faint uppercase">Sell limit now</div>
-          <div className="num mt-1 text-2xl font-medium">{usd(otc.sellLimitSol * solUsd)}</div>
+          <div className="eyebrow text-[11px]">Sell limit now</div>
+          <div className="num font-display mt-1 text-[28px] leading-tight font-bold">{usd(otc.sellLimitSol * solUsd)}</div>
           <div className="num text-xs text-faint">{sol(otc.sellLimitSol)}</div>
         </div>
         <div className="text-right">
-          <div className="text-[11px] tracking-wider text-faint uppercase">Activity</div>
-          <div className="num mt-1 text-2xl font-medium" style={{ color }}>
+          <div className="eyebrow text-[11px]">Activity</div>
+          <div className="num font-display mt-1 text-[28px] leading-tight font-bold" style={{ color }}>
             {`${(activity / 100).toFixed(0)}%`}
           </div>
           <div className="num text-xs text-faint">{otc.lastContribution ? `last fee ${age(otc.lastContribution)} ago` : "no fees yet"}</div>
@@ -59,7 +59,7 @@ export function OtcPanel({ coin, solUsd }: { coin: CoinDetail; solUsd: number })
       )}
       <Link
         href={`/otc?coin=${coin.address}`}
-        className="mt-4 flex h-10 items-center justify-center gap-1.5 rounded-xl border border-line-strong bg-elev text-sm font-medium transition-colors hover:bg-elev-2"
+        className="font-display mt-5 flex h-11 items-center justify-center gap-1.5 rounded-full bg-sky-soft text-sm font-semibold text-sky transition-all hover:-translate-y-0.5 hover:bg-sky hover:text-bg"
       >
         Open OTC desk <ArrowUpRight size={14} />
       </Link>

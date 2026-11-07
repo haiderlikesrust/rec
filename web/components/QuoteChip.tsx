@@ -10,7 +10,7 @@ const tint: Record<string, string> = {
   EURC: "var(--b-otc)",
 };
 
-export const quoteTint = (symbol: string) => tint[symbol] ?? "var(--b-main)";
+export const quoteTint = (symbol: string) => tint[symbol] ?? "var(--accent-2)";
 
 // IPFS logos (pump.fun's, for one) also try other gateways: ipfs.io is down or blocked on some networks
 const IPFS_GATEWAYS = ["https://ipfs.io/ipfs/", "https://4everland.io/ipfs/", "https://gateway.pinata.cloud/ipfs/"];

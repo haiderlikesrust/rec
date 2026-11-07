@@ -1,7 +1,7 @@
 import { NATIVE_MINT, brand, type LaunchRequest } from "@cook/shared";
 import { config, log } from "../config";
 import { all, big, kvGet, kvSet, one, type CoinRow, type HolderRow } from "../db";
-import { processFees, runAirdrops, runProtection } from "../jobs";
+import { processFees, runProtection } from "../jobs";
 import { SYSTEM, getCoin } from "../ledger";
 import { quoteRow } from "../prices";
 import { treasury } from "../services";
@@ -70,7 +70,7 @@ function launchReq(wallet: string, name: string, symbol: string, quote: string, 
     wallet,
     name,
     symbol,
-    description: `${name} (${symbol}) is a demo coin paired with ${q.symbol}. Every trade pays 3%, and every fee Recur collects goes back to holders.`,
+    description: `${name} (${symbol}) is a demo coin paired with ${q.symbol}. Every trade pays 3%, and every fee ${brand.name} collects goes back to holders.`,
     image: "",
     website: "",
     twitter: "",
@@ -110,9 +110,6 @@ export async function seedDemo(engine: DemoEngine) {
   const start = end - 2 * 86_400;
   log("demo: seeding two days of market history…");
 
-  // the platform token first, on SOL
-  const deployer = fakeKey();
-  const main = engine.createCoin(launchReq(deployer, brand.name, brand.mainTicker, NATIVE_MINT, 400), uri, start, true);
   const schedule = COINS.map(([name, symbol, quote], i) => ({
     name,
     symbol,
@@ -131,11 +128,10 @@ export async function seedDemo(engine: DemoEngine) {
     // newer coins trade more
     const coins = all<CoinRow>("SELECT * FROM coin");
     const recent = coins.filter((x) => t - x.created_at < 30 * 3600);
-    step(engine, Math.random() < 0.15 ? getCoin(main.mint)! : pick(recent.length ? recent : coins), wallets, t);
+    if (coins.length) step(engine, pick(recent.length ? recent : coins), wallets, t);
     if (t >= nextHour) {
       await refreshTreasury(engine);
       await processFees(engine, t);
-      await runAirdrops(engine, t);
       await refreshTreasury(engine);
       await runProtection(engine, t);
       nextHour += 3600;

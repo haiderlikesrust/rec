@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Keypair } from "@solana/web3.js";
 import bs58 from "bs58";
-import { AIRDROP_MIN_PAYOUT_USD, clusters, type Cluster, type TreasuryWallet } from "@cook/shared";
+import { clusters, type Cluster, type TreasuryWallet } from "@cook/shared";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const demo = process.env.DEMO === "1";
@@ -25,18 +25,13 @@ export const config = {
   pinataJwt: process.env.PINATA_JWT,
   jupiterApi: (process.env.JUPITER_API ?? "https://lite-api.jup.ag").replace(/\/$/, ""),
   jupiterKey: process.env.JUPITER_API_KEY,
-  /** Platform token ($RECR) mint, once launched. */
-  mainToken: process.env.MAIN_TOKEN_MINT || null,
-  // Burns and airdrops run continuously: the fee router and the airdrop pass loop every few seconds and act as
-  // soon as an amount is worth more than the network fees it costs to move.
-  /** Split a coin's fees (burn, convert, distribute) once they are worth this much. */
+  // The fee router loops every few seconds and splits a coin's fees as soon as they are worth more than the network
+  // fees it costs to move them.
+  /** Split a coin's fees (convert to SOL, send to OTC and protection) once they are worth this much. */
   feeMinUsd: Number(process.env.FEE_MIN_USD ?? (demo ? 0.25 : 2)),
-  /** Buy and burn the platform token once this much SOL is waiting for it. */
-  mainBuybackMinSol: Number(process.env.MAIN_BUYBACK_MIN_SOL ?? (demo ? 0.01 : 0.05)),
-  /** Send a holder's airdrop allocation once it is worth this much. */
-  airdropMinPayoutUsd: Number(process.env.AIRDROP_MIN_PAYOUT_USD ?? (demo ? 0.05 : AIRDROP_MIN_PAYOUT_USD)),
   feesEveryMs: Number(process.env.FEES_EVERY_MS ?? (demo ? 5_000 : 15_000)),
-  airdropsEveryMs: Number(process.env.AIRDROPS_EVERY_MS ?? (demo ? 5_000 : 20_000)),
+  /** How often copies' Nest entries are shared out to their leaders' holders. */
+  entriesEveryMs: Number(process.env.ENTRIES_EVERY_MS ?? process.env.AIRDROPS_EVERY_MS ?? (demo ? 5_000 : 20_000)),
   /** How often realized losses are covered and owed protection payouts sent. */
   protectionEveryMs: Number(process.env.PROTECTION_EVERY_MS ?? (demo ? 5_000 : 30_000)),
   /** A config is replaced once its quote's USD price drifts this far, so new coins still start at $2.5k. */
@@ -51,10 +46,10 @@ mkdirSync(config.dataDir, { recursive: true });
 
 export type Role = TreasuryWallet["role"];
 export const roles: { role: Role; label: string; env: string }[] = [
-  { role: "fees", label: "Fee wallet (claims, splits, burns)", env: "FEE_WALLET" },
+  { role: "fees", label: "Fee wallet (claims and splits)", env: "FEE_WALLET" },
   { role: "otc", label: "OTC reserve", env: "OTC_WALLET" },
   { role: "protection", label: "Protection fund", env: "PROTECTION_WALLET" },
-  { role: "airdrop", label: "Airdrop wallet", env: "AIRDROP_WALLET" },
+  { role: "airdrop", label: "Nest entries wallet", env: "AIRDROP_WALLET" },
 ];
 
 const walletDir = path.join(config.dataDir, "wallets");

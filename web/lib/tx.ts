@@ -22,7 +22,7 @@ export function errorMessage(e: unknown): string {
   if (/reject|denied|declined|cancel/i.test(msg)) return "Transaction rejected in wallet.";
   if (/block height exceeded|blockhash not found|expired/i.test(msg)) return "The transaction expired before it confirmed. Try again.";
   if (/insufficient (funds|lamports)|0x1\b/i.test(msg)) return "Not enough balance to cover this and the network fee.";
-  if (/Failed to fetch|NetworkError/i.test(msg)) return "Can't reach the Recur API right now. Try again in a moment.";
+  if (/Failed to fetch|NetworkError/i.test(msg)) return "Can't reach the server right now. Try again in a moment.";
   return msg.split("\n")[0].slice(0, 180);
 }
 

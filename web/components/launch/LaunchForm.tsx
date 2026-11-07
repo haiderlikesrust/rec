@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { Droplet, GraduationCap, Globe, ImagePlus, Loader2, Lock, Rocket, Send, Zap } from "lucide-react";
+import { Egg, GraduationCap, Globe, ImagePlus, Loader2, Lock, Rocket, Send, Zap } from "lucide-react";
 import { useConnection } from "@solana/wallet-adapter-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
@@ -34,7 +34,7 @@ import { useWalletModal } from "@/components/wallet/WalletModal";
 import { QuotePicker } from "./QuotePicker";
 
 const textareaClass =
-  "w-full resize-none rounded-2xl border border-line bg-sunk px-4 py-3 text-sm outline-none transition-all placeholder:text-faint hover:border-line-strong focus:border-accent focus:bg-elev focus:shadow-[0_0_0_4px_var(--accent-soft)]";
+  "w-full resize-none rounded-2xl border-[1.5px] border-line-strong bg-sunk px-4 py-3 text-sm font-semibold outline-none transition-all placeholder:font-normal placeholder:text-faint hover:border-muted/40 focus:border-sky focus:bg-elev focus:shadow-[0_0_0_4px_var(--sky-soft)]";
 
 const LAUNCH_FEE_LAMPORTS = BigInt(Math.round(LAUNCH_FEE_SOL * 1e9));
 const SOL_RESERVE = 30_000_000n; // ~0.03 SOL for rent and network fees on top of the launch fee
@@ -63,14 +63,14 @@ function StepCard({
   aside?: ReactNode;
 }) {
   return (
-    <section className="surface rounded-[22px] p-5 sm:p-7">
+    <section className="surface rounded-[28px] p-5 sm:p-7">
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3.5">
-          <span className="num flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-xs font-semibold text-accent shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--accent)_25%,transparent)]">
-            0{n}
+          <span className="spectrum font-display flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold text-accent-fg shadow-[0_8px_20px_-8px_var(--accent)]">
+            {n}
           </span>
           <div>
-            <h2 className="font-display text-xl font-semibold">{title}</h2>
+            <h2 className="font-display text-[22px] font-semibold">{title}</h2>
             {sub && <p className="mt-1 text-[13px] leading-relaxed text-muted">{sub}</p>}
           </div>
         </div>
@@ -105,12 +105,12 @@ function AntiSnipeChart() {
                   height: `${Math.max(6, t / 100)}%`,
                   background: base
                     ? "var(--accent)"
-                    : `linear-gradient(180deg, var(--b-coin), color-mix(in srgb, var(--b-coin) 45%, var(--b-main)))`,
-                  boxShadow: base ? "0 0 12px -2px var(--accent)" : "0 0 12px -4px var(--b-coin)",
+                    : `linear-gradient(180deg, var(--down), color-mix(in srgb, var(--down) 45%, var(--accent-2)))`,
+                  boxShadow: base ? "0 0 12px -2px var(--accent)" : "0 0 12px -4px var(--down)",
                 }}
               />
             </div>
-            <div className={clsx("num mt-1.5 text-[11px] font-medium", base ? "text-accent" : "text-fg")}>{bps(t)}</div>
+            <div className={clsx("num mt-1.5 text-[11px] font-bold", base ? "text-accent-2" : "text-fg")}>{bps(t)}</div>
             <div className="text-[10px] text-faint">{base ? `${SNIPE.seconds}s+` : `${s}s`}</div>
           </div>
         );
@@ -119,47 +119,47 @@ function AntiSnipeChart() {
   );
 }
 
-/** Shown when the ticker or name reads like an existing coin's: the family it joins, and the entry a copy pays. */
-function BloodlineNotice({ check, ticker, entryCost }: { check: BloodlineCheck; ticker: string; entryCost: string }) {
+/** Shown when the ticker or name reads like an existing coin's: the Nest it joins, and the entry a copy pays. */
+function NestNotice({ check, ticker, entryCost }: { check: BloodlineCheck; ticker: string; entryCost: string }) {
   const f = check.family;
   if (!f) return null;
   const e = check.entry;
   return (
-    <div className="mt-6 overflow-hidden rounded-2xl border border-blood/30 bg-blood-soft">
+    <div className="mt-6 overflow-hidden rounded-3xl bg-nest-soft shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--nest)_28%,transparent)]">
       <div className="flex items-center gap-3 px-4 pt-4">
         <div className="relative shrink-0">
-          <CoinAvatar src={f.og.image} symbol={f.og.symbol} seed={f.og.address} size={38} />
-          <span className="absolute -right-1 -bottom-1 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-blood text-white shadow-[0_0_0_2px_var(--bg-elev)]">
-            <Droplet size={10} fill="currentColor" />
+          <CoinAvatar src={f.og.image} symbol={f.og.symbol} seed={f.og.address} size={40} />
+          <span className="absolute -right-1 -bottom-1 flex h-[20px] w-[20px] items-center justify-center rounded-full bg-nest text-[#2a1d00] shadow-[0_0_0_2px_var(--bg-elev)]">
+            <Egg size={11} strokeWidth={2.5} />
           </span>
         </div>
         <div className="min-w-0">
-          <div className="text-sm font-semibold">
-            ${ticker} joins the ${f.og.symbol} bloodline
+          <div className="font-display text-[15px] font-semibold">
+            ${ticker} joins ${f.og.symbol}&apos;s {brand.nest}
           </div>
           <div className="text-xs text-muted">
-            {f.members === 1 ? "Its ticker or name reads the same" : `${f.members} coins already in the family`}
+            {f.members === 1 ? "Its ticker or name reads the same" : `${f.members} coins already in the ${brand.nest}`}
             {f.leader.address !== f.og.address && <> · ${f.leader.symbol} leads</>}
           </div>
         </div>
       </div>
       {e ? (
-        <ul className="mt-3 space-y-2 border-t border-blood/20 px-4 py-3 text-xs leading-relaxed text-muted">
+        <ul className="mt-3 space-y-2 border-t border-nest/20 px-4 py-3 text-xs leading-relaxed text-muted">
           <li>
-            <span className="font-medium text-fg">Copies pay an entry.</span> Your launch opens with a{" "}
-            <span className="num text-fg">{usd(e.usd)}</span> buy of ${ticker} ({entryCost}) that you never receive: those coins
+            <span className="font-bold text-fg">Copies pay an entry.</span> Your launch opens with a{" "}
+            <span className="num font-bold text-fg">{usd(e.usd)}</span> buy of ${ticker} ({entryCost}) that you never receive: those coins
             are airdropped to ${e.to.symbol}&apos;s holders. Your own first buy comes right after it.
           </li>
           <li>
-            While ${f.leader.symbol} leads the family, ${ticker}&apos;s buyback and airdrop shares go to it. Outgrow it and ${ticker}{" "}
+            While ${f.leader.symbol} leads, every fee ${ticker} makes goes to its OTC reserve and protection pot. Outgrow it and ${ticker}{" "}
             leads.
           </li>
           <li className="text-faint">Pick a ticker and name of your own to launch without the entry.</li>
         </ul>
       ) : (
-        <p className="mt-3 border-t border-blood/20 px-4 py-3 text-xs leading-relaxed text-muted">
-          No coin in this family has traded in the last {BLOODLINE.aliveHours} hours, so there&apos;s no entry. Until ${ticker} leads
-          the family, its buyback and airdrop shares go to whichever member does.
+        <p className="mt-3 border-t border-nest/20 px-4 py-3 text-xs leading-relaxed text-muted">
+          No coin in this {brand.nest} has traded in the last {BLOODLINE.aliveHours} hours, so there&apos;s no entry. Until ${ticker} leads,
+          its fees go to whichever member does.
         </p>
       )}
     </div>
@@ -237,15 +237,15 @@ export function LaunchForm() {
   const quoteBalance = !b || !quote ? undefined : BigInt(native ? b.sol : b.tokens[quote.address] ?? "0");
   const solBalance = b ? BigInt(b.sol) : undefined;
 
-  // a copy of a coin whose family is alive pays the Bloodline entry; the check waits for typing to settle
+  // a copy of a coin whose Nest is alive pays the Nest entry; the check waits for typing to settle
   const [checked, setChecked] = useState({ symbol: "", name: "" });
   useEffect(() => {
     const t = setTimeout(() => setChecked({ symbol: symbol.trim(), name: name.trim() }), 350);
     return () => clearTimeout(t);
   }, [symbol, name]);
-  const blood = useBloodlineCheck({ ...checked, quote: quote?.address });
-  const settled = checked.symbol === symbol.trim() && checked.name === name.trim() && !blood.isLoading;
-  const entry = blood.data?.entry ?? null;
+  const nest = useBloodlineCheck({ ...checked, quote: quote?.address });
+  const settled = checked.symbol === symbol.trim() && checked.name === name.trim() && !nest.isLoading;
+  const entry = nest.data?.entry ?? null;
   const entryRaw = entry ? BigInt(entry.quoteRaw) : 0n;
   const entryRent = entry ? BigInt(entry.rentLamports) : 0n;
   // the SOL that buys the entry: itself on the SOL pair, or swapped into the pair's token with 1% room for the price
@@ -368,7 +368,7 @@ export function LaunchForm() {
                 onDragLeave={() => setDragOver(false)}
                 onDrop={onDrop}
                 className={clsx(
-                  "group relative flex h-36 w-36 items-center justify-center overflow-hidden rounded-[22px] border-2 border-dashed transition-all",
+                  "group relative flex h-36 w-36 items-center justify-center overflow-hidden rounded-[28px] border-2 border-dashed transition-all",
                   dragOver
                     ? "scale-[1.02] border-accent bg-accent-soft text-accent"
                     : "border-line-strong bg-sunk text-muted hover:border-accent hover:text-fg",
@@ -415,9 +415,9 @@ export function LaunchForm() {
               {uploadError && <p className="text-xs text-down sm:col-span-2">{uploadError}</p>}
             </div>
           </div>
-          {blood.data && settled && quote && (
-            <BloodlineNotice
-              check={blood.data}
+          {nest.data && settled && quote && (
+            <NestNotice
+              check={nest.data}
               ticker={symbol || "TICKER"}
               entryCost={native || paySol ? `≈ ${sol(units(entrySol, 9))}` : `${tokens(entryRaw, quote.decimals)} ${quote.symbol}`}
             />
@@ -454,7 +454,7 @@ export function LaunchForm() {
           sub="Pick what your coin trades against: SOL, a stablecoin, a tokenized stock or any token by its address. Whatever the pair, the protection fund and OTC reserve always receive SOL."
         >
           {quotesLoading && <p className="mb-3 text-xs text-muted">Loading pairs…</p>}
-          {quotesError && <p className="mb-3 text-xs text-down">Couldn&apos;t load pairs from the Recur API.</p>}
+          {quotesError && <p className="mb-3 text-xs text-down">Couldn&apos;t load pairs from {brand.name}.</p>}
           <QuotePicker quotes={quotes} value={quote} onChange={pickQuote} />
           {custom && quote && (
             <p className="mt-3 rounded-2xl border border-line bg-sunk px-4 py-3 text-xs leading-relaxed text-muted">
@@ -465,16 +465,16 @@ export function LaunchForm() {
           )}
 
           <div className="mt-4 grid grid-cols-2 gap-3">
-            <div className="rounded-2xl bg-sunk px-4 py-3">
-              <div className="text-[11px] tracking-wider text-faint uppercase">Starts at</div>
-              <div className="num mt-1 text-lg font-medium">{usd(quote?.startMcapUsd ?? START_MCAP_USD)}</div>
+            <div className="rounded-2xl bg-sunk px-4 py-3 shadow-[inset_0_0_0_1px_var(--line)]">
+              <div className="eyebrow text-[11px]">Starts at</div>
+              <div className="num font-display mt-1 text-xl font-bold">{usd(quote?.startMcapUsd ?? START_MCAP_USD)}</div>
               <div className="text-[11px] text-faint">market cap</div>
             </div>
-            <div className="rounded-2xl bg-sunk px-4 py-3">
-              <div className="flex items-center gap-1.5 text-[11px] tracking-wider text-faint uppercase">
+            <div className="rounded-2xl bg-sunk px-4 py-3 shadow-[inset_0_0_0_1px_var(--line)]">
+              <div className="eyebrow flex items-center gap-1.5 text-[11px]">
                 <GraduationCap size={12} /> Graduates at
               </div>
-              <div className="num mt-1 text-lg font-medium">{usd(quote?.graduationMcapUsd ?? GRADUATION_MCAP_USD)}</div>
+              <div className="num font-display mt-1 text-xl font-bold">{usd(quote?.graduationMcapUsd ?? GRADUATION_MCAP_USD)}</div>
               <div className="text-[11px] text-faint">then trades on Meteora DAMM v2</div>
             </div>
           </div>
@@ -485,7 +485,7 @@ export function LaunchForm() {
 
           <div className="mt-6">
             {!native && quote && (
-              <div className="mb-3 inline-flex rounded-xl border border-line bg-sunk p-0.5 text-xs" role="group" aria-label="Pay the first buy with">
+              <div className="mb-3 inline-flex rounded-full bg-sunk p-1 text-xs shadow-[inset_0_0_0_1px_var(--line)]" role="group" aria-label="Pay the first buy with">
                 {(["sol", "quote"] as const).map((m) => (
                   <button
                     key={m}
@@ -496,7 +496,7 @@ export function LaunchForm() {
                       setInitialBuy("");
                     }}
                     className={clsx(
-                      "rounded-lg px-3 py-1.5 font-medium transition-colors",
+                      "font-display rounded-full px-3.5 py-1.5 font-semibold transition-colors",
                       payWith === m ? "bg-elev-2 text-fg shadow-card" : "text-muted hover:text-fg",
                     )}
                   >
@@ -546,12 +546,12 @@ export function LaunchForm() {
         </StepCard>
 
         {/* sticky summary + CTA */}
-        <div className="glass ring-spectrum shadow-pop sticky bottom-4 z-20 rounded-[22px] p-4 sm:p-5">
+        <div className="glass ring-spectrum shadow-pop sticky bottom-4 z-20 rounded-[28px] p-4 sm:p-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <CoinAvatar src={image} symbol={symbol || "?"} seed={name + symbol} size={40} />
               <div className="min-w-0 text-xs">
-                <div className="truncate text-sm font-semibold">
+                <div className="font-display truncate text-[15px] font-semibold">
                   {name || "Your coin"} <span className="text-muted">${ticker}</span>
                 </div>
                 <div className="num mt-0.5 text-muted">
@@ -567,9 +567,9 @@ export function LaunchForm() {
                   )}
                   {setupLamports > 0n && <> · pair setup ~{sol(units(setupLamports, 9))}</>}
                   {entry && quote && (
-                    <span className="text-blood">
+                    <span className="font-bold text-nest">
                       {" "}
-                      · Bloodline entry {usd(entry.usd)}
+                      · {brand.nest} entry {usd(entry.usd)}
                       {!inSol && (
                         <>
                           {" "}
@@ -613,12 +613,12 @@ export function LaunchForm() {
             </span>
             <span className="text-[11px] text-faint">how it shows up in Trending</span>
           </div>
-          <div className="ring-spectrum shadow-pop relative overflow-hidden rounded-[22px] p-5">
+          <div className="ring-spectrum shadow-pop relative overflow-hidden rounded-[28px] p-5">
             <span className="font-display absolute top-3 right-4 text-5xl leading-none font-semibold text-fg/[0.06]">1</span>
             <div className="flex items-center gap-3">
               <CoinAvatar src={image} symbol={symbol || "?"} seed={name + symbol} size={48} />
               <div className="min-w-0">
-                <div className="truncate text-base font-semibold">${ticker}</div>
+                <div className="font-display truncate text-lg font-semibold">${ticker}</div>
                 <div className="truncate text-xs text-muted">{name || "Your coin"}</div>
               </div>
             </div>
@@ -630,7 +630,7 @@ export function LaunchForm() {
             <Sparkline data={[1, 1.02, 1.01, 1.08, 1.12, 1.1, 1.22, 1.31]} width={340} height={46} strokeWidth={2} className="mt-4 w-full" />
             <div className="mt-3 flex items-end justify-between gap-2">
               <div>
-                <div className="num text-lg font-medium">{usd(START_MCAP_USD)}</div>
+                <div className="num font-display text-xl font-bold">{usd(START_MCAP_USD)}</div>
                 <div className="mt-1">{quote && <QuoteChip symbol={quote.symbol} logo={quote.logo} pair={ticker} />}</div>
               </div>
               <Badge tone="accent">New</Badge>
@@ -649,10 +649,10 @@ export function LaunchForm() {
           </div>
         </section>
 
-        <section className="surface rounded-[22px] p-5">
-          <h3 className="text-[15px] font-semibold tracking-tight">Where this coin&apos;s fees go</h3>
+        <section className="surface rounded-[28px] p-5">
+          <h3 className="font-display text-[17px] font-semibold">Where this coin&apos;s fees go</h3>
           <p className="mt-1 text-xs leading-relaxed text-muted">
-            3% of every buy and sell. Meteora keeps its protocol share; the rest is split the same way for every coin. You
+            3% of every buy and sell. Meteora keeps its protocol share; the rest becomes SOL, split in half for every coin. You
             earn by holding, not by taxing.
           </p>
           <FeeSplitBar legend={false} className="mt-4" />
@@ -661,7 +661,7 @@ export function LaunchForm() {
               <li key={b.key} className="flex gap-3 text-xs">
                 <span className="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-[4px]" style={{ background: b.color }} />
                 <div className="min-w-0">
-                  <div className="font-medium">
+                  <div className="font-display text-[13px] font-semibold">
                     {b.label} <span className="num text-muted">· {b.bps / 100}%</span>
                   </div>
                   <div className="mt-0.5 leading-relaxed text-muted">{b.blurb}</div>
@@ -669,13 +669,15 @@ export function LaunchForm() {
               </li>
             ))}
           </ul>
-          <p className="mt-4 border-t border-line pt-3 text-[11px] text-faint">The launch fee buys back and burns ${brand.mainTicker}.</p>
+          <p className="mt-4 border-t border-line pt-3 text-[11px] text-faint">
+            The launch fee is split the same way. A look-alike of another coin joins its {brand.nest} and feeds it instead.
+          </p>
         </section>
 
-        <section className="surface rounded-[22px] p-5">
+        <section className="surface rounded-[28px] p-5">
           <div className="flex items-center gap-2">
-            <Zap size={15} className="text-down" />
-            <h3 className="text-[15px] font-semibold tracking-tight">Anti-snipe window</h3>
+            <Zap size={16} className="text-down" />
+            <h3 className="font-display text-[17px] font-semibold">Anti-snipe window</h3>
           </div>
           <p className="mt-1 text-xs leading-relaxed text-muted">
             For the first {SNIPE.seconds} seconds the pool&apos;s fee starts at 99% and decays to 3%, so bots that buy in the launch

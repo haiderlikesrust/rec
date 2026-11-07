@@ -49,7 +49,6 @@ export type Coin = {
   creator: Address;
   createdAt: number; // unix seconds
   quote: QuoteAsset;
-  isMain: boolean;
   decimals: number;
   /** price of one coin, in whole quote units */
   price: number;
@@ -73,18 +72,19 @@ export type Coin = {
   holders: number;
   burned: string; // raw coin units burned
   spark: number[]; // last 24h hourly closes, in quote units
-  /** its family of look-alike coins (see bloodline.ts); null when it has no copies */
+  /** its Nest, the family of look-alike coins (see bloodline.ts); null when it has no copies */
   bloodline: BloodlineTag | null;
 };
 
 export type BucketTotals = {
-  coinBurned: string; // raw coin units
+  /** SOL in this coin's name: its own fees, plus whatever its Nest's copies sent it while it led */
   solToOtc: number;
   solToProtection: number;
-  solToMainBuyback: number;
-  airdropQuote: string; // raw quote
   meteoraQuote: string; // raw quote kept by Meteora's protocol fee
   pendingQuote: string; // raw quote claimed or claimable, waiting for the next split
+  /** a copy's fees that went to its Nest's leader instead, and what a leader received from its copies (SOL) */
+  sentToLeaderSol: number;
+  receivedFromCopiesSol: number;
 };
 
 export type OtcCoin = {
@@ -106,10 +106,6 @@ export type OtcCoin = {
 export type CoinDetail = Coin & {
   buckets: BucketTotals;
   otc: OtcCoin;
-  airdropsPaid: string; // raw quote paid to holders so far
-  airdropRecipientsLastEpoch: number;
-  /** the fee wallet's buy-and-burns of this coin in the last 24h (they run continuously) */
-  buybacks24h: { count: number; tokenAmount: string; usd: number };
   protection: CoinProtection;
 };
 
@@ -125,7 +121,7 @@ export type Trade = {
   tokenAmount: string; // raw
   tax: string; // raw quote
   price: number; // quote per coin
-  kind: "trade" | "buyback" | "otc";
+  kind: "trade" | "otc";
 };
 
 export type Holder = {
@@ -135,8 +131,6 @@ export type Holder = {
   avgEntry: number; // quote per coin, 0 if no buys
   costBasis: string; // raw quote still at risk
   unrealized: number; // quote units, negative = underwater
-  airdropEligible: boolean;
-  airdropWeight: number; // 0..1 share of the next airdrop
 };
 
 export type Position = {
@@ -152,8 +146,6 @@ export type Position = {
   realizedPnlUsd: number;
   firstBuyAt: number;
   taxPaid: string; // raw quote
-  airdropEligible: boolean;
-  airdropsReceived: string; // raw quote
 };
 
 /** A realized loss and what it paid. The protection wallet sends payouts automatically; there's nothing to claim. */
@@ -202,7 +194,6 @@ export type ProtectionStatus = {
 export type WalletSummary = {
   address: Address;
   positions: Position[];
-  airdrops: { coin: Address; symbol: string; amount: string; quoteSymbol: string; quoteDecimals: number; t: number; tx: string }[];
   /** this wallet's covered losses, newest first */
   protection: { receivedSol: number; owedSol: number; losses: CoveredLoss[] };
 };
@@ -220,19 +211,18 @@ export type PlatformStats = {
   demo: boolean;
   solUsd: number;
   coins: number;
-  mainToken: Address | null;
   volume24hSol: number;
   volume24hUsd: number;
   totalFeesSol: number;
   totalFeesUsd: number;
   meteoraFeesSol: number;
-  mainBurned: string; // raw platform-token units
-  mainSupply: string;
   otcReserveSol: number;
   protectionFundSol: number;
   protectionPaidSol: number;
-  airdroppedSol: number; // SOL-equivalent
-  coinsBurnedSol: number; // SOL-equivalent value of coin buybacks
+  /** SOL the OTC reserve has paid sellers */
+  otcPaidSol: number;
+  /** SOL copies sent to their Nest's leader */
+  nestRoutedSol: number;
   treasury: TreasuryWallet[];
 };
 
@@ -296,7 +286,7 @@ export type LaunchRequest = {
   telegram: string;
   quote: Address; // quote mint
   initialBuy: string; // raw quote; 0 for none
-  /** a copy's Bloodline entry in raw quote, as the launch form showed it (see bloodline.ts) */
+  /** a copy's Nest entry in raw quote, as the launch form showed it (see bloodline.ts) */
   entry?: string;
 };
 export type LaunchResponse = TxEnvelope & { mint: Address; pool: Address };
@@ -364,10 +354,8 @@ export const api = (base: string) => {
     coin: (address: string) => get<CoinDetail>(`/api/coins/${address}`),
     candles: (address: string, interval: "1m" | "5m" | "15m" | "1h" = "5m") =>
       get<Candle[]>(`/api/coins/${address}/candles?interval=${interval}`),
-    trades: (address: string, limit = 50, opts: { buybacks?: boolean; trader?: string } = {}) =>
-      get<Trade[]>(
-        `/api/coins/${address}/trades?limit=${limit}${opts.buybacks === false ? "&buybacks=0" : ""}${opts.trader ? `&trader=${opts.trader}` : ""}`,
-      ),
+    trades: (address: string, limit = 50, opts: { trader?: string } = {}) =>
+      get<Trade[]>(`/api/coins/${address}/trades?limit=${limit}${opts.trader ? `&trader=${opts.trader}` : ""}`),
     holders: (address: string) => get<Holder[]>(`/api/coins/${address}/holders`),
     bloodline: (address: string) => get<BloodlineInfo>(`/api/coins/${address}/bloodline`),
     /** The family a launch with this ticker and name would join, and the entry it would pay on that pair. */

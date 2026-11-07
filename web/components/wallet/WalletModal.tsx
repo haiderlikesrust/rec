@@ -70,7 +70,7 @@ function WalletModal({ onClose }: { onClose: () => void }) {
         <div className="spectrum h-1 w-full opacity-80" />
         <div className="flex items-start justify-between gap-4 px-6 pt-6">
           <div className="flex items-center gap-3">
-            <LogoMark size={34} live className="text-fg" />
+            <LogoMark size={34} />
             <div>
               <h2 className="text-[17px] font-semibold tracking-tight">Connect a wallet</h2>
               <p className="mt-0.5 text-xs text-muted">Any Solana wallet works with {brand.name}.</p>

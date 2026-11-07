@@ -16,9 +16,9 @@ import { quoteRow, solPerUnit, solUsd, toUnits } from "./prices";
 import { holdersOf, now } from "./services";
 
 /**
- * Bloodline (rules in packages/shared/src/bloodline.ts): look-alike coins form a family, every member that doesn't
- * lead sends its coin-buyback and airdrop shares to the leader (jobs.ts), and a copy launched while the family has an
- * alive leader pays an entry that is airdropped to the leader's holders (runEntries below).
+ * Bloodline, shown on the site as the Nest (rules in packages/shared/src/bloodline.ts): look-alike coins form a
+ * family, every member that doesn't lead sends its whole fee split to the leader (jobs.ts), and a copy launched while
+ * the family has an alive leader pays an entry that is airdropped to the leader's holders (runEntries below).
  */
 
 type Ranked = { c: CoinRow; alive: boolean; traders12h: number; volume12hUsd: number; mcapUsd: number; score: number };
@@ -91,7 +91,7 @@ export function familyState(family: string, at = now(), without?: string): Famil
   return rows.length ? rank(rows, at) : null;
 }
 
-/** Where a coin's coin-buyback and airdrop shares go: the family leader, or the coin itself when it leads or has no copies. */
+/** Where a coin's fee split goes: the family leader, or the coin itself when it leads or has no copies. */
 export function leaderOf(c: CoinRow, at = now()): CoinRow {
   if (!c.family || !one("SELECT 1 FROM coin WHERE family = ? AND mint != ?", c.family, c.mint)) return c;
   return familyState(c.family, at)?.leader ?? c;
@@ -226,7 +226,7 @@ async function payEntry(engine: Engine, c: CoinRow, at: number) {
       // nobody to give it to: burn it, so the launcher still gets none of it
       const { burned, sig } = await engine.burnHeld("airdrop", c, total);
       tx(() => {
-        recordBurn(c.mint, burned, 0, "entry");
+        recordBurn(c.mint, burned, "entry");
         run("UPDATE coin SET entry_status = 'done' WHERE mint = ?", c.mint);
         ledger({ coin: c.mint, kind: "entry-burn", mint: c.mint, amount: burned, tx: sig, note: "no holders to airdrop the entry to" });
       });

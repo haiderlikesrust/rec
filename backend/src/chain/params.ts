@@ -15,14 +15,14 @@ import { GRADUATION_MCAP_USD, LAUNCH_FEE_SOL, SNIPE, START_MCAP_USD, TAX_BPS } f
 import { SUPPLY } from "../curve";
 
 /**
- * The Meteora DBC config every Recur coin on a quote launches from, priced so the coin starts at $2.5k and
+ * The Meteora DBC config every coin on a quote launches from, priced so the coin starts at $2.5k and
  * graduates at $30k at the quote's current USD price:
  *  - 1B supply, 6 decimals, immutable metadata, no vesting, no leftover.
- *  - 3% fee on the quote side of every swap, all of it to the partner (Recur's fee wallet), 0% to the creator;
+ *  - 3% fee on the quote side of every swap, all of it to the partner (the backend's fee wallet), 0% to the creator;
  *    an exponential scheduler starts it at 99% and decays to 3% over the first 6 seconds (anti-snipe).
  *  - Graduates to a DAMM v2 pool with the same 3% (quote-side), with 100% of the LP permanently locked to the
  *    fee wallet, so post-graduation trading fees keep flowing to the buckets.
- *  - A 0.01 SOL pool creation fee that funds the platform buyback.
+ *  - A 0.01 SOL pool creation fee, split with the coin's fees.
  *
  * Quotes with a Token-2022 transfer fee (PreStocks, Tessera) must graduate to a Compounding DAMM v2 pool. With
  * compoundingFeeBps 0 it works like QuoteToken for us: every fee is charged in the quote and all of it is claimable.

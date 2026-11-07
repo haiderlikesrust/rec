@@ -119,7 +119,7 @@ export function swapFacts(ev: DecodedEvent): SwapFacts | null {
       const amountIn = asBig(field(d, "excluded_transfer_fee_amount_in"));
       const amountOut = asBig(field(d, "included_transfer_fee_amount_out"));
       if (field<boolean>(d, "fee_on_base_token")) {
-        // OutputToken fee mode (not used by Recur configs): fees are in the coin; express them in quote at this fill's price
+        // OutputToken fee mode (not used by our configs): fees are in the coin; express them in quote at this fill's price
         const quote = isBuy ? amountIn : amountOut;
         const tokens = isBuy ? amountOut + fee : amountIn;
         const toQuote = (x: bigint) => (tokens > 0n ? (x * quote) / tokens : 0n);

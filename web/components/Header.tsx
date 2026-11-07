@@ -1,14 +1,13 @@
 "use client";
 
 import clsx from "clsx";
-import { ChevronRight, Menu, Plus, X } from "lucide-react";
+import { ArrowUpRight, Menu, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { brand } from "@cook/shared";
 import { useStats } from "@/lib/data";
 import { LogoMark } from "./LogoMark";
-import { ThemeToggle } from "./ThemeToggle";
 import { XLogo } from "./XLogo";
 import { ConnectWallet } from "./wallet/ConnectWallet";
 
@@ -16,15 +15,15 @@ const nav = [
   { href: "/", label: "Coins", blurb: "Every coin, every pair" },
   { href: "/otc", label: "OTC", blurb: "Sell into the SOL reserve, no slippage" },
   { href: "/protection", label: "Protection", blurb: "Part of a loss, paid back automatically" },
-  { href: "/portfolio", label: "Portfolio", blurb: "Your coins, airdrops and payouts" },
+  { href: "/portfolio", label: "Portfolio", blurb: "Your coins and payouts" },
   { href: "/docs", label: "Docs", blurb: "How the 3% comes back" },
 ];
 
-export function Logo() {
+export function Logo({ className }: { className?: string }) {
   return (
-    <Link href="/" className="group flex shrink-0 items-center gap-2.5">
-      <LogoMark size={30} live className="text-fg transition-transform duration-500 group-hover:rotate-90" />
-      <span className="font-display text-[19px] font-semibold">{brand.name}</span>
+    <Link href="/" className={clsx("group flex shrink-0 items-center gap-2.5", className)} aria-label={`${brand.name} home`}>
+      <LogoMark size={34} className="squish transition-transform duration-300 group-hover:scale-110" />
+      <span className="font-display text-[22px] font-bold tracking-tight">{brand.name.toLowerCase()}</span>
     </Link>
   );
 }
@@ -64,135 +63,126 @@ export function Header() {
     <>
       <header
         className={clsx(
-          "sticky top-0 z-40 transition-[background-color,border-color] duration-300",
-          scrolled || open ? "glass border-b border-line" : "border-b border-transparent",
+          "sticky top-0 z-40 transition-[background-color,box-shadow] duration-300",
+          scrolled ? "glass shadow-[0_1px_0_var(--line),0_12px_30px_-20px_rgba(0,0,0,0.8)]" : "",
         )}
       >
-        <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 sm:px-6">
+        <div className="mx-auto flex h-[72px] max-w-7xl items-center gap-4 px-4 sm:px-6">
           <Logo />
           {demo && (
             <span
               title="Demo mode: trades are simulated by the backend, nothing touches the chain"
-              className="hidden rounded-full border border-dashed border-line-strong px-2 py-0.5 text-[10px] font-semibold tracking-wider text-muted uppercase sm:inline"
+              className="font-display hidden rounded-full bg-violet-soft px-2.5 py-1 text-[11px] font-semibold text-violet sm:inline"
             >
               Demo
             </span>
           )}
-          <nav className="ml-4 hidden items-center rounded-full border border-line bg-elev/60 p-1 lg:flex">
-            {nav.map((n) => (
-              <Link
-                key={n.href}
-                href={n.href}
-                className={clsx(
-                  "rounded-full px-4 py-1.5 text-sm transition-all duration-200",
-                  active(n.href)
-                    ? "bg-elev-2 text-fg shadow-[inset_0_0_0_1px_var(--line-strong)]"
-                    : "text-muted hover:text-fg",
-                )}
-              >
-                {n.label}
-              </Link>
-            ))}
+          <nav aria-label="Main" className="mx-auto hidden items-center gap-1 lg:flex">
+            {nav.map((n) => {
+              const on = active(n.href);
+              return (
+                <Link
+                  key={n.href}
+                  href={n.href}
+                  aria-current={on ? "page" : undefined}
+                  className={clsx(
+                    "group font-display relative px-3.5 py-2 text-[15px] font-semibold transition-colors",
+                    on ? "text-fg" : "text-muted hover:text-fg",
+                  )}
+                >
+                  {n.label}
+                  <span
+                    className={clsx(
+                      "spectrum absolute inset-x-3.5 -bottom-0.5 h-[3px] origin-left rounded-full transition-transform duration-300",
+                      on ? "scale-x-100" : "scale-x-0 group-hover:scale-x-50",
+                    )}
+                  />
+                </Link>
+              );
+            })}
           </nav>
-          <div className="ml-auto flex min-w-0 items-center gap-2">
-            <Link
-              href="/launch"
-              className="btn-primary hidden h-9 items-center gap-1.5 rounded-xl px-3.5 text-sm font-medium transition-all sm:inline-flex"
-            >
-              <Plus size={15} strokeWidth={2.5} /> Launch
-            </Link>
+          <div className="ml-auto flex min-w-0 items-center gap-2 lg:ml-0">
             <a
               href={brand.x}
               target="_blank"
               rel="noreferrer"
               aria-label={`${brand.name} on X`}
               title={`${brand.xHandle} on X`}
-              className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-line text-muted transition-colors hover:text-fg sm:flex"
+              className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-elev hover:text-fg sm:flex"
             >
-              <XLogo size={14} />
+              <XLogo size={15} />
             </a>
-            <ThemeToggle />
+            <Link
+              href="/launch"
+              className="btn-primary font-display hidden h-10 items-center gap-1.5 rounded-full px-4 text-sm font-semibold transition-transform hover:-translate-y-0.5 sm:inline-flex"
+            >
+              <Plus size={16} strokeWidth={2.75} /> Launch
+            </Link>
             <ConnectWallet />
             <button
               aria-label={open ? "Close menu" : "Menu"}
               aria-expanded={open}
               aria-controls="mobile-menu"
               onClick={() => setOpen((o) => !o)}
-              className={clsx(
-                "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-colors lg:hidden",
-                open ? "border-line-strong bg-elev-2 text-fg" : "border-line text-muted hover:text-fg",
-              )}
+              className="surface flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-fg lg:hidden"
             >
-              {open ? <X size={17} /> : <Menu size={17} />}
+              {open ? <X size={18} /> : <Menu size={18} />}
             </button>
           </div>
         </div>
       </header>
 
-      {/* outside the header: its backdrop blur would otherwise pin this fixed layer to the header's box */}
+      {/* phones and tablets: a full-screen sheet of big links (outside the header, whose blur would trap it) */}
       {open && (
-        <div className="fixed inset-x-0 top-16 bottom-0 z-50 lg:hidden">
-          <button
-            aria-label="Close menu"
-            tabIndex={-1}
-            onClick={() => setOpen(false)}
-            className="absolute inset-0 bg-black/45 backdrop-blur-sm"
-          />
-          <nav
-            id="mobile-menu"
-            aria-label="Main"
-            className="relative mx-3 mt-2 max-h-[calc(100dvh-5rem)] overflow-y-auto rounded-[22px] border border-line-strong bg-elev shadow-card animate-fade-up [animation-duration:280ms] sm:mx-auto sm:max-w-md"
-          >
-            <ul className="p-2">
-              {nav.map((n, i) => {
-                const on = active(n.href);
-                return (
-                  <li key={n.href} className="animate-fade-up [animation-duration:320ms]" style={{ animationDelay: `${40 + i * 30}ms` }}>
-                    <Link
-                      href={n.href}
-                      onClick={() => setOpen(false)}
-                      aria-current={on ? "page" : undefined}
-                      className={clsx(
-                        "group flex items-center gap-3 rounded-2xl px-4 py-3 transition-colors",
-                        on ? "bg-elev-2 shadow-[inset_0_0_0_1px_var(--line-strong)]" : "active:bg-elev-2",
-                      )}
-                    >
-                      <span className="min-w-0 flex-1">
-                        <span className={clsx("block text-[15px] font-medium", on ? "text-fg" : "text-fg/90")}>{n.label}</span>
-                        <span className="block truncate text-xs text-faint">{n.blurb}</span>
-                      </span>
-                      {on ? (
-                        <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: "var(--accent)" }} aria-hidden />
-                      ) : (
-                        <ChevronRight size={16} className="shrink-0 text-faint transition-transform group-active:translate-x-0.5" />
-                      )}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-            <div className="space-y-3 border-t border-line p-3">
-              <Link
-                href="/launch"
-                onClick={() => setOpen(false)}
-                className="btn-primary flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-[15px] font-semibold"
-              >
-                <Plus size={17} strokeWidth={2.5} /> Launch a coin
-              </Link>
-              <a
-                href={brand.x}
-                target="_blank"
-                rel="noreferrer"
-                className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-line text-sm font-medium text-fg/90 transition-colors active:bg-elev-2"
-              >
-                <XLogo size={14} /> Follow {brand.xHandle}
-              </a>
-              <p className="text-center text-[11px] text-faint">
-                {brand.chainLabel} · {brand.poolsLabel}
-                {demo && " · Demo mode"}
-              </p>
-            </div>
+        <div
+          id="mobile-menu"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Menu"
+          className="glass fixed inset-0 z-50 flex flex-col overflow-y-auto px-5 pt-[18px] pb-8 lg:hidden"
+        >
+          <div className="flex items-center justify-between">
+            <Logo />
+            <button onClick={() => setOpen(false)} aria-label="Close menu" className="surface flex h-10 w-10 items-center justify-center rounded-full">
+              <X size={18} />
+            </button>
+          </div>
+          <nav aria-label="Main" className="mt-10 grid gap-1.5">
+            {nav.map((n, i) => {
+              const on = active(n.href);
+              return (
+                <Link
+                  key={n.href}
+                  href={n.href}
+                  onClick={() => setOpen(false)}
+                  aria-current={on ? "page" : undefined}
+                  className={clsx("rounded-3xl px-4 py-3 transition-colors", on ? "surface" : "active:bg-elev")}
+                >
+                  <span className="block animate-fade-up [animation-duration:380ms]" style={{ animationDelay: `${i * 45}ms` }}>
+                    <span className={clsx("font-display block text-[30px] leading-tight font-bold", on ? "text-fg" : "text-muted")}>{n.label}</span>
+                    <span className="block text-sm text-faint">{n.blurb}</span>
+                  </span>
+                </Link>
+              );
+            })}
           </nav>
+          <div className="mt-auto grid gap-3 pt-8">
+            <Link href="/launch" onClick={() => setOpen(false)} className="btn-primary font-display flex h-13 items-center justify-center gap-2 rounded-full py-3.5 text-base font-semibold">
+              <Plus size={18} strokeWidth={2.75} /> Launch a coin
+            </Link>
+            <a
+              href={brand.x}
+              target="_blank"
+              rel="noreferrer"
+              className="font-display flex items-center justify-center gap-2 py-2 text-sm font-semibold text-muted"
+            >
+              <XLogo size={14} /> Follow {brand.xHandle} <ArrowUpRight size={14} />
+            </a>
+            <p className="text-center text-[11px] text-faint">
+              {brand.chainLabel} · {brand.poolsLabel}
+              {demo && " · Demo mode"}
+            </p>
+          </div>
         </div>
       )}
     </>

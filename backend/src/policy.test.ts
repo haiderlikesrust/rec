@@ -17,13 +17,13 @@ import {
 import { configParams } from "./chain/params";
 import { buy, curveFor, sell } from "./curve";
 
-test("fee split is 10/10/30/40/10 and loses nothing to rounding", () => {
+test("fee split is 50/50 and loses nothing to rounding", () => {
   for (const amount of [1n, 7n, 9_999n, 123_456_789n, 10n ** 18n + 3n]) {
     const s = splitRaw(amount);
-    assert.equal(s.mainBuyback + s.coinBuyback + s.otcReserve + s.protection + s.airdrop, amount);
+    assert.equal(s.otcReserve + s.protection, amount);
   }
-  const s = splitRaw(10_000n);
-  assert.deepEqual([s.protection, s.otcReserve, s.mainBuyback, s.coinBuyback, s.airdrop], [4000n, 3000n, 1000n, 1000n, 1000n]);
+  const s = splitRaw(10_001n);
+  assert.deepEqual([s.otcReserve, s.protection], [5000n, 5001n]);
 });
 
 test("anti-snipe schedule mirrors the DBC exponential fee scheduler", () => {

@@ -29,7 +29,7 @@ const refresh = () => {
   treasury.protectionSol = sol(engine.wallets.protection);
 };
 
-test("fees flow from trades into the five wallets, and losses are paid out automatically", async () => {
+test("fees flow from trades into the OTC and protection wallets, and losses are paid out automatically", async () => {
   const t0 = Math.floor(Date.now() / 1000) - 4 * 3600;
   const creator = fakeKey();
   const { mint } = engine.createCoin(
@@ -56,21 +56,23 @@ test("fees flow from trades into the five wallets, and losses are paid out autom
   assert.ok(one("SELECT 1 FROM loss WHERE wallet = ?", buyer), "the buyer's losing sale is recorded for protection");
 
   refresh();
+  const feeWalletBefore = sol(engine.wallets.fees);
+  const launchFee = c.pending_sol;
+  assert.ok(launchFee > 0, "the launch fee waits to be split with the trading fees");
   await processFees(engine, t0 + 7400);
   const after = getCoin(mint)!;
-  assert.equal(big(after.split_quote), income, "everything received was split");
-  // the buyback is a trade too: it pays the 3% like anyone, and that income waits for the next split
-  const leftover = big(after.income_quote) - big(after.split_quote);
-  assert.ok(leftover > 0n && leftover <= (income * 1000n * 3n) / 10_000n / 100n, `buyback fee income ${leftover}`);
-  assert.ok(big(after.coin_burned) > 0n, "coin bought back and burned");
-  assert.ok(big(after.total_supply) < 10n ** 15n, "supply went down");
-  // the SOL buckets keep their 30 : 40 : 10 ratio
-  assert.ok(Math.abs(after.sol_to_otc / after.sol_to_protection - 0.75) < 0.001);
-  assert.ok(Math.abs(after.sol_to_main / after.sol_to_protection - 0.25) < 0.001);
+  assert.equal(big(after.split_quote), big(after.income_quote), "everything received was split");
+  assert.equal(after.pending_sol, 0, "the launch fee too");
+  // half to the OTC reserve, half to the protection fund, nothing left in the fee wallet
+  const total = Number(income) / 1e9 + launchFee;
+  assert.ok(Math.abs(after.sol_to_otc + after.sol_to_protection - total) < 1e-9, "all of it reached the two wallets");
+  assert.ok(Math.abs(after.sol_to_otc - after.sol_to_protection) <= 1e-9, "in equal halves");
+  // the pass claims the pool's share into the fee wallet and sends it on with the rest
+  const claimed = Number(big(c.claimable_quote)) / 1e9;
+  assert.ok(Math.abs(feeWalletBefore + claimed - sol(engine.wallets.fees) - total) < 1e-9, "out of the fee wallet, none left behind");
   assert.ok(Math.abs(sol(engine.wallets.otc) - after.sol_to_otc) < 1e-6, "the OTC wallet holds exactly its share");
   assert.ok(Math.abs(sol(engine.wallets.protection) - after.sol_to_protection) < 1e-6);
-  assert.equal(big(after.airdrop_balance), (income * 1000n) / 10_000n, "10% sits in the airdrop wallet");
-  assert.equal(engine.bal(engine.wallets.airdrop, NATIVE_MINT), big(after.airdrop_balance));
+  assert.equal(big(after.total_supply), 10n ** 15n, "no buybacks: supply only falls through OTC sales");
   assert.ok(Math.abs(after.otc_credit - after.sol_to_otc * 2) < 1e-9, "the coin earns 2x OTC credit");
 
   // OTC: the buyer sells the rest to the reserve; the 3% goes to the fee wallet in the same settlement
@@ -144,6 +146,35 @@ test("fees flow from trades into the five wallets, and losses are paid out autom
   assert.ok(all("SELECT * FROM ledger").length > 0);
 });
 
+test("a send that fails puts the unsent SOL back for the next pass instead of stranding it in the fee wallet", async () => {
+  const at = Math.floor(Date.now() / 1000);
+  const { mint } = engine.createCoin(
+    { wallet: fakeKey(), name: "Fail", symbol: "FAIL", description: "", image: "", website: "", twitter: "", telegram: "", quote: NATIVE_MINT, initialBuy: "0" },
+    "http://x/",
+    at - 600,
+  );
+  engine.trade(getCoin(mint)!, fakeKey(), "buy", 5n * 10n ** 9n, at - 300);
+  const send = engine.sendSol.bind(engine);
+  let failures = 0;
+  engine.sendSol = async (from, to, lamports) => {
+    if (to === engine.wallets.protection && failures++ === 0) throw new Error("RPC down");
+    return send(from, to, lamports);
+  };
+  try {
+    await processFees(engine, at);
+    const c = getCoin(mint)!;
+    assert.ok(c.sol_to_otc > 0, "the OTC half went out");
+    assert.equal(c.sol_to_protection, 0, "the protection half didn't");
+    assert.ok(Math.abs(c.pending_sol - c.sol_to_otc) < 2e-9, "it waits as pending SOL");
+    await processFees(engine, at + 30);
+    const d = getCoin(mint)!;
+    assert.equal(d.pending_sol, 0, "the next pass sent it");
+    assert.ok(Math.abs(d.sol_to_otc + d.sol_to_protection - (c.sol_to_otc + c.pending_sol)) < 1e-9, "nothing was lost");
+  } finally {
+    engine.sendSol = send;
+  }
+});
+
 test("a first buy paid in SOL on another pair swaps into the quote, then launches with what arrived", async () => {
   const usdc = one<{ mint: string }>("SELECT mint FROM quote WHERE symbol = 'USDC'")!.mint;
   const creator = fakeKey();
@@ -165,7 +196,7 @@ test("a first buy paid in SOL on another pair swaps into the quote, then launche
   assert.ok(big(one<{ balance: string }>("SELECT balance FROM holder WHERE coin = ? AND wallet = ?", mint, creator)!.balance) > 0n);
 });
 
-test("Bloodline: a copy pays its entry to the leader's holders and feeds the leader its buyback and airdrop", async () => {
+test("Nest: a copy pays its entry to the leader's holders and feeds the leader its whole fee split", async () => {
   const { BLOODLINE, bloodKey } = await import("@cook/shared");
   const { checkLaunch, familyState, runEntries } = await import("./bloodline");
   const { createApi } = await import("./api");
@@ -195,7 +226,7 @@ test("Bloodline: a copy pays its entry to the leader's holders and feeds the lea
   const req = { ...meta, wallet: copier, name: "C@T", symbol: "C4T", initialBuy: (10n ** 9n).toString() };
   const refused = await launch(req);
   assert.equal(refused.status, 400, "a copy can't launch without its entry");
-  assert.match(((await refused.json()) as { error: string }).error, /Bloodline entry/);
+  assert.match(((await refused.json()) as { error: string }).error, /pays the \$500 Nest entry/);
 
   const res = await launch({ ...req, entry: check.entry!.quoteRaw });
   assert.equal(res.status, 200);
@@ -218,15 +249,19 @@ test("Bloodline: a copy pays its entry to the leader's holders and feeds the lea
   assert.ok(drops.every((d) => big(d.amount) * 10_000n <= entryTokens * capBps + 10_000n * BigInt(drops.length)));
   for (const d of drops) assert.equal(engine.bal(d.wallet, copy), big(d.amount));
 
-  // two wallets trade the copy; it isn't alive, so its buyback and airdrop shares go to the OG
+  // two wallets trade the copy; it isn't alive, so its whole split goes to the OG
   for (const w of [fakeKey(), fakeKey()]) engine.trade(getCoin(copy)!, w, "buy", 2n * 10n ** 9n, at + 60);
   const ogBefore = getCoin(og)!;
   await processFees(engine, at + 120);
   const ogAfter = getCoin(og)!;
-  assert.equal(big(getCoin(copy)!.coin_burned), 0n, "the copy's buyback didn't buy the copy");
-  assert.ok(big(ogAfter.coin_burned) > big(ogBefore.coin_burned), "it bought and burned the OG");
-  assert.ok(big(ogAfter.airdrop_quote) > big(ogBefore.airdrop_quote), "and funded the OG's airdrop");
-  assert.ok(getCoin(copy)!.blood_sent_sol > 0 && Math.abs(getCoin(copy)!.blood_sent_sol - ogAfter.blood_received_sol) < 1e-9);
+  const copyAfter = getCoin(copy)!;
+  assert.equal(copyAfter.sol_to_otc + copyAfter.sol_to_protection, 0, "the copy keeps none of its fees");
+  assert.equal(copyAfter.otc_credit, 0, "and earns no OTC credit of its own");
+  const gained = ogAfter.sol_to_otc - ogBefore.sol_to_otc + (ogAfter.sol_to_protection - ogBefore.sol_to_protection);
+  assert.ok(copyAfter.blood_sent_sol > 0 && Math.abs(copyAfter.blood_sent_sol - ogAfter.blood_received_sol) < 1e-9);
+  // the OG's own fees were split in the same pass, so it gained at least what the copy sent
+  assert.ok(gained >= copyAfter.blood_sent_sol - 1e-9, "the OG's OTC credit and protection pot grew by the copy's fees");
+  assert.ok(ogAfter.otc_credit > ogBefore.otc_credit);
 
   // 13 hours on, the OG has gone quiet and the copy is busy: the copy leads
   const later = at + 13 * 3600;

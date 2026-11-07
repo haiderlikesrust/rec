@@ -14,7 +14,7 @@ export function LaunchCta() {
       <div className="relative grid grid-cols-1 gap-10 lg:grid-cols-[1.1fr_1fr] lg:items-center">
         <div>
           <span className="eyebrow">Launch</span>
-          <h2 className="font-display mt-3 text-4xl leading-[1.02] font-semibold sm:text-5xl">
+          <h2 className="font-display mt-3 text-4xl leading-[1.02] font-bold sm:text-[56px]">
             Your coin, live in
             <br />
             one transaction.
@@ -28,12 +28,12 @@ export function LaunchCta() {
         </div>
         <ol className="grid gap-3">
           {steps.map((s, i) => (
-            <li key={s.title} className="surface flex items-center gap-4 rounded-2xl p-4">
+            <li key={s.title} className="flex items-center gap-4 rounded-3xl bg-sunk p-4 shadow-[inset_0_0_0_1px_var(--line)]">
               <IconTile size={42}>
                 <s.icon size={19} />
               </IconTile>
               <div className="min-w-0">
-                <div className="text-[15px] font-semibold">
+                <div className="font-display text-base font-semibold">
                   <span className="num mr-2 text-faint">0{i + 1}</span>
                   {s.title}
                 </div>

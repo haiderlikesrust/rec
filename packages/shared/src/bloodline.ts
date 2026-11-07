@@ -1,10 +1,11 @@
 /**
- * Bloodline: copies of a coin are allowed, but they feed the coin they copied.
+ * Copies of a coin are allowed, but they feed the coin they copied. On the site this is the coin's Nest (brand.nest);
+ * in code it is still called the bloodline.
  *
  * Coins whose ticker or name is the same once look-alike characters are folded (CAT, C4T, C@T) form one family. The
  * family's leader is the first coin (the OG) while it's alive; once it goes quiet, the alive member with the best
  * volume, traders and market cap; if every member is quiet, the best of them overall. Every other member sends its
- * coin-buyback and airdrop shares to the leader: they buy and burn the leader, and pay the leader's high-entry holders.
+ * whole fee split to the leader: its OTC half grows the leader's OTC credit and its protection half the leader's pot.
  *
  * A copy launched while the family has an alive leader also pays an entry: a first buy of BLOODLINE.entryUsd in its
  * own coin, bought before the creator's, which the launcher never receives. Those coins are airdropped to the

@@ -169,9 +169,9 @@ export class DemoEngine implements Engine {
   }
 
   /** Executes a swap for `trader` and books it like the indexer would. */
-  trade(c: CoinRow, trader: string, side: SwapSide, amount: bigint, at: number, kind: "trade" | "buyback" = "trade", firstBuy = false) {
+  trade(c: CoinRow, trader: string, side: SwapSide, amount: bigint, at: number, firstBuy = false) {
     return tx(() => {
-      const f = this.fill(c, side, amount, at, { referral: kind === "trade", firstBuy });
+      const f = this.fill(c, side, amount, at, { referral: true, firstBuy });
       if (f.amountOut <= 0n) throw new UserError("Amount too small.");
       const qDec = quoteDecimals(c.quote);
       if (side === "buy") {
@@ -200,7 +200,7 @@ export class DemoEngine implements Engine {
         quoteReserve: c.graduated === 1 ? undefined : reserve,
         ts: at,
         tx: sig,
-        kind,
+        kind: "trade",
       });
       const after = getCoin(c.mint)!;
       if (after.graduated === 1 && !after.damm_pool) run("UPDATE coin SET damm_pool = ? WHERE mint = ?", fakeKey(), c.mint);
@@ -250,7 +250,7 @@ export class DemoEngine implements Engine {
   }
 
   /** Creates a coin like initialize_virtual_pool would, plus the creator's bundled first buy. */
-  createCoin(req: LaunchRequest, uriBase: string, at: number, isMain = false, entry?: { raw: bigint; to: string }) {
+  createCoin(req: LaunchRequest, uriBase: string, at: number, entry?: { raw: bigint; to: string }) {
     const q = quoteRow(req.quote);
     if (!q) throw new UserError("Unknown quote asset.");
     const cfg = this.configFor(req.quote);
@@ -258,10 +258,9 @@ export class DemoEngine implements Engine {
     const mint = fakeKey();
     const pool = fakeKey();
     return tx(() => {
-      // launch fee: Meteora keeps 10%, the rest funds the platform buyback
+      // launch fee: Meteora keeps 10%, the rest is split with the coin's fees once it is recorded below
       const fee = BigInt(Math.round(LAUNCH_FEE_SOL * 1e9));
       this.add(req.wallet, NATIVE_MINT, -fee, "SOL for the launch fee");
-      kvSet("main_pending_lamports", big(kvGet("main_pending_lamports")) + (fee * 9n) / 10n);
       this.add(this.wallets.fees, NATIVE_MINT, (fee * 9n) / 10n);
       storeMetadata(mint, req);
       recordLaunch({
@@ -279,30 +278,30 @@ export class DemoEngine implements Engine {
         uri: `${uriBase}${mint}.json`,
         creator: req.wallet,
         createdAt: at,
-        isMain,
         sqrtStart: curve.sqrtStart,
         sqrtMig: curve.sqrtMig,
         liquidity: curve.liquidity,
         threshold: big(cfg.threshold),
         totalSupply: SUPPLY_RAW,
       });
+      run("UPDATE coin SET pending_sol = pending_sol + ? WHERE mint = ?", Number((fee * 9n) / 10n) / 1e9, mint);
       if (entry) {
-        // a copy's Bloodline entry: the first buy, for the airdrop wallet, plus rent for the accounts it's sent to
+        // a copy's Nest entry: the first buy, for the entries wallet, plus rent for the accounts it's sent to
         this.add(req.wallet, req.quote, -entry.raw, q.symbol);
         this.add(this.wallets.airdrop, req.quote, entry.raw);
-        this.add(req.wallet, NATIVE_MINT, -BigInt(ENTRY_RENT_LAMPORTS), "SOL for the Bloodline entry");
+        this.add(req.wallet, NATIVE_MINT, -BigInt(ENTRY_RENT_LAMPORTS), "SOL for the Nest entry");
         this.add(this.wallets.airdrop, NATIVE_MINT, BigInt(ENTRY_RENT_LAMPORTS));
-        const { fill } = this.trade(getCoin(mint)!, this.wallets.airdrop, "buy", entry.raw, at, "trade", true);
+        const { fill } = this.trade(getCoin(mint)!, this.wallets.airdrop, "buy", entry.raw, at, true);
         recordEntry(mint, fill.amountOut, entry.raw, entry.to, true, at);
       }
       const initial = big(req.initialBuy);
-      if (initial > 0n) this.trade(getCoin(mint)!, req.wallet, "buy", initial, at, "trade", true);
+      if (initial > 0n) this.trade(getCoin(mint)!, req.wallet, "buy", initial, at, true);
       return { mint, pool };
     });
   }
 
   async launch(req: LaunchRequest, uriBase: string, entry?: { raw: bigint; to: string }): Promise<LaunchResponse> {
-    const { mint, pool } = this.createCoin(req, uriBase, this.at(), false, entry);
+    const { mint, pool } = this.createCoin(req, uriBase, this.at(), entry);
     return { tx: null, demo: true, signature: fakeSig(), mint, pool };
   }
 
@@ -360,12 +359,6 @@ export class DemoEngine implements Engine {
     const amount = big(c.claimable_quote);
     if (amount > 0n) this.add(this.wallets.fees, c.quote, amount);
     return amount;
-  }
-
-  async buybackAndBurn(c: CoinRow, quoteRaw: bigint) {
-    const { fill, sig } = this.trade(c, this.wallets.fees, "buy", quoteRaw, this.at(), "buyback");
-    this.add(this.wallets.fees, c.mint, -fill.amountOut);
-    return { burned: fill.amountOut, sig };
   }
 
   async burnHeld(from: Role, c: CoinRow, amount: bigint) {

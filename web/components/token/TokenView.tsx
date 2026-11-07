@@ -1,10 +1,10 @@
 "use client";
 
 import clsx from "clsx";
-import { ArrowLeft, Check, Copy, Droplet, ExternalLink, Globe, GraduationCap, Send } from "lucide-react";
+import { ArrowLeft, Check, Copy, Egg, ExternalLink, Globe, GraduationCap, Send } from "lucide-react";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
-import { isSolanaAddress, type CoinDetail } from "@cook/shared";
+import { brand, isSolanaAddress, type CoinDetail } from "@cook/shared";
 import { useCoin, useStats } from "@/lib/data";
 import { explorerAddress, explorerToken } from "@/lib/explorer";
 import { age, num, short, tokens, units, usd } from "@/lib/format";
@@ -15,9 +15,9 @@ import { QuoteChip } from "@/components/QuoteChip";
 import { Badge, ButtonLink, Change, EmptyState, ErrorState, Skeleton } from "@/components/ui";
 import { XLogo } from "@/components/XLogo";
 import { ActivityTabs } from "./ActivityTabs";
-import { BloodlinePanel } from "./BloodlinePanel";
 import { FeesPanel } from "./FeesPanel";
 import { MobileTradeBar } from "./MobileTradeBar";
+import { NestPanel } from "./NestPanel";
 import { OtcPanel } from "./OtcPanel";
 import { PositionCard } from "./PositionCard";
 import { PriceChart } from "./PriceChart";
@@ -37,7 +37,7 @@ function SocialButton({ href, label, children }: { href?: string; label: string;
       rel="noreferrer"
       aria-label={label}
       title={label}
-      className="flex h-8 w-8 items-center justify-center rounded-xl border border-line bg-sunk/60 text-muted transition-colors hover:border-line-strong hover:text-fg"
+      className="flex h-9 w-9 items-center justify-center rounded-full bg-elev-2 text-muted transition-all hover:-translate-y-0.5 hover:text-fg"
     >
       {children}
     </a>
@@ -47,9 +47,9 @@ function SocialButton({ href, label, children }: { href?: string; label: string;
 /** One cell of the stats strip. */
 function Stat({ label, value, sub }: { label: string; value: ReactNode; sub?: ReactNode }) {
   return (
-    <div className="min-w-0 bg-elev px-3.5 py-2.5 sm:px-4">
-      <div className="truncate text-[10px] tracking-wider text-faint uppercase">{label}</div>
-      <div className="num mt-1 truncate text-[15px] font-medium sm:text-base">{value}</div>
+    <div className="min-w-0 rounded-2xl bg-elev px-3.5 py-3 shadow-card sm:px-4">
+      <div className="font-display truncate text-[10px] font-semibold tracking-[0.08em] text-faint uppercase">{label}</div>
+      <div className="num font-display mt-1 truncate text-base font-bold sm:text-lg">{value}</div>
       {sub && <div className="num mt-0.5 truncate text-[11px] text-faint">{sub}</div>}
     </div>
   );
@@ -62,7 +62,7 @@ function Description({ text }: { text: string }) {
     <div className="relative mt-3 max-w-3xl">
       <p className={clsx("text-sm leading-relaxed text-muted", !open && "line-clamp-2")}>{text}</p>
       {text.length > 140 && (
-        <button onClick={() => setOpen((o) => !o)} className="mt-1 text-xs font-medium text-accent hover:underline">
+        <button onClick={() => setOpen((o) => !o)} className="font-display mt-1 text-xs font-semibold text-accent-2 hover:underline">
           {open ? "Show less" : "Show more"}
         </button>
       )}
@@ -74,15 +74,15 @@ function GraduationStatus({ coin }: { coin: CoinDetail }) {
   const q = coin.quote;
   if (coin.graduated)
     return (
-      <div className="surface flex flex-col gap-2 rounded-2xl px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
+      <div className="surface flex flex-col gap-2 rounded-[24px] px-5 py-4 sm:flex-row sm:items-center sm:gap-4">
         <div className="flex shrink-0 items-center gap-2 text-sm">
           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-up-soft text-up">
             <GraduationCap size={15} />
           </span>
-          <span className="font-medium">Graduated to Meteora DAMM v2</span>
+          <span className="font-display font-semibold">Graduated to Meteora DAMM v2</span>
         </div>
         <span className="text-xs text-muted sm:flex-1">
-          Same 3% fee on every trade. The pool&apos;s liquidity is locked for good, and its fees keep flowing to the buckets.
+          Same 3% fee on every trade. The pool&apos;s liquidity is locked for good, and its fees keep funding OTC and protection.
         </span>
         {coin.dammPool && (
           <a
@@ -97,16 +97,16 @@ function GraduationStatus({ coin }: { coin: CoinDetail }) {
       </div>
     );
   return (
-    <div className="surface flex flex-col gap-3 rounded-2xl px-4 py-3 sm:flex-row sm:items-center sm:gap-5">
+    <div className="surface flex flex-col gap-3 rounded-[24px] px-5 py-4 sm:flex-row sm:items-center sm:gap-5">
       <div className="flex shrink-0 items-center gap-2 text-sm">
-        <GraduationCap size={16} className="text-accent" />
-        <span className="font-medium">Graduation</span>
+        <GraduationCap size={17} className="text-accent-2" />
+        <span className="font-display font-semibold">Graduation</span>
         <span className="num text-xs text-muted">
           {num(coin.quoteInPool)} / {num(coin.graduationThreshold)} {q.symbol} in the curve
         </span>
       </div>
       <GraduationBar className="flex-1" progress={coin.graduationProgress} graduated={false} />
-      <span className="shrink-0 text-[11px] text-faint">moves to Meteora DAMM v2 at {usd(q.graduationMcapUsd)}</span>
+      <span className="hidden shrink-0 text-[11px] text-faint xl:inline">moves to Meteora DAMM v2 at {usd(q.graduationMcapUsd)}</span>
     </div>
   );
 }
@@ -115,11 +115,11 @@ function TokenSkeleton() {
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
       <div className="space-y-4">
-        <Skeleton className="h-28 w-full rounded-[22px]" />
+        <Skeleton className="h-28 w-full rounded-[24px]" />
         <Skeleton className="h-16 w-full rounded-2xl" />
-        <Skeleton className="h-[440px] rounded-[22px]" />
+        <Skeleton className="h-[440px] rounded-[24px]" />
       </div>
-      <Skeleton className="h-[520px] rounded-[22px]" />
+      <Skeleton className="h-[520px] rounded-[24px]" />
     </div>
   );
 }
@@ -182,41 +182,41 @@ export function TokenView({ address }: { address: string }) {
 
   return (
     <div className="space-y-4">
-      <Link href="/" className="inline-flex items-center gap-1.5 text-xs text-muted transition-colors hover:text-fg">
-        <ArrowLeft size={13} /> All coins
+      <Link href="/" className="font-display inline-flex items-center gap-1.5 text-sm font-semibold text-muted transition-colors hover:text-fg">
+        <ArrowLeft size={15} /> All coins
       </Link>
 
       {/* phones read top to bottom: header, chart, your position, then the details; desktop keeps trading in a side column */}
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-x-6 lg:gap-y-4">
         <div className="min-w-0 space-y-3 lg:col-start-1 lg:row-start-1">
-          <section className="surface relative overflow-hidden rounded-[22px] p-4 sm:p-5">
+          <section className="surface relative overflow-hidden rounded-[32px] p-5 sm:p-6">
             <div className="spectrum pointer-events-none absolute -top-28 -right-24 h-56 w-56 rounded-full opacity-[0.14] blur-3xl" aria-hidden />
             <div className="relative flex items-start gap-3 sm:gap-4">
               <div className="relative shrink-0">
                 <div className="spectrum absolute -inset-1 rounded-full opacity-40 blur-md" aria-hidden />
-                <CoinAvatar src={coin.image} symbol={coin.symbol} seed={coin.address} size={48} className="relative" />
+                <CoinAvatar src={coin.image} symbol={coin.symbol} seed={coin.address} size={56} className="relative" />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 items-baseline gap-2">
-                  <h1 className="font-display truncate text-2xl leading-tight font-semibold sm:text-3xl">{coin.name}</h1>
-                  <span className="font-display shrink-0 text-base text-muted sm:text-xl">${coin.symbol}</span>
+                  <h1 className="font-display truncate text-[26px] leading-tight font-bold sm:text-4xl">{coin.name}</h1>
+                  <span className="font-display shrink-0 text-base font-semibold text-muted sm:text-xl">${coin.symbol}</span>
                 </div>
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted">
                   <QuoteChip symbol={q.symbol} logo={q.logo} pair={coin.symbol} />
-                  {coin.isMain && <Badge tone="accent">Platform token</Badge>}
                   {coin.bloodline &&
                     (coin.bloodline.unpaid ? (
                       <Badge tone="down">
-                        <Droplet size={11} /> Copy of ${coin.bloodline.og.symbol} · skipped the entry
+                        <Egg size={11} /> Copy of ${coin.bloodline.og.symbol} · skipped the entry
                       </Badge>
                     ) : coin.bloodline.og.address === coin.address ? (
-                      <Badge tone="blood">
-                        <Droplet size={11} /> OG · {coin.bloodline.members - 1} {coin.bloodline.members === 2 ? "copy" : "copies"}
+                      <Badge tone="nest">
+                        <Egg size={11} /> {brand.nest} of {coin.bloodline.members} · {coin.bloodline.members - 1}{" "}
+                        {coin.bloodline.members === 2 ? "copy" : "copies"}
                       </Badge>
                     ) : (
                       <Link href={`/token/${coin.bloodline.og.address}`}>
-                        <Badge tone="blood">
-                          <Droplet size={11} /> Copy of ${coin.bloodline.og.symbol}
+                        <Badge tone="nest">
+                          <Egg size={11} /> Copy of ${coin.bloodline.og.symbol}
                         </Badge>
                       </Link>
                     ))}
@@ -235,7 +235,7 @@ export function TokenView({ address }: { address: string }) {
                   <span className="whitespace-nowrap">{age(coin.createdAt)} ago</span>
                   <button
                     onClick={copy}
-                    className="num inline-flex items-center gap-1.5 rounded-full border border-line bg-sunk/60 px-2.5 py-0.5 transition-colors hover:border-line-strong hover:text-fg"
+                    className="num inline-flex items-center gap-1.5 rounded-full bg-elev-2 px-2.5 py-0.5 font-semibold transition-colors hover:text-fg"
                   >
                     {short(coin.address, 5)}
                     {copied ? <Check size={11} className="text-up" /> : <Copy size={11} />}
@@ -248,7 +248,7 @@ export function TokenView({ address }: { address: string }) {
             {coin.description && <Description text={coin.description} />}
           </section>
 
-          <div className="grid grid-cols-3 gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-6">
+          <div className="grid grid-cols-3 gap-2 xl:grid-cols-6">
             <Stat label="Market cap" value={usd(coin.marketCapUsd)} sub={<Change value={coin.change24h} className="text-[11px]" />} />
             <Stat
               label="Price"
@@ -265,8 +265,8 @@ export function TokenView({ address }: { address: string }) {
             />
             <Stat label="24h volume" value={usd(coin.volume24hUsd)} sub={`${coin.trades24h} trades`} />
             <Stat label="Holders" value={num(coin.holders)} sub="wallets" />
-            <Stat label="Burned" value={`${burnedPct.toFixed(2)}%`} sub={`${tokens(coin.burned, coin.decimals)} ${coin.symbol}`} />
-            <Stat label="Fees paid" value={usd(coin.feesUsd)} sub="all back to holders" />
+            <Stat label="Burned via OTC" value={`${burnedPct.toFixed(2)}%`} sub={`${tokens(coin.burned, coin.decimals)} ${coin.symbol}`} />
+            <Stat label="Fees paid" value={usd(coin.feesUsd)} sub="all to OTC + protection" />
           </div>
         </div>
 
@@ -286,15 +286,16 @@ export function TokenView({ address }: { address: string }) {
         <div className="min-w-0 lg:col-start-1 lg:row-start-3">
           <GraduationStatus coin={coin} />
         </div>
-        <div className="min-w-0 lg:col-start-1 lg:row-start-4">
-          <ActivityTabs coin={coin} />
-        </div>
-        <div className="min-w-0 lg:col-start-1 lg:row-start-5">
-          <BloodlinePanel coin={coin} />
-        </div>
-        <div className="grid min-w-0 grid-cols-1 items-start gap-4 lg:col-start-1 lg:row-start-6 xl:grid-cols-2">
+        {/* what this coin's 3% has built, side by side on wide screens */}
+        <div className="grid min-w-0 grid-cols-1 items-start gap-4 lg:col-start-1 lg:row-start-4 xl:grid-cols-[1.35fr_1fr]">
           <FeesPanel coin={coin} solUsd={solUsd} />
           <OtcPanel coin={coin} solUsd={solUsd} />
+        </div>
+        <div className="min-w-0 lg:col-start-1 lg:row-start-5">
+          <NestPanel coin={coin} />
+        </div>
+        <div className="min-w-0 lg:col-start-1 lg:row-start-6">
+          <ActivityTabs coin={coin} />
         </div>
       </div>
       <MobileTradeBar coin={coin} />

@@ -16,7 +16,7 @@ import type { CoinRow, OtcQuoteRow } from "./db";
 /**
  * Everything that touches money goes through an Engine. `chain/engine.ts` does it on Solana with Meteora pools and
  * the backend-controlled wallets; `demo/engine.ts` simulates the same moves in the database. The API, the fee
- * router, airdrops, OTC and protection only ever talk to this interface.
+ * router, Nest entries, OTC and protection only ever talk to this interface.
  */
 /** Periodic background work. Only the server holding the lease runs it (see lease.ts). */
 export type Job = { name: string; ms: number; run: () => Promise<unknown> | unknown };
@@ -37,7 +37,7 @@ export interface Engine {
   // ---- user transactions (built here, signed by the user's wallet)
   swapQuote(c: CoinRow, side: SwapSide, amount: bigint, slippageBps: number, wallet?: string): Promise<SwapQuote>;
   swap(c: CoinRow, req: SwapRequest): Promise<SwapResponse>;
-  /** `entry`: a Bloodline copy's entry in raw quote, bought first for the airdrop wallet, and the leader it goes to. */
+  /** `entry`: a copy's Nest entry in raw quote, bought with the first buy for the entries wallet, and the leader it goes to. */
   launch(req: LaunchRequest, metadataUri: string, entry?: { raw: bigint; to: string }): Promise<LaunchResponse>;
   /** A custom pair's config, created with the launcher as payer; no transaction when a current one exists. */
   pairSetup(wallet: string, quote: string): Promise<PairSetup>;
@@ -57,8 +57,6 @@ export interface Engine {
   // ---- treasury moves (fee wallet and friends)
   /** Claims the fee wallet's accrued trading fees on a coin's pool. Returns the raw quote received. */
   claimFees(c: CoinRow): Promise<bigint>;
-  /** Fee wallet buys the coin in its own pool with `quoteRaw` and burns everything it receives. */
-  buybackAndBurn(c: CoinRow, quoteRaw: bigint): Promise<{ burned: bigint; sig: string }>;
   /** Burns up to `amount` of a coin a backend wallet holds; returns what it actually burned. */
   burnHeld(from: Role, c: CoinRow, amount: bigint): Promise<{ burned: bigint; sig: string }>;
   /** Swaps inside the fee wallet (Jupiter on mainnet). Wrapped-SOL mint means native SOL. */
@@ -70,4 +68,5 @@ export interface Engine {
 
 export class UserError extends Error {}
 
+// the prefix predates the rename; landed transactions carry it, so it stays
 export const memoFor = (kind: "otc" | "claim", id: string) => `recur:${kind}:${id}`;

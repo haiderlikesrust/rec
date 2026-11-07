@@ -15,7 +15,7 @@ export default function ProtectionPage() {
             <br className="hidden sm:block" /> <span className="text-spectrum">Part of it comes back.</span>
           </>
         }
-        sub="40% of every fee on every coin, converted to SOL. Sell below your entry and part of the loss is sent to your wallet about a minute later, by how long you held and what that coin paid in. Nothing to claim."
+        sub="Half of every fee on every coin, converted to SOL. Sell below your entry and part of the loss is sent to your wallet about a minute later, by how long you held and what that coin paid in. Nothing to claim."
       />
       <ProtectionView />
     </div>

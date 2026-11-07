@@ -1,7 +1,7 @@
 import clsx from "clsx";
 import { buckets } from "@/lib/buckets";
 
-/** Five-segment bar of the fixed fee split, optionally with a legend. */
+/** The fixed fee split as one bar (two halves), optionally with a legend. */
 export function FeeSplitBar({ legend = true, className }: { legend?: boolean; className?: string }) {
   return (
     <div className={className}>
@@ -25,7 +25,7 @@ export function FeeSplitBar({ legend = true, className }: { legend?: boolean; cl
             <li key={b.key} className="flex items-center gap-2.5 text-[13px]">
               <span className="h-2.5 w-2.5 shrink-0 rounded-[4px]" style={{ background: b.color }} />
               <span className="text-muted">{b.label}</span>
-              <span className="num ml-auto font-medium">{b.bps / 100}%</span>
+              <span className="num ml-auto font-bold">{b.bps / 100}%</span>
             </li>
           ))}
         </ul>

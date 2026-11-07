@@ -2,13 +2,12 @@
 
 import clsx from "clsx";
 import { ChevronDown } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 export type DocsSection = { id: string; label: string; group?: string };
 
-/** Sticky section nav with the active section highlighted and a spectrum line showing reading progress. */
-export function DocsNav({ sections }: { sections: DocsSection[] }) {
-  const [open, setOpen] = useState(false);
+/** Which section is in view, and how far through the article the reader is (0..1). */
+function useReading(sections: DocsSection[], articleId: string) {
   const [active, setActive] = useState(sections[0]?.id);
   const [progress, setProgress] = useState(0);
 
@@ -24,7 +23,7 @@ export function DocsNav({ sections }: { sections: DocsSection[] }) {
       if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4) current = els[els.length - 1]?.id;
       setActive(current);
 
-      const article = document.getElementById("docs-article");
+      const article = document.getElementById(articleId);
       if (!article) return;
       const rect = article.getBoundingClientRect();
       const total = rect.height - window.innerHeight * 0.6;
@@ -45,16 +44,18 @@ export function DocsNav({ sections }: { sections: DocsSection[] }) {
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
     };
-  }, [sections]);
+  }, [sections, articleId]);
 
+  return { active, progress };
+}
+
+function SectionList({ sections, active, onPick, rail }: { sections: DocsSection[]; active?: string; onPick?: () => void; rail?: boolean }) {
   const groups = sections.reduce<Record<string, DocsSection[]>>((acc, s) => {
     const g = s.group ?? "";
     (acc[g] ??= []).push(s);
     return acc;
   }, {});
-  const activeLabel = sections.find((s) => s.id === active)?.label;
-
-  const list = (
+  return (
     <div className="space-y-6">
       {Object.entries(groups).map(([g, items]) => (
         <div key={g}>
@@ -64,15 +65,18 @@ export function DocsNav({ sections }: { sections: DocsSection[] }) {
               <li key={s.id}>
                 <a
                   href={`#${s.id}`}
-                  onClick={() => setOpen(false)}
+                  onClick={onPick}
+                  aria-current={active === s.id ? "location" : undefined}
                   className={clsx(
-                    "relative block rounded-xl px-3 py-1.5 text-[13.5px] transition-all duration-200",
+                    "relative flex min-h-9 items-center rounded-full px-3 py-1.5 text-[13.5px] transition-all duration-200",
                     active === s.id
-                      ? "bg-elev-2 font-medium text-fg shadow-[inset_0_0_0_1px_var(--line-strong)]"
+                      ? "bg-elev-2 font-semibold text-fg shadow-[inset_0_0_0_1px_var(--line-strong)]"
                       : "text-muted hover:translate-x-0.5 hover:text-fg",
                   )}
                 >
-                  {active === s.id && <span className="spectrum absolute top-1/2 -left-[17px] h-4 w-[3px] -translate-y-1/2 rounded-full" />}
+                  {active === s.id && rail && (
+                    <span className="spectrum absolute top-1/2 -left-[17px] h-4 w-[3px] -translate-y-1/2 rounded-full" aria-hidden />
+                  )}
                   {s.label}
                 </a>
               </li>
@@ -82,35 +86,76 @@ export function DocsNav({ sections }: { sections: DocsSection[] }) {
       ))}
     </div>
   );
+}
+
+/**
+ * The docs layout: a sticky section nav beside the article on desktop, and a sticky "On this page" bar above it on
+ * phones (it lives inside the article's column so it stays pinned under the header the whole way down).
+ */
+export function DocsLayout({ sections, articleId = "docs-article", children }: { sections: DocsSection[]; articleId?: string; children: ReactNode }) {
+  const { active, progress } = useReading(sections, articleId);
+  const [open, setOpen] = useState(false);
+  const bar = useRef<HTMLDivElement>(null);
+  const activeLabel = sections.find((s) => s.id === active)?.label;
+
+  // close the phone menu on a tap outside it or on Escape
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      if (bar.current && !bar.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
   return (
-    <>
-      <div className="lg:hidden">
-        <button
-          onClick={() => setOpen((o) => !o)}
-          className="surface flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm"
-        >
-          <span className="flex min-w-0 items-center gap-2">
-            <span className="eyebrow shrink-0">On this page</span>
-            <span className="truncate text-muted">{activeLabel}</span>
-          </span>
-          <ChevronDown size={16} className={clsx("shrink-0 transition-transform", open && "rotate-180")} />
-        </button>
-        <div className="mt-2 h-0.5 overflow-hidden rounded-full bg-sunk">
-          <div className="spectrum h-full rounded-full transition-[width] duration-150" style={{ width: `${progress * 100}%` }} />
-        </div>
-        {open && <div className="surface mt-2 rounded-2xl p-3">{list}</div>}
-      </div>
+    <div className="grid grid-cols-1 gap-8 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-14">
+      <aside className="hidden lg:block">
+        <nav aria-label="On this page" className="thin-scrollbar sticky top-24 max-h-[calc(100vh-7rem)] overflow-y-auto pr-2 pl-4">
+          <div className="absolute top-1 bottom-1 left-0 w-px bg-line" aria-hidden />
+          <div
+            className="spectrum absolute top-1 left-0 w-px rounded-full transition-[height] duration-150"
+            style={{ height: `calc(${progress * 100}% - 0.5rem)` }}
+            aria-hidden
+          />
+          <SectionList sections={sections} active={active} rail />
+        </nav>
+      </aside>
 
-      <nav className="sticky top-24 hidden max-h-[calc(100vh-7rem)] overflow-y-auto pr-2 pl-4 lg:block">
-        <div className="absolute top-1 bottom-1 left-0 w-px bg-line" aria-hidden />
-        <div
-          className="spectrum absolute top-1 left-0 w-px rounded-full transition-[height] duration-150"
-          style={{ height: `calc(${progress * 100}% - 0.5rem)` }}
-          aria-hidden
-        />
-        {list}
-      </nav>
-    </>
+      <div className="min-w-0">
+        <div ref={bar} className="glass sticky top-[72px] z-30 -mx-4 px-4 pt-2 pb-2.5 sm:-mx-6 sm:px-6 lg:hidden">
+          <button
+            onClick={() => setOpen((o) => !o)}
+            aria-expanded={open}
+            aria-controls="docs-mobile-nav"
+            className="surface flex min-h-11 w-full items-center justify-between gap-3 rounded-full px-4 py-2.5 text-sm"
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="eyebrow shrink-0">On this page</span>
+              <span className="font-display truncate font-semibold text-fg">{activeLabel}</span>
+            </span>
+            <ChevronDown size={16} className={clsx("shrink-0 text-muted transition-transform", open && "rotate-180")} />
+          </button>
+          <div className="mx-4 mt-2 h-0.5 overflow-hidden rounded-full bg-sunk" aria-hidden>
+            <div className="spectrum h-full rounded-full transition-[width] duration-150" style={{ width: `${progress * 100}%` }} />
+          </div>
+          {open && (
+            <nav
+              id="docs-mobile-nav"
+              aria-label="On this page"
+              className="surface shadow-pop absolute inset-x-4 top-full mt-1 max-h-[65vh] overflow-y-auto rounded-[24px] p-3 sm:inset-x-6"
+            >
+              <SectionList sections={sections} active={active} onPick={() => setOpen(false)} />
+            </nav>
+          )}
+        </div>
+        {children}
+      </div>
+    </div>
   );
 }

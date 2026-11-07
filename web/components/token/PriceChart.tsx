@@ -16,41 +16,26 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Coin } from "@cook/shared";
 import { useCandles } from "@/lib/data";
 import { num, sig, usd } from "@/lib/format";
-import { useTheme } from "@/components/ThemeToggle";
 import { Change, Segmented, Skeleton } from "@/components/ui";
 import { TinyPrice } from "./TinyPrice";
 
 type Interval = "1m" | "5m" | "15m" | "1h";
 
-const palette = {
-  dark: {
-    up: "#2AD8A4",
-    down: "#FF5C7A",
-    upVol: "rgba(42,216,164,0.28)",
-    downVol: "rgba(255,92,122,0.28)",
-    text: "#64637C",
-    grid: "rgba(255,255,255,0.035)",
-    cross: "rgba(255,255,255,0.18)",
-    label: "#232336",
-  },
-  light: {
-    up: "#0FA97C",
-    down: "#E8455F",
-    upVol: "rgba(15,169,124,0.22)",
-    downVol: "rgba(232,69,95,0.22)",
-    text: "#9897A8",
-    grid: "rgba(13,12,22,0.05)",
-    cross: "rgba(13,12,22,0.2)",
-    label: "#0D0C16",
-  },
+const colors = {
+  up: "#2BD99A",
+  down: "#FF5C7C",
+  upVol: "rgba(43,217,154,0.28)",
+  downVol: "rgba(255,92,124,0.28)",
+  text: "#6F7CA6",
+  grid: "rgba(148,166,230,0.05)",
+  cross: "rgba(148,166,230,0.25)",
+  label: "#19233F",
 } as const;
 
 export function PriceChart({ coin }: { coin: Coin }) {
   const [interval, setInterval] = useState<Interval>("5m");
   const [mode, setMode] = useState<"mcap" | "price">("mcap");
   const { data, isLoading, isError } = useCandles(coin.address, interval);
-  const { resolved } = useTheme();
-  const colors = palette[resolved === "light" ? "light" : "dark"];
   const el = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const candles = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -73,7 +58,8 @@ export function PriceChart({ coin }: { coin: Coin }) {
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
         textColor: colors.text,
-        fontFamily: "var(--font-geist-mono), ui-monospace, monospace",
+        // the canvas can't read CSS variables: hand it the body's resolved font stack
+        fontFamily: getComputedStyle(document.body).fontFamily,
         fontSize: 11,
         attributionLogo: false,
       },
@@ -107,27 +93,7 @@ export function PriceChart({ coin }: { coin: Coin }) {
       c.remove();
       chart.current = null;
     };
-    // colors are applied separately on theme change
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fmt]);
-
-  // re-skin on theme change
-  useEffect(() => {
-    chart.current?.applyOptions({
-      layout: { textColor: colors.text },
-      grid: { horzLines: { color: colors.grid } },
-      crosshair: {
-        horzLine: { color: colors.cross, labelBackgroundColor: colors.label },
-        vertLine: { color: colors.cross, labelBackgroundColor: colors.label },
-      },
-    });
-    candles.current?.applyOptions({
-      upColor: colors.up,
-      downColor: colors.down,
-      wickUpColor: colors.up,
-      wickDownColor: colors.down,
-    });
-  }, [colors]);
 
   useEffect(() => {
     if (!candles.current || !volume.current || !data) return;
@@ -149,13 +115,13 @@ export function PriceChart({ coin }: { coin: Coin }) {
       })),
     );
     chart.current?.timeScale().fitContent();
-  }, [data, factor, toUsd, colors]);
+  }, [data, factor, toUsd]);
 
   const headline =
     mode === "mcap" ? (toUsd ? usd(coin.marketCapUsd) : `${fmt(coin.marketCap)} ${coin.quote.symbol}`) : null;
 
   return (
-    <section className="surface rounded-[22px] p-4 sm:p-5">
+    <section className="surface rounded-[24px] p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs text-muted">
@@ -163,7 +129,7 @@ export function PriceChart({ coin }: { coin: Coin }) {
             {mode === "mcap" ? "Market cap" : toUsd ? "Price (USD)" : `Price in ${coin.quote.symbol}`}
           </div>
           <div className="mt-1 flex items-baseline gap-2.5">
-            <span className="num text-2xl font-medium">
+            <span className="num font-display text-[28px] leading-tight font-bold">
               {headline ??
                 (toUsd ? (
                   <>

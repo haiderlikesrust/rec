@@ -3,23 +3,20 @@ import { config, log } from "./config";
 import { all, big, claimByCoin, kvGet, kvSet, one, run, tx, type ClaimRow, type CoinRow, type LossRow, type OtcQuoteRow } from "./db";
 import { memoFor, type Engine } from "./engine";
 import { leaderOf } from "./bloodline";
-import { getCoin, ledger, quoteDecimals, recordAirdrop, recordBurn, recordTrade } from "./ledger";
+import { getCoin, ledger, quoteDecimals, recordBurn, recordTrade } from "./ledger";
 import { solPerUnit, solUsd, toUnits } from "./prices";
-import { coinPotSol, holdersOf, isRugged, now, owedProtectionSol, treasury } from "./services";
+import { coinPotSol, isRugged, now, owedProtectionSol, treasury } from "./services";
 
 const LAMPORTS = 1_000_000_000;
 const lamports = (sol: number) => BigInt(Math.floor(sol * LAMPORTS));
 
 // ---------------------------------------------------------------- fee router
 //
-// Per coin: claim the pool's accrued fees into the fee wallet, then split what Recur received (partner fee +
-// referral rebate, plus any OTC tax paid in SOL) 10/10/30/40/10:
-//   coin buyback  → buy the coin in its own pool and burn it
-//   airdrop       → quote asset to the airdrop wallet (paid out continuously by runAirdrops)
-//   (a copy that doesn't lead its Bloodline family sends these two to the family's leader instead)
-//   OTC reserve   → converted to SOL, sent to the OTC wallet (the coin earns 2× credit)
-//   protection    → converted to SOL, sent to the protection wallet
-//   platform burn → converted to SOL, held for the next $RECR buy-and-burn
+// Per coin: claim the pool's accrued fees into the fee wallet, then convert what was received (partner fee + referral
+// rebate, plus the launch fee and any OTC tax paid in SOL) to SOL and split it in half:
+//   OTC reserve → sent to the OTC wallet (the coin earns 2× sell credit)
+//   protection  → sent to the protection wallet (the coin's pot for its sellers' losses)
+// A copy that doesn't lead its Nest credits both halves to the Nest's leader instead (see bloodline.ts).
 
 export async function processFees(engine: Engine, at = now()) {
   let processed = 0;
@@ -31,7 +28,6 @@ export async function processFees(engine: Engine, at = now()) {
     }
   }
   if (processed) log(`fees: split ${processed} coin(s)`);
-  await buybackMain(engine);
   return processed;
 }
 
@@ -48,155 +44,58 @@ async function processCoin(engine: Engine, c0: CoinRow, at: number) {
   const usd = toUnits(quoteIn > 0n ? quoteIn : 0n, q.decimals) * q.usd + c.pending_sol * solUsd();
   if (usd < config.feeMinUsd) return false;
 
-  const a = splitRaw(quoteIn > 0n ? quoteIn : 0n);
-  const b = splitRaw(solIn);
-  // book the batch first so a crash mid-way never splits the same fees twice
-  run("UPDATE coin SET split_quote = income_quote, pending_sol = 0 WHERE mint = ?", c.mint);
-
-  const toQuote = async (lam: bigint) => (lam > 0n ? (await engine.convert(NATIVE_MINT, c.quote, lam)).out : 0n);
-  const toSol = async (raw: bigint) => (raw > 0n ? (await engine.convert(c.quote, NATIVE_MINT, raw)).out : 0n);
-
-  // a copy that doesn't lead its family sends its buyback and airdrop shares to the leader (see bloodline.ts)
-  const lead = leaderOf(c, at);
-  const routed = lead.mint !== c.mint;
-  const note = routed ? `bloodline: from ${c.symbol} (${c.mint})` : undefined;
-  /** One share's quote and SOL, in the quote of the coin it goes to. */
-  const into = async (raw: bigint, lam: bigint) => {
-    if (lead.quote === c.quote) return raw + (await toQuote(lam));
-    const solAmount = lam + (await toSol(raw));
-    return solAmount > 0n ? (await engine.convert(NATIVE_MINT, lead.quote, solAmount)).out : 0n;
-  };
-
-  // 1. coin buyback & burn
-  const buyQuote = await into(a.coinBuyback, b.coinBuyback);
-  if (buyQuote > 0n) {
-    const { burned, sig } = await engine.buybackAndBurn(getCoin(lead.mint)!, buyQuote);
-    recordBurn(lead.mint, burned, toUnits(buyQuote, quoteDecimals(lead.quote)) * solPerUnit(lead.quote), "coin");
-    ledger({ coin: lead.mint, kind: "coin-burn", mint: lead.mint, amount: burned, tx: sig, note });
-  }
-
-  // 2. airdrop bucket
-  const dropQuote = await into(a.airdrop, b.airdrop);
-  if (dropQuote > 0n) {
-    const [r] = await engine.sendTokens("fees", lead.quote, [{ to: engine.wallets.airdrop, amount: dropQuote }]);
-    const row = getCoin(lead.mint)!;
-    run(
-      "UPDATE coin SET airdrop_quote = ?, airdrop_balance = ? WHERE mint = ?",
-      (big(row.airdrop_quote) + dropQuote).toString(),
-      (big(row.airdrop_balance) + dropQuote).toString(),
-      lead.mint,
-    );
-    ledger({ coin: lead.mint, kind: "to-airdrop", mint: lead.quote, amount: dropQuote, tx: r?.sig, note });
-  }
-  if (routed) {
-    const sentSol = toUnits(a.coinBuyback + a.airdrop, q.decimals) * solPerUnit(c.quote) + Number(b.coinBuyback + b.airdrop) / LAMPORTS;
-    run("UPDATE coin SET blood_sent_sol = blood_sent_sol + ? WHERE mint = ?", sentSol, c.mint);
-    run("UPDATE coin SET blood_received_sol = blood_received_sol + ? WHERE mint = ?", sentSol, lead.mint);
-  }
-
-  // 3. SOL buckets
-  const solTotal = (await toSol(a.otcReserve + a.protection + a.mainBuyback)) + b.otcReserve + b.protection + b.mainBuyback;
-  if (solTotal > 0n) {
-    const otc = (solTotal * 3000n) / 8000n;
-    const main = (solTotal * 1000n) / 8000n;
-    const protection = solTotal - otc - main;
-    const otcSig = await engine.sendSol("fees", engine.wallets.otc, otc);
-    const protSig = await engine.sendSol("fees", engine.wallets.protection, protection);
-    const otcSol = Number(otc) / LAMPORTS;
-    run(
-      `UPDATE coin SET sol_to_otc = sol_to_otc + ?, otc_credit = otc_credit + ?, otc_last_contribution = ?,
-         sol_to_protection = sol_to_protection + ?, sol_to_main = sol_to_main + ? WHERE mint = ?`,
-      otcSol,
-      (otcSol * otcPolicy.creditMultiplierBps) / 10_000,
-      at,
-      Number(protection) / LAMPORTS,
-      Number(main) / LAMPORTS,
-      c.mint,
-    );
-    kvSet("main_pending_lamports", big(kvGet("main_pending_lamports")) + main);
-    ledger({ coin: c.mint, kind: "to-otc", mint: NATIVE_MINT, amount: otc, sol: otcSol, tx: otcSig });
-    ledger({ coin: c.mint, kind: "to-protection", mint: NATIVE_MINT, amount: protection, sol: Number(protection) / LAMPORTS, tx: protSig });
-    treasury.otcSol += otcSol;
-    treasury.protectionSol += Number(protection) / LAMPORTS;
-  }
-  return true;
-}
-
-/** Spends the platform-burn SOL on $RECR and burns it. */
-export async function buybackMain(engine: Engine) {
-  const main = one<CoinRow>("SELECT * FROM coin WHERE is_main = 1");
-  const pending = big(kvGet("main_pending_lamports"));
-  if (!main || pending === 0n || Number(pending) / LAMPORTS < config.mainBuybackMinSol) return;
-  kvSet("main_pending_lamports", 0);
+  // book the batch before moving anything, so a crash mid-way never splits the same fees twice
+  run("UPDATE coin SET split_quote = ?, pending_sol = MAX(0, pending_sol - ?) WHERE mint = ?", c.income_quote, c.pending_sol, c.mint);
+  // anything not sent yet goes back as pending SOL for the next pass, so a failure never strands it in the fee wallet
+  const requeue = (sol: bigint) => run("UPDATE coin SET pending_sol = pending_sol + ? WHERE mint = ?", Number(sol) / LAMPORTS, c.mint);
+  let converted = 0n;
   try {
-    const quoteIn = main.quote === NATIVE_MINT ? pending : (await engine.convert(NATIVE_MINT, main.quote, pending)).out;
-    const { burned, sig } = await engine.buybackAndBurn(main, quoteIn);
-    recordBurn(main.mint, burned, Number(pending) / LAMPORTS, "main");
-    kvSet("main_burned", big(kvGet("main_burned")) + burned);
-    ledger({ coin: main.mint, kind: "main-burn", mint: main.mint, amount: burned, sol: Number(pending) / LAMPORTS, tx: sig });
-    log(`platform burn: ${toUnits(burned, main.decimals).toFixed(0)} ${main.symbol}`);
+    if (quoteIn > 0n) converted = (await engine.convert(c.quote, NATIVE_MINT, quoteIn)).out;
   } catch (e) {
-    kvSet("main_pending_lamports", big(kvGet("main_pending_lamports")) + pending);
+    run("UPDATE coin SET split_quote = ?, pending_sol = pending_sol + ? WHERE mint = ?", c.split_quote, c.pending_sol, c.mint);
     throw e;
   }
-}
+  const total = converted + solIn;
+  if (total <= 0n) return true;
 
-// ---------------------------------------------------------------- airdrops
-
-/**
- * Continuous airdrops. Every pass, each coin's new airdrop money is shared out to its current high-entry holders
- * (average entry above the price, weighted by how far underwater they are), and every holder's allocation is sent
- * as soon as it is worth the minimum payout, so nothing waits for an epoch and dust never costs more to move than
- * it is worth. Unsent allocations stay owed across passes (and across restarts).
- */
-export async function runAirdrops(engine: Engine, at = now()) {
-  for (const c of all<CoinRow>("SELECT * FROM coin WHERE airdrop_balance != '0'")) {
-    const balance = big(c.airdrop_balance);
-    const holders = holdersOf(c.mint).filter((h) => h.airdropEligible);
-    if (holders.length === 0) continue; // no one underwater right now; the money waits for the next pass
-    tx(() => {
-      let given = 0n;
-      for (const h of holders) {
-        const amount = (balance * BigInt(Math.floor(h.airdropWeight * 1e9))) / 1_000_000_000n;
-        if (amount <= 0n) continue;
-        const prev = big(one<{ amount: string }>("SELECT amount FROM airdrop_owed WHERE coin = ? AND wallet = ?", c.mint, h.address)?.amount);
-        run(
-          "INSERT INTO airdrop_owed (coin, wallet, amount) VALUES (?, ?, ?) ON CONFLICT(coin, wallet) DO UPDATE SET amount = excluded.amount",
-          c.mint,
-          h.address,
-          (prev + amount).toString(),
-        );
-        given += amount;
-      }
-      run("UPDATE coin SET airdrop_balance = ? WHERE mint = ?", (balance - given).toString(), c.mint);
-    });
-  }
-
-  let sent = 0;
-  const owed = all<{ coin: string; wallet: string; amount: string }>("SELECT * FROM airdrop_owed WHERE amount != '0'");
-  for (const mint of new Set(owed.map((o) => o.coin))) {
-    const c = getCoin(mint);
-    const q = c && one<{ usd: number; decimals: number }>("SELECT usd, decimals FROM quote WHERE mint = ?", c.quote);
-    if (!c || !q || !(q.usd > 0)) continue;
-    const minRaw = BigInt(Math.ceil((config.airdropMinPayoutUsd / q.usd) * 10 ** q.decimals));
-    const items = owed.filter((o) => o.coin === mint && big(o.amount) >= minRaw).map((o) => ({ to: o.wallet, amount: big(o.amount) }));
-    if (items.length === 0) continue;
+  const { otcReserve: otc, protection } = splitRaw(total);
+  const lead = leaderOf(c, at);
+  const routed = lead.mint !== c.mint;
+  const note = routed ? `nest: from ${c.symbol} (${c.mint})` : undefined;
+  /** A copy's half that reached its leader: tallied on both sides as it lands. */
+  const tally = (sol: number) => {
+    if (!routed) return;
+    run("UPDATE coin SET blood_sent_sol = blood_sent_sol + ? WHERE mint = ?", sol, c.mint);
+    run("UPDATE coin SET blood_received_sol = blood_received_sol + ? WHERE mint = ?", sol, lead.mint);
+  };
+  const send = async (to: string, amount: bigint, unsent: bigint) => {
     try {
-      for (const r of await engine.sendTokens("airdrop", c.quote, items)) {
-        const amount = items.find((i) => i.to === r.to)!.amount;
-        tx(() => {
-          const left = big(one<{ amount: string }>("SELECT amount FROM airdrop_owed WHERE coin = ? AND wallet = ?", mint, r.to)?.amount) - amount;
-          run("UPDATE airdrop_owed SET amount = ? WHERE coin = ? AND wallet = ?", (left > 0n ? left : 0n).toString(), mint, r.to);
-          recordAirdrop(mint, at, r.to, amount, at, r.sig);
-        });
-        sent++;
-      }
+      return await engine.sendSol("fees", to, amount);
     } catch (e) {
-      log(`airdrop ${c.symbol}: ${(e as Error).message}`);
+      requeue(unsent);
+      throw e;
     }
-  }
-  if (sent) log(`airdrops: sent ${sent} payout(s)`);
-  return sent;
+  };
+  const otcSig = await send(engine.wallets.otc, otc, total);
+  const otcSol = Number(otc) / LAMPORTS;
+  run(
+    "UPDATE coin SET sol_to_otc = sol_to_otc + ?, otc_credit = otc_credit + ?, otc_last_contribution = ? WHERE mint = ?",
+    otcSol,
+    (otcSol * otcPolicy.creditMultiplierBps) / 10_000,
+    at,
+    lead.mint,
+  );
+  ledger({ coin: lead.mint, kind: "to-otc", mint: NATIVE_MINT, amount: otc, sol: otcSol, tx: otcSig, note });
+  treasury.otcSol += otcSol;
+  tally(otcSol);
+
+  const protSig = await send(engine.wallets.protection, protection, protection);
+  const protSol = Number(protection) / LAMPORTS;
+  run("UPDATE coin SET sol_to_protection = sol_to_protection + ? WHERE mint = ?", protSol, lead.mint);
+  ledger({ coin: lead.mint, kind: "to-protection", mint: NATIVE_MINT, amount: protection, sol: protSol, tx: protSig, note });
+  treasury.protectionSol += protSol;
+  tally(protSol);
+  return true;
 }
 
 // ---------------------------------------------------------------- protection payouts
@@ -392,7 +291,7 @@ async function burnOtcLeftovers(engine: Engine) {
       const { burned, sig } = await engine.burnHeld("otc", c, amount);
       if (burned > 0n)
         tx(() => {
-          recordBurn(c.mint, burned, 0, "otc");
+          recordBurn(c.mint, burned, "otc");
           ledger({ coin: c.mint, kind: "otc-burn", mint: c.mint, amount: burned, tx: sig, note: "inventory from before burn-on-arrival" });
         });
       log(`OTC reserve: burned ${toUnits(burned, c.decimals).toFixed(0)} leftover ${c.symbol}`);
@@ -424,7 +323,7 @@ export function settleOtc(id: string, signature: string, at = now()) {
       taxSol,
       c.mint,
     );
-    if (isSell) recordBurn(c.mint, tokens, q.sol_gross, "otc");
+    if (isSell) recordBurn(c.mint, tokens, "otc");
     else run("UPDATE coin SET otc_inventory = ? WHERE mint = ?", (big(c.otc_inventory) - tokens).toString(), c.mint);
     // the trade counts like any other for cost basis and realized losses, priced in the coin's quote
     const solPer = solPerUnit(c.quote) || 1;

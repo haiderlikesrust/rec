@@ -1,8 +1,10 @@
 /** Brand in one place: rename the launchpad by editing this file. */
 export const brand = {
-  name: "Recur",
-  mainTicker: "RECR",
-  tagline: "Fees continually come back into the ecosystem.",
+  name: "Cushion",
+  tagline: "Launch on Solana. Every fee cushions the holders.",
+  /** Short line for titles and link previews. */
+  slogan: "every fee cushions the fall",
+  // the site still runs on the old domain and X account until new ones are set up
   domain: "recur.lol",
   url: "https://recur.lol",
   chainLabel: "Built on Solana",
@@ -10,4 +12,6 @@ export const brand = {
   x: "https://x.com/recurdotlol",
   xHandle: "@recurdotlol",
   docsPath: "/docs",
+  /** What Bloodline (packages/shared/src/bloodline.ts) is called on the site. */
+  nest: "Nest",
 } as const;

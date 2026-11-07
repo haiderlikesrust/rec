@@ -1,10 +1,11 @@
-# Deploy Recur on Dokploy (zero-downtime updates)
+# Deploy Cushion on Dokploy (zero-downtime updates)
 
-Recur ships as one Docker image (the [`Dockerfile`](../Dockerfile) at the repo root). Inside it, two processes run
+Cushion ships as one Docker image (the [`Dockerfile`](../Dockerfile) at the repo root). Inside it, two processes run
 side by side:
 
 - the **Next.js site**, on port 7310 (set `PORT` to change it);
-- the **backend**: API, chain indexer, fee router (burns), airdrops, protection payouts and the demo market.
+- the **backend**: API, chain indexer, fee router (OTC and protection splits), Nest entries, protection payouts and the
+  demo market.
 
 Next proxies `/api/*` to the backend, so everything is served on one domain. The backend keeps its state in SQLite
 on a Docker volume.
@@ -27,7 +28,7 @@ once the new one is healthy. The settings below turn that on.
 
 1. **Build.** Dokploy builds the new image while the old version keeps serving. If the build fails, nothing changes.
 2. **Standby.** The new container starts and opens the same SQLite file, then serves the site and API right away.
-   Background work (indexing, fee splits and burns, airdrops, protection payouts) runs on exactly one server, the
+   Background work (indexing, fee splits, Nest entries, protection payouts) runs on exactly one server, the
    holder of a lease in the database. The old one still holds it, so the new one waits as a **standby**. Its health
    check counts that as healthy.
 3. **Hand-over.**
@@ -46,7 +47,7 @@ Money stays safe across the hand-over:
 - The fee router books a batch before moving it, so a split is never paid twice.
 - OTC trades and protection claims are single transactions co-signed by the user. Their state lives in the
   database, and the new server settles anything still in flight.
-- Airdrop allocations not yet sent stay owed and go out on the next pass.
+- Nest entry airdrops not yet sent stay owed and go out on the next pass.
 
 ## Set up
 
@@ -108,10 +109,9 @@ The old one logs `SIGTERM: handing over`.
 1. Set `DEMO=` (empty), `CLUSTER=devnet` first, `RPC_URL` and `PUBLIC_RPC_URL`.
 2. Generate the four wallets offline, for example with `solana-keygen new`. Paste their secret keys as `FEE_WALLET`,
    `OTC_WALLET`, `PROTECTION_WALLET` and `AIRDROP_WALLET`, then fund the fee wallet with ~0.5 SOL. Redeploy.
-3. Do a full cycle on devnet: launch, trade, wait for a split and burn, sell at a loss, OTC sell, claim. Compare the
-   wallets on Solscan with `/api/stats`.
+3. Do a full cycle on devnet: launch, trade, wait for a split, sell at a loss and watch the payout, OTC sell, and
+   launch a look-alike copy to see its Nest entry airdropped. Compare the wallets on Solscan with `/api/stats`.
 4. Switch `CLUSTER=mainnet-beta` with fresh wallets and redeploy.
-5. Launch $RECR through the app on the SOL pair, set `MAIN_TOKEN_MINT`, and redeploy.
 
 ## Back up the database
 
@@ -122,7 +122,7 @@ node -e "const {DatabaseSync}=require('node:sqlite');new DatabaseSync('/app/data
 ```
 
 Copy `backup.db` off the server (or schedule a volume backup in Dokploy). In real mode, the chain is the source of
-truth for trades. A lost database can be re-indexed from the configs' signatures, but the owed airdrops and open
+truth for trades. A lost database can be re-indexed from the configs' signatures, but the owed Nest entries and open
 claims live only here.
 
 ## Rules that keep updates seamless

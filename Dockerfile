@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# One container: the Next.js site and the backend (API, indexer, fee router, airdrops). Next proxies /api/* to the
+# One container: the Next.js site and the backend (API, indexer, fee router, Nest entries). Next proxies /api/* to the
 # backend on 127.0.0.1:42069. Dokploy runs it as a Swarm service and updates it start-first, so the new version
 # takes over before the old one stops (docs/DOKPLOY.md).
 FROM node:22-bookworm-slim AS base

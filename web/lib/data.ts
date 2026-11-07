@@ -23,11 +23,11 @@ export const useCandles = (address: string | undefined, interval: "1m" | "5m" | 
     enabled: !!address,
     ...live,
   });
-/** Recent trades; buybacks (continuous burns) are left out unless asked for. */
-export const useTrades = (address: string | undefined, limit = 20, buybacks = false, trader?: string) =>
+/** Recent trades, optionally one wallet's. */
+export const useTrades = (address: string | undefined, limit = 20, trader?: string) =>
   useQuery({
-    queryKey: ["trades", address, limit, buybacks, trader],
-    queryFn: () => client.trades(address!, limit, { buybacks, trader }),
+    queryKey: ["trades", address, limit, trader],
+    queryFn: () => client.trades(address!, limit, { trader }),
     enabled: !!address,
     ...live,
     placeholderData: (prev) => prev,
@@ -39,10 +39,10 @@ export const useWalletSummary = (address?: string) =>
 /** Native SOL (lamports) and SPL balances by mint, from the chain or the demo ledger. */
 export const useBalances = (address?: string) =>
   useQuery({ queryKey: ["balances", address], queryFn: () => client.balances(address!), enabled: !!address, ...live });
-/** A coin's Bloodline family: who leads, and what its copies sent it. */
+/** A coin's Nest: who leads, and what its copies sent it. */
 export const useBloodline = (address?: string) =>
   useQuery({ queryKey: ["bloodline", address], queryFn: () => client.bloodline(address!), enabled: !!address, ...live });
-/** The family a launch with this ticker and name would join, and its entry on that pair. */
+/** The Nest a launch with this ticker and name would join, and its entry on that pair. */
 export const useBloodlineCheck = (q: { symbol: string; name: string; quote?: string }) =>
   useQuery({
     queryKey: ["bloodline-check", q],

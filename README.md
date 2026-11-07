@@ -1,33 +1,39 @@
-# Recur: a Solana launchpad where every fee comes back
+# Cushion: a Solana launchpad where every fee cushions the holders
 
-Every Recur coin is a [Meteora](https://meteora.ag) pool: a Dynamic Bonding Curve from launch, then a DAMM v2 pool
+Every Cushion coin is a [Meteora](https://meteora.ag) pool: a Dynamic Bonding Curve from launch, then a DAMM v2 pool
 once it graduates. A coin can pair with SOL, a stablecoin or any of 120+ tokenized stocks (xStocks, Backpack stocks,
 PreStocks, Tessera). The quote list is the set stonk.fun offers. Every coin starts at a **$2.5k** market cap and
 graduates at **$30k**, whatever its pair.
 
 The pool charges **3% on the quote side of every buy and sell**. Creators and the team take nothing. Meteora keeps
-its protocol share: 20% of the fee, or 16% on trades Recur builds, because the fee wallet is the referral. Recur's
-fee wallet claims the rest and splits it:
+its protocol share: 20% of the fee, or 16% on trades the site builds, because the fee wallet is the referral. The
+fee wallet claims the rest, converts it to SOL and splits it in half:
 
 | Bucket | Share | Paid in | Goes to |
 |---|---|---|---|
-| Protection fund | 40% | SOL (converted) | Loss payouts, sent automatically: up to 60% by hold time (70% on rugs), from the coin's own pot |
-| OTC reserve | 30% | SOL (converted) | A SOL wallet you sell coins into with no slippage; limits follow each coin's contributions |
-| Platform buyback & burn | 10% | quote → SOL → $RECR | burned |
-| Coin buyback & burn | 10% | quote → the coin | burned |
-| High-entry airdrop | 10% | quote | continuously, to holders whose average entry is above the current price |
+| Protection fund | 50% | SOL (converted) | Loss payouts, sent automatically: up to 60% by hold time (70% on rugs), from the coin's own pot |
+| OTC reserve | 50% | SOL (converted) | A SOL wallet you sell coins into with no slippage; limits follow each coin's contributions |
+
+There is no platform token, no buyback and no fee airdrop.
+
+**The Nest.** Coins whose ticker or name reads the same once look-alikes are folded (CAT, C4T, C@T) form one Nest.
+The original leads while it's alive (3+ traders and $300+ volume in 12 hours), then the best alive member, then the
+best member overall. Every member that doesn't lead sends its whole split to the leader: its OTC half grows the
+leader's OTC credit and its protection half the leader's pot. A copy launched while the leader is alive pays a $500
+entry, bought in its first buy and airdropped to up to 50 of the leader's holders. In code it's still called the
+bloodline ([packages/shared/src/bloodline.ts](packages/shared/src/bloodline.ts)).
 
 **No custom Solana programs.** The buckets are plain wallets controlled by the backend:
-- **fee**: Meteora partner and LP fee claimer; it splits, converts and burns.
+- **fee**: Meteora partner and LP fee claimer; it converts and splits.
 - **OTC**: the reserve.
 - **protection**: the fund.
-- **airdrop**: pays the airdrops.
+- **airdrop**: holds copies' Nest entries until they're airdropped to the leader's holders.
 
 Their addresses are public, on the site and in `/api/stats`, so anyone can audit them on Solscan. An OTC trade is a
 single transaction co-signed by the reserve and the user (coins one way, SOL the other, the 3% to the fee wallet), so it
-settles atomically or not at all. Airdrops and protection payouts are pushed to wallets, with nothing to claim.
+settles atomically or not at all. Nest entries and protection payouts are pushed to wallets, with nothing to claim.
 
-The brand lives in [packages/shared/src/brand.ts](packages/shared/src/brand.ts): `Recur` / `$RECR` / recur.lol.
+The brand lives in [packages/shared/src/brand.ts](packages/shared/src/brand.ts): `Cushion`, the domain and X account.
 
 The policy lives in [packages/shared/src/fees.ts](packages/shared/src/fees.ts) (split, anti-snipe, OTC, protection)
 and [packages/shared/src/quotes.ts](packages/shared/src/quotes.ts) (quote catalog with logos, $2.5k / $30k).
@@ -35,7 +41,7 @@ and [packages/shared/src/quotes.ts](packages/shared/src/quotes.ts) (quote catalo
 ## Layout
 
 ```
-backend/          Node service: Meteora configs, launch/swap/OTC transactions, indexer, fee router, airdrops,
+backend/          Node service: Meteora configs, launch/swap/OTC transactions, indexer, fee router, Nest entries,
                   protection payouts, REST API (http://localhost:42069/api/...). SQLite via node:sqlite.
   src/chain/      Solana engine: DBC + DAMM v2 SDKs, event decoding, Jupiter conversions, co-signed transactions
   src/demo/       Demo engine: the same money moves simulated in the database, plus a market simulator
@@ -45,27 +51,24 @@ packages/shared/  API types, fee policy, quote catalog, brand, Solana constants
 
 ## How the money moves
 
-1. **Launch.** The backend builds `createPoolWithFirstBuy` against the quote's Recur config. The new mint key
-   co-signs, and the creator signs and pays the network fee plus a 0.01 SOL pool-creation fee (it funds the platform
-   buyback). Each quote has its own DBC config, priced from the quote's live USD price so the curve starts at $2.5k
+1. **Launch.** The backend builds `createPoolWithFirstBuy` against the quote's config. The new mint key
+   co-signs, and the creator signs and pays the network fee plus a 0.01 SOL pool-creation fee (split like the coin's
+   fees). Each quote has its own DBC config, priced from the quote's live USD price so the curve starts at $2.5k
    and completes at $30k. A config is replaced when that price drifts more than 15%.
-2. **Trade.** The 3% fee is charged by Meteora on every swap, through Recur or any aggregator. It starts at 99% and
+2. **Trade.** The 3% fee is charged by Meteora on every swap, through the site or any aggregator. It starts at 99% and
    decays to 3% over the first 6 seconds as anti-snipe. The creator's bundled first buy skips that ramp.
 3. **Graduate.** The curve migrates to DAMM v2 with the same 3%. 100% of the LP is permanently locked to the fee
    wallet, so post-graduation fees keep coming.
-4. **Split** (continuously: every 15 s, per coin with ≥ $2 of new fees): the fee wallet claims the partner/LP fees and then:
-   - buys the coin and burns it;
-   - sends the airdrop share to the airdrop wallet;
-   - converts the rest to SOL (Jupiter) for OTC 30 : protection 40 : platform burn 10;
-   - buys $RECR with the platform-burn SOL and burns it.
+4. **Split** (continuously: every 15 s, per coin with ≥ $2 of new fees): the fee wallet claims the partner/LP fees,
+   converts them to SOL (Jupiter) and sends half to the OTC wallet and half to the protection wallet, credited to the
+   coin, or to its Nest's leader when it's a copy that doesn't lead. A send that fails puts what wasn't sent back in
+   the queue for the next pass, so nothing is stranded in the fee wallet.
 5. **OTC.** Each coin earns sell credit worth 2× the SOL it contributed. The credit is full while the coin keeps
    paying fees and drops to 5% after 2 days without any (fresh trading restores it). Sells price at
    min(spot, 30-min TWAP) minus 3%; one coin can draw at most 10% of the reserve, and one wallet at most 5% per coin
    per day. The coins are burned in the same transaction that pays the seller, so the reserve never holds any.
-6. **Airdrops** (continuously). Every pass (20 s), new airdrop money is allocated to holders whose average entry is
-   above the price, weighted by unrealized loss, with at least ~$20 at stake. Each holder's allocation is sent as
-   soon as it's worth $0.50, so payouts never cost more than they deliver. Coins received by transfer carry zero
-   cost basis.
+6. **Nest entries** (every 20 s). A copy's entry coins go to up to 50 of its leader's holders, weighted by what each
+   put in (up to 3× for entries above the price), none over 10%. Coins received by transfer carry zero cost basis.
 7. **Protection** (continuously, every 30 s). Each losing sale is covered as it's indexed and paid automatically:
    - Payout = loss × hold-time rate: <5 min 0%, 5–30 min 25%, 30 min–6 h 45%, 6 h+ 60%, rug 70%.
    - Capped at 5× the tax that wallet paid on the coin, across all its payouts.
@@ -122,7 +125,6 @@ That covers:
    created on the first launch for that pair.
 4. `pnpm --filter @cook/backend start`, and run the web app with `NEXT_PUBLIC_CLUSTER` (and `NEXT_PUBLIC_SOLANA_RPC`)
    set to match.
-5. Launch $RECR through the app on the SOL pair, then set `MAIN_TOKEN_MINT` and restart the backend.
 
 ## Deploy (Dokploy, zero downtime)
 
@@ -136,7 +138,7 @@ template is [deploy/dokploy.env.example](deploy/dokploy.env.example).
 - **Custodial treasury.** The bucket wallets are hot keys on the backend server. Whoever holds them can move the
   funds. Use a dedicated server and secret storage, keep balances visible, and consider moving the larger balances
   to a multisig (e.g. Squads) that the backend tops up from.
-- **Trusted backend.** Airdrop recipients, OTC limits and protection payouts are computed off-chain from public chain
+- **Trusted backend.** Nest leaders and entry recipients, OTC limits and protection payouts are computed off-chain from public chain
   data. They're reproducible, but not enforced on-chain.
 - **Not exercised on a live cluster here.** The demo engine and the tests run end to end. The on-chain engine is
   type-checked against the Meteora SDKs, its configs pass Meteora's validator, and its event decoder is tested on live

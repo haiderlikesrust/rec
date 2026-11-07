@@ -32,7 +32,6 @@ export type LaunchInput = {
   uri: string;
   creator: string;
   createdAt: number;
-  isMain?: boolean;
   /** curve in whole units (see curve.ts) */
   sqrtStart: number;
   sqrtMig: number;
@@ -61,7 +60,7 @@ export function recordLaunch(l: LaunchInput) {
     l.uri,
     l.creator,
     l.createdAt,
-    l.isMain ? 1 : 0,
+    0,
     price,
     price,
     l.sqrtStart,
@@ -94,7 +93,7 @@ export type TradeInput = {
   quoteReserve?: bigint;
   ts: number;
   tx: string;
-  kind: "trade" | "buyback" | "otc";
+  kind: "trade" | "otc";
 };
 
 export function recordTrade(t: TradeInput) {
@@ -168,7 +167,7 @@ export function recordTrade(t: TradeInput) {
       c.mint,
     );
 
-    if (t.kind === "buyback" || SYSTEM.has(t.trader)) return true;
+    if (SYSTEM.has(t.trader)) return true;
 
     const h = holder(c.mint, t.trader);
     const bal = big(h.balance);
@@ -256,47 +255,17 @@ export function recordTransfer(coinMint: string, wallet: string, delta: bigint) 
   });
 }
 
-/** Burned supply, from a coin buyback, a platform-token buyback, coins sold to the OTC reserve, or an entry nobody could get. */
-export function recordBurn(coinMint: string, amount: bigint, valueSol: number, source: "coin" | "main" | "otc" | "entry") {
+/** Burned supply: coins sold to the OTC reserve, or an entry nobody could get. */
+export function recordBurn(coinMint: string, amount: bigint, source: "otc" | "entry") {
   const c = getCoin(coinMint);
   if (!c) return;
   run(
-    "UPDATE coin SET total_supply = ?, burned = ?, coin_burned = ?, otc_burned = ?, burned_value_sol = burned_value_sol + ? WHERE mint = ?",
+    "UPDATE coin SET total_supply = ?, burned = ?, otc_burned = ? WHERE mint = ?",
     (big(c.total_supply) - amount).toString(),
     (big(c.burned) + amount).toString(),
-    (big(c.coin_burned) + (source === "coin" ? amount : 0n)).toString(),
     (big(c.otc_burned) + (source === "otc" ? amount : 0n)).toString(),
-    source === "coin" ? valueSol : 0,
     coinMint,
   );
-}
-
-export function recordAirdrop(coinMint: string, epoch: number, recipient: string, amount: bigint, ts: number, txSig: string) {
-  tx(() => {
-    const c = getCoin(coinMint)!;
-    run(
-      "INSERT INTO airdrop (id, coin, epoch, recipient, amount, ts, tx) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
-      `${coinMint}:${epoch}:${recipient}`,
-      coinMint,
-      epoch,
-      recipient,
-      amount.toString(),
-      ts,
-      txSig,
-    );
-    const h = holder(coinMint, recipient);
-    run("UPDATE holder SET airdrops = ? WHERE coin = ? AND wallet = ?", (big(h.airdrops) + amount).toString(), coinMint, recipient);
-    run(
-      `UPDATE coin SET airdrops_paid = ?, airdropped_sol = airdropped_sol + ?,
-         airdrop_last_recipients = CASE WHEN airdrop_last_epoch = ? THEN airdrop_last_recipients + 1 ELSE 1 END,
-         airdrop_last_epoch = ? WHERE mint = ?`,
-      (big(c.airdrops_paid) + amount).toString(),
-      toUnits(amount, quoteDecimals(c.quote)) * solPerUnit(c.quote),
-      epoch,
-      epoch,
-      coinMint,
-    );
-  });
 }
 
 /** Audit log of treasury movements. */

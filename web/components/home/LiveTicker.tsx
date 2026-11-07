@@ -11,12 +11,12 @@ function Item({ a }: { a: ActivityItem }) {
   return (
     <Link
       href={`/token/${a.coin}`}
-      className="flex shrink-0 items-center gap-2.5 rounded-full border border-line bg-elev/80 py-1.5 pr-3.5 pl-1.5 text-[13px] whitespace-nowrap transition-colors hover:border-line-strong"
+      className="flex shrink-0 items-center gap-2.5 rounded-full bg-elev py-1.5 pr-4 pl-1.5 text-[13px] font-semibold whitespace-nowrap shadow-card transition-colors hover:bg-elev-2"
     >
       <CoinAvatar src={a.image} symbol={a.symbol} seed={a.coin} size={24} />
       {a.kind === "launch" ? (
         <span>
-          <span className="font-semibold">${a.symbol}</span> <span className="text-muted">launched by</span>{" "}
+          <span className="font-display font-semibold">${a.symbol}</span> <span className="text-muted">launched by</span>{" "}
           <span className="num text-muted">{short(a.wallet, 3)}</span>
         </span>
       ) : (
@@ -26,7 +26,7 @@ function Item({ a }: { a: ActivityItem }) {
             {a.kind === "buy" ? "bought" : "sold"}
           </span>{" "}
           <span className="num">{usd(a.usdValue)}</span> <span className="text-muted">of</span>{" "}
-          <span className="font-semibold">${a.symbol}</span>
+          <span className="font-display font-semibold">${a.symbol}</span>
         </span>
       )}
       <span className="num text-xs text-faint">{age(a.t)}</span>

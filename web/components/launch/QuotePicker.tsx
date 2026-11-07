@@ -197,7 +197,7 @@ export function QuotePicker({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search, or paste any token address"
-                className="h-10 w-full rounded-xl border border-line bg-sunk pr-3 pl-10 text-sm outline-none placeholder:text-faint focus:border-accent"
+                className="h-11 w-full rounded-full border-[1.5px] border-line-strong bg-sunk pr-3 pl-10 text-sm font-semibold outline-none placeholder:font-normal placeholder:text-faint focus:border-sky"
               />
             </div>
             <div className="mt-3">
@@ -224,7 +224,7 @@ export function QuotePicker({
           <ul className="max-h-80 overflow-y-auto p-1.5" role="listbox">
             {pasted && list.length === 0 && (
               <li className="p-1.5">
-                <div className="rounded-xl border border-dashed border-line-strong bg-sunk p-4">
+                <div className="rounded-2xl border border-dashed border-line-strong bg-sunk p-4">
                   <div className="text-[11px] tracking-wider text-faint uppercase">Use this token as the pair</div>
                   {preview.isLoading ? (
                     <div className="mt-3 flex items-center gap-2 text-xs text-muted">
@@ -259,7 +259,7 @@ export function QuotePicker({
                     type="button"
                     onClick={addCustom}
                     disabled={adding || !token}
-                    className="btn-primary mt-3 inline-flex h-9 items-center gap-1.5 rounded-xl px-3.5 text-sm font-medium disabled:opacity-60"
+                    className="btn-primary font-display mt-3 inline-flex h-10 items-center gap-1.5 rounded-full px-4 text-sm font-semibold disabled:opacity-60"
                   >
                     {adding ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
                     {adding ? "Checking the token…" : token ? `Pair with ${token.symbol}` : "Add pair"}
@@ -283,7 +283,7 @@ export function QuotePicker({
                     aria-selected={selected}
                     onClick={() => pick(q)}
                     className={clsx(
-                      "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
+                      "flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-colors",
                       selected ? "bg-accent-soft" : "hover:bg-sunk",
                     )}
                   >

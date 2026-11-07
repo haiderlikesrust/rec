@@ -10,7 +10,7 @@ export default function PortfolioPage() {
       <PageHeader
         eyebrow="Portfolio"
         title="Your coins"
-        sub="Positions, average entries, the airdrops you're earning and protection you can claim, in one place."
+        sub="What you hold, what it's worth, your entries and P&L, and the protection paid on your losing sales, in one place."
       />
       <PortfolioView />
     </div>

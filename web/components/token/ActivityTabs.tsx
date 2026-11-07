@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { ArrowUpRight, Flame } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import type { Coin, CoinDetail } from "@cook/shared";
 import { useHolders, useTrades } from "@/lib/data";
@@ -11,7 +11,7 @@ import { useAddress } from "@/lib/wallet";
 import { TinyPrice } from "./TinyPrice";
 import { Badge, Button, EmptyState, ErrorState, Segmented, Skeleton } from "@/components/ui";
 
-const th = "py-3 font-medium text-[11px] tracking-wider text-faint uppercase";
+const th = "font-display py-3 font-semibold text-[11px] tracking-[0.08em] text-faint uppercase";
 
 function MaybeLink({ href, className, children }: { href?: string; className?: string; children: ReactNode }) {
   return href ? (
@@ -26,7 +26,7 @@ function MaybeLink({ href, className, children }: { href?: string; className?: s
 export function ActivityTabs({ coin }: { coin: CoinDetail }) {
   const [tab, setTab] = useState<"trades" | "holders">("trades");
   return (
-    <section className="surface overflow-hidden rounded-[22px]">
+    <section className="surface overflow-hidden rounded-[24px]">
       <div className="flex items-center justify-between gap-3 px-4 pt-4 sm:px-5">
         <Segmented
           size="sm"
@@ -58,26 +58,6 @@ function Loading() {
 
 const PAGE = 20;
 
-/** Burns run every few seconds, so the feed shows people's trades and sums the buybacks up in one line. */
-function BuybackSummary({ coin }: { coin: CoinDetail }) {
-  const b = coin.buybacks24h;
-  return (
-    <span className="flex min-w-0 items-center gap-2 text-xs text-muted">
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
-        <Flame size={13} />
-      </span>
-      {b && b.count > 0 ? (
-        <span className="min-w-0">
-          Bought back &amp; burned <span className="num text-fg">{tokens(b.tokenAmount, coin.decimals)} ${coin.symbol}</span>
-          {b.usd > 0 && <span className="num"> ({usd(b.usd)})</span>} in the last 24h · {b.count} buybacks
-        </span>
-      ) : (
-        <span>No buybacks in the last 24h yet. They start as soon as this coin pays fees.</span>
-      )}
-    </span>
-  );
-}
-
 function Toggle({ checked, onChange, children }: { checked: boolean; onChange: () => void; children: ReactNode }) {
   return (
     <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-muted select-none">
@@ -92,26 +72,17 @@ const isLarge = (valueUsd: number, coin: Coin) => valueUsd >= Math.max(250, coin
 
 function Trades({ coin }: { coin: CoinDetail }) {
   const wallet = useAddress();
-  const [showBuybacks, setShowBuybacks] = useState(false);
   const [mine, setMine] = useState(false);
   const [limit, setLimit] = useState(PAGE);
-  const { data, isLoading, isError, isFetching } = useTrades(coin.address, limit, showBuybacks, mine && wallet ? wallet : undefined);
+  const { data, isLoading, isError, isFetching } = useTrades(coin.address, limit, mine && wallet ? wallet : undefined);
   const q = coin.quote;
-  const controls = (
-    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-line px-4 py-3 sm:px-5">
-      <BuybackSummary coin={coin} />
-      <div className="flex items-center gap-4">
-        {wallet && (
-          <Toggle checked={mine} onChange={() => setMine((v) => !v)}>
-            Only mine
-          </Toggle>
-        )}
-        <Toggle checked={showBuybacks} onChange={() => setShowBuybacks((v) => !v)}>
-          Show buybacks
-        </Toggle>
-      </div>
+  const controls = wallet ? (
+    <div className="flex items-center justify-end gap-4 border-t border-line px-4 py-3 sm:px-5">
+      <Toggle checked={mine} onChange={() => setMine((v) => !v)}>
+        Only mine
+      </Toggle>
     </div>
-  );
+  ) : null;
   if (isLoading) return <Loading />;
   if (isError) return <ErrorState className="m-5" />;
   if (!data?.length)
@@ -141,7 +112,7 @@ function Trades({ coin }: { coin: CoinDetail }) {
         </thead>
         <tbody>
           {data.map((t) => {
-            const tone = t.kind === "buyback" ? "text-accent" : t.isBuy ? "text-up" : "text-down";
+            const tone = t.isBuy ? "text-up" : "text-down";
             const valueUsd = units(t.quoteAmount, q.decimals) * q.usdPerUnit;
             const large = t.kind === "trade" && q.usdPerUnit > 0 && isLarge(valueUsd, coin);
             const you = !!wallet && t.trader === wallet;
@@ -152,10 +123,8 @@ function Trades({ coin }: { coin: CoinDetail }) {
                 style={large ? { background: `color-mix(in srgb, ${t.isBuy ? "var(--up)" : "var(--down)"} 7%, transparent)` } : undefined}
               >
                 <td className="py-2 pl-4 sm:pl-5">
-                  {t.kind === "buyback" ? (
-                    <Badge tone="accent">Buyback</Badge>
-                  ) : t.kind === "otc" ? (
-                    <Badge tone="outline">OTC {t.isBuy ? "buy" : "sell"}</Badge>
+                  {t.kind === "otc" ? (
+                    <Badge tone="sky">OTC {t.isBuy ? "buy" : "sell"}</Badge>
                   ) : t.isBuy ? (
                     <Badge tone="up">Buy</Badge>
                   ) : (
@@ -225,8 +194,7 @@ function Holders({ coin }: { coin: Coin }) {
             <th className={clsx(th, "px-3")}>Holder</th>
             <th className={clsx(th, "px-3")}>Share</th>
             <th className={clsx(th, "hidden px-3 text-right sm:table-cell")}>Avg entry</th>
-            <th className={clsx(th, "px-3 text-right")}>vs. price</th>
-            <th className={clsx(th, "hidden pr-5 text-right sm:table-cell")}>Airdrop</th>
+            <th className={clsx(th, "pr-4 pl-3 text-right sm:pr-5")}>vs. price</th>
           </tr>
         </thead>
         <tbody>
@@ -265,25 +233,13 @@ function Holders({ coin }: { coin: Coin }) {
                     price(h.avgEntry)
                   )}
                 </td>
-                <td className="px-3 py-2.5 text-right">
+                <td className="py-2.5 pr-4 pl-3 text-right sm:pr-5">
                   {delta === null ? (
                     <span className="text-faint">—</span>
                   ) : underwater ? (
                     <Badge tone="down">{pct(delta, { digits: 0 })}</Badge>
                   ) : (
                     <Badge tone="up">{pct(delta, { sign: true, digits: 0 })}</Badge>
-                  )}
-                </td>
-                <td className="hidden py-2.5 pr-5 text-right sm:table-cell">
-                  {h.airdropEligible ? (
-                    <span
-                      className="num inline-flex rounded-full px-2 py-0.5 text-[11px]"
-                      style={{ color: "var(--b-airdrop)", background: "color-mix(in srgb, var(--b-airdrop) 12%, transparent)" }}
-                    >
-                      {pct(h.airdropWeight * 100, { digits: 1 })} of next
-                    </span>
-                  ) : (
-                    <span className="text-xs text-faint">—</span>
                   )}
                 </td>
               </tr>

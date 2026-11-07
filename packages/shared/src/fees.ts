@@ -1,22 +1,23 @@
 /**
- * Fee policy, shared by the backend (fee router, airdrops, protection epochs), the API and the UI.
+ * Fee policy, shared by the backend (fee router, protection payouts), the API and the UI.
  *
- * Every Recur pool is a Meteora DBC pool configured with a 3% fee taken on the quote side of every buy and sell
+ * Every pool is a Meteora DBC pool configured with a 3% fee taken on the quote side of every buy and sell
  * (CollectFeeMode.QuoteToken), 0% to the creator. Meteora keeps its protocol share of that fee; the rest is claimed
- * by the backend's fee wallet and split into the five buckets below. Graduated pools (DAMM v2) keep the same 3%.
+ * by the backend's fee wallet, converted to SOL and split in half: the OTC reserve and the protection fund. Graduated
+ * pools (DAMM v2) keep the same 3%.
  */
 export const TAX_BPS = 300;
 /** Meteora's protocol share of every trading fee, on DBC and on DAMM v2. */
 export const METEORA_PROTOCOL_SHARE_BPS = 2000;
-/** Share of Meteora's protocol fee rebated to the referral account. Swaps built by Recur name the fee wallet. */
+/** Share of Meteora's protocol fee rebated to the referral account. Swaps built by the backend name the fee wallet. */
 export const METEORA_REFERRAL_SHARE_BPS = 2000;
-/** Share of the 3% that reaches the buckets: 80%, or 84% when the swap carried Recur's referral account. */
+/** Share of the 3% that reaches the buckets: 80%, or 84% when the swap carried the fee wallet's referral account. */
 export const communityShareBps = (withReferral = false) =>
   10_000 - METEORA_PROTOCOL_SHARE_BPS + (withReferral ? (METEORA_PROTOCOL_SHARE_BPS * METEORA_REFERRAL_SHARE_BPS) / 10_000 : 0);
-/** One-off fee, in SOL, paid to the DBC config when a coin launches. Meteora keeps 10%; the rest funds the platform buyback. */
+/** One-off fee, in SOL, paid to the DBC config when a coin launches. Meteora keeps 10%; the rest is split like a fee. */
 export const LAUNCH_FEE_SOL = 0.01;
 
-export type BucketKey = "mainBuyback" | "coinBuyback" | "otcReserve" | "protection" | "airdrop";
+export type BucketKey = "otcReserve" | "protection";
 
 export const buckets: {
   key: BucketKey;
@@ -28,7 +29,7 @@ export const buckets: {
 }[] = [
   {
     key: "protection",
-    bps: 4000,
+    bps: 5000,
     label: "Protection fund",
     short: "Protection",
     paidIn: "SOL",
@@ -36,68 +37,24 @@ export const buckets: {
   },
   {
     key: "otcReserve",
-    bps: 3000,
+    bps: 5000,
     label: "OTC reserve",
     short: "OTC reserve",
     paidIn: "SOL",
     blurb: "A SOL wallet you can sell coins into without slippage. Coins that pay more get higher limits.",
   },
-  {
-    key: "mainBuyback",
-    bps: 1000,
-    label: "Platform buyback & burn",
-    short: "Platform burn",
-    paidIn: "SOL → platform token",
-    blurb: "Buys the platform token on the open pool and burns it.",
-  },
-  {
-    key: "coinBuyback",
-    bps: 1000,
-    label: "Coin buyback & burn",
-    short: "Coin burn",
-    paidIn: "Quote → this coin",
-    blurb: "Buys this coin back in its own pool and burns it.",
-  },
-  {
-    key: "airdrop",
-    bps: 1000,
-    label: "High-entry airdrop",
-    short: "Airdrop",
-    paidIn: "Quote asset",
-    blurb: "Paid out continuously to holders whose average entry is above the current price.",
-  },
 ];
 
-/** Split an amount of fees into the five buckets (remainder to protection, so nothing is lost to rounding). */
+/** Split an amount of fees in half (remainder to protection, so nothing is lost to rounding). */
 export function splitFees(amount: number): Record<BucketKey, number> {
-  const part = (bps: number) => (amount * bps) / 10_000;
-  const mainBuyback = part(1000);
-  const coinBuyback = part(1000);
-  const otcReserve = part(3000);
-  const airdrop = part(1000);
-  return {
-    mainBuyback,
-    coinBuyback,
-    otcReserve,
-    airdrop,
-    protection: amount - mainBuyback - coinBuyback - otcReserve - airdrop,
-  };
+  const otcReserve = amount / 2;
+  return { otcReserve, protection: amount - otcReserve };
 }
 
 /** splitFees for raw token amounts. */
 export function splitRaw(amount: bigint): Record<BucketKey, bigint> {
-  const part = (bps: bigint) => (amount * bps) / 10_000n;
-  const mainBuyback = part(1000n);
-  const coinBuyback = part(1000n);
-  const otcReserve = part(3000n);
-  const airdrop = part(1000n);
-  return {
-    mainBuyback,
-    coinBuyback,
-    otcReserve,
-    airdrop,
-    protection: amount - mainBuyback - coinBuyback - otcReserve - airdrop,
-  };
+  const otcReserve = amount / 2n;
+  return { otcReserve, protection: amount - otcReserve };
 }
 
 /** Volume needed to generate `fees` at the 3% tax. */
@@ -152,14 +109,6 @@ export function otcActivityBps(lastContribution: number, now: number) {
 export const otcSellLimitSol = (creditSol: number, activityBps: number, reserveSol: number) =>
   Math.min((creditSol * activityBps) / 10_000, (reserveSol * otcPolicy.maxShareOfReserveBps) / 10_000);
 
-/** Airdrop recipients need at least this much (USD) at stake. */
-export const AIRDROP_MIN_USD = 20;
-/**
- * Airdrops run continuously: every few seconds each coin's new airdrop money is allocated to its current
- * high-entry holders, and a holder's allocation is sent as soon as it is worth at least this much (USD), so
- * network fees and token-account rent never eat a payout.
- */
-export const AIRDROP_MIN_PAYOUT_USD = 0.5;
 
 // ---------------------------------------------------------------- protection policy
 //

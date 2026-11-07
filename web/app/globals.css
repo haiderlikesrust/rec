@@ -3,111 +3,43 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 /*
- * Design tokens. The five fee buckets form the brand "spectrum" — every split visual, the logo mark
- * and the accent gradients are built from them. Light theme first, dark overrides below.
+ * Cushion design system: "night & ember", dark only.
+ * A deep navy base (never black) with a slow aurora behind everything, rounded Fredoka display type over Nunito,
+ * soft-shadowed panels with barely-there edges, pill buttons. The warm ember → gold gradient is the brand and the
+ * main action; mint means up and protection pays, sky is the OTC reserve, gold is the Nest (copies feeding their
+ * original), rose means down.
  */
 :root {
-  --bg: #f6f5f1;
-  --bg-elev: #ffffff;
-  --bg-elev-2: #fbfaf7;
-  --bg-sunk: #eeede7;
-  --fg: #0d0c16;
-  --muted: #5d5c70;
-  --faint: #9897a8;
-  --line: rgba(13, 12, 22, 0.08);
-  --line-strong: rgba(13, 12, 22, 0.15);
-  --accent: #6a56ff;
-  --accent-2: #12b5a0;
-  --accent-fg: #ffffff;
-  --accent-soft: rgba(106, 86, 255, 0.1);
-  --up: #0fa97c;
-  --up-soft: rgba(15, 169, 124, 0.12);
-  --down: #e8455f;
-  --down-soft: rgba(232, 69, 95, 0.11);
-  --b-protection: #6a56ff;
-  --b-otc: #12b5a0;
-  --b-main: #f29d0c;
-  --b-coin: #e8455f;
-  --b-airdrop: #3a86ff;
-  /* Bloodline: families of look-alike coins */
-  --blood: #b3124a;
-  --blood-soft: rgba(179, 18, 74, 0.09);
-  --sh-card: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 1px 2px rgba(13, 12, 22, 0.04), 0 8px 24px -12px rgba(13, 12, 22, 0.1);
-  --sh-pop: 0 24px 60px -24px rgba(13, 12, 22, 0.28);
-  --glow-a: rgba(106, 86, 255, 0.16);
-  --glow-b: rgba(18, 181, 160, 0.13);
-  --glow-c: rgba(242, 157, 12, 0.08);
-  --grid-line: rgba(13, 12, 22, 0.045);
-  color-scheme: light;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #07070c;
-    --bg-elev: #0f0f18;
-    --bg-elev-2: #151522;
-    --bg-sunk: #0a0a12;
-    --fg: #f4f3ff;
-    --muted: #a3a2bb;
-    --faint: #64637c;
-    --line: rgba(255, 255, 255, 0.07);
-    --line-strong: rgba(255, 255, 255, 0.14);
-    --accent: #8f80ff;
-    --accent-2: #2ee6c5;
-    --accent-fg: #07070c;
-    --accent-soft: rgba(143, 128, 255, 0.14);
-    --up: #2ad8a4;
-    --up-soft: rgba(42, 216, 164, 0.13);
-    --down: #ff5c7a;
-    --down-soft: rgba(255, 92, 122, 0.13);
-    --b-protection: #8f80ff;
-    --b-otc: #2ee6c5;
-    --b-main: #ffb224;
-    --b-coin: #ff5c7a;
-    --b-airdrop: #4ca2ff;
-    --blood: #ff6b9e;
-    --blood-soft: rgba(255, 107, 158, 0.13);
-    --sh-card: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 12px 32px -16px rgba(0, 0, 0, 0.6);
-    --sh-pop: 0 30px 80px -30px rgba(0, 0, 0, 0.85);
-    --glow-a: rgba(143, 128, 255, 0.2);
-    --glow-b: rgba(46, 230, 197, 0.1);
-    --glow-c: rgba(255, 178, 36, 0.06);
-    --grid-line: rgba(255, 255, 255, 0.035);
-    color-scheme: dark;
-  }
-}
-
-:root[data-theme="dark"] {
-  --bg: #07070c;
-  --bg-elev: #0f0f18;
-  --bg-elev-2: #151522;
-  --bg-sunk: #0a0a12;
-  --fg: #f4f3ff;
-  --muted: #a3a2bb;
-  --faint: #64637c;
-  --line: rgba(255, 255, 255, 0.07);
-  --line-strong: rgba(255, 255, 255, 0.14);
-  --accent: #8f80ff;
-  --accent-2: #2ee6c5;
-  --accent-fg: #07070c;
-  --accent-soft: rgba(143, 128, 255, 0.14);
-  --up: #2ad8a4;
-  --up-soft: rgba(42, 216, 164, 0.13);
-  --down: #ff5c7a;
-  --down-soft: rgba(255, 92, 122, 0.13);
-  --b-protection: #8f80ff;
-  --b-otc: #2ee6c5;
-  --b-main: #ffb224;
-  --b-coin: #ff5c7a;
-  --b-airdrop: #4ca2ff;
-  --blood: #ff6b9e;
-  --blood-soft: rgba(255, 107, 158, 0.13);
-  --sh-card: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 12px 32px -16px rgba(0, 0, 0, 0.6);
-  --sh-pop: 0 30px 80px -30px rgba(0, 0, 0, 0.85);
-  --glow-a: rgba(143, 128, 255, 0.2);
-  --glow-b: rgba(46, 230, 197, 0.1);
-  --glow-c: rgba(255, 178, 36, 0.06);
-  --grid-line: rgba(255, 255, 255, 0.035);
+  --bg: #0b1124;
+  --bg-elev: #121a33;
+  --bg-elev-2: #19233f;
+  --bg-sunk: #0e1630;
+  --fg: #eef2ff;
+  --muted: #a0abcb;
+  --faint: #6f7ca6;
+  --line: rgba(148, 166, 230, 0.09);
+  --line-strong: rgba(148, 166, 230, 0.2);
+  --accent: #ff7a45;
+  --accent-2: #ffb547;
+  --accent-fg: #1a0d06;
+  --accent-soft: rgba(255, 122, 69, 0.14);
+  --up: #2bd99a;
+  --up-soft: rgba(43, 217, 154, 0.13);
+  --down: #ff5c7c;
+  --down-soft: rgba(255, 92, 124, 0.13);
+  --sky: #5b95ff;
+  --sky-soft: rgba(91, 149, 255, 0.14);
+  --violet: #9b87ff;
+  --violet-soft: rgba(155, 135, 255, 0.14);
+  /* the two fee buckets */
+  --b-protection: #2bd99a;
+  --b-otc: #5b95ff;
+  /* the Nest: copies of a coin and what they send it */
+  --nest: #ffc94d;
+  --nest-soft: rgba(255, 201, 77, 0.12);
+  --sh-card: 0 1px 0 rgba(255, 255, 255, 0.035) inset, 0 1px 2px rgba(0, 0, 0, 0.3), 0 14px 34px -14px rgba(0, 0, 0, 0.6);
+  --sh-pop: 0 2px 4px rgba(0, 0, 0, 0.35), 0 26px 50px -18px rgba(0, 0, 0, 0.75);
+  --grad: linear-gradient(120deg, var(--accent), var(--accent-2));
   color-scheme: dark;
 }
 
@@ -129,21 +61,22 @@
   --color-up-soft: var(--up-soft);
   --color-down: var(--down);
   --color-down-soft: var(--down-soft);
+  --color-sky: var(--sky);
+  --color-sky-soft: var(--sky-soft);
+  --color-violet: var(--violet);
+  --color-violet-soft: var(--violet-soft);
   --color-b-protection: var(--b-protection);
   --color-b-otc: var(--b-otc);
-  --color-b-main: var(--b-main);
-  --color-b-coin: var(--b-coin);
-  --color-b-airdrop: var(--b-airdrop);
-  --color-blood: var(--blood);
-  --color-blood-soft: var(--blood-soft);
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --color-nest: var(--nest);
+  --color-nest-soft: var(--nest-soft);
+  --font-sans: var(--font-nunito), ui-rounded, ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
   --shadow-card: var(--sh-card);
   --shadow-pop: var(--sh-pop);
   --animate-marquee: marquee 60s linear infinite;
   --animate-float: float 6s ease-in-out infinite;
   --animate-spin-slow: spin 40s linear infinite;
-  --animate-fade-up: fade-up 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  --animate-fade-up: fade-up 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 @keyframes marquee {
@@ -160,13 +93,13 @@
     transform: translateY(0);
   }
   50% {
-    transform: translateY(-8px);
+    transform: translateY(-10px);
   }
 }
 @keyframes fade-up {
   from {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(16px);
   }
   to {
     opacity: 1;
@@ -190,6 +123,23 @@
     box-shadow: 0 0 0 6px transparent;
   }
 }
+@keyframes drift {
+  to {
+    transform: translate(6vmax, 4vmax) scale(1.12);
+  }
+}
+@keyframes squish {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  40% {
+    transform: scale(1.06, 0.92);
+  }
+  70% {
+    transform: scale(0.97, 1.04);
+  }
+}
 
 html,
 body {
@@ -210,67 +160,68 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* ambient page backdrop: soft spectrum glows + a fading grid */
-.ambient {
+/* the aurora: three soft blobs drifting behind everything */
+.aurora {
   position: fixed;
   inset: 0;
   z-index: -1;
+  overflow: hidden;
   pointer-events: none;
-  background:
-    radial-gradient(60rem 36rem at 12% -8%, var(--glow-a), transparent 60%),
-    radial-gradient(50rem 30rem at 92% 2%, var(--glow-b), transparent 60%),
-    radial-gradient(40rem 26rem at 60% 110%, var(--glow-c), transparent 60%);
 }
-.ambient::after {
-  content: "";
+.aurora i {
   position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(var(--grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-  background-size: 56px 56px;
-  mask-image: radial-gradient(ellipse 80% 55% at 50% 0%, #000 30%, transparent 75%);
+  width: 46vmax;
+  height: 46vmax;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0.2;
+  animation: drift 26s ease-in-out infinite alternate;
+}
+.aurora i:nth-child(1) {
+  background: #2e4bb8;
+  top: -18vmax;
+  left: -10vmax;
+}
+.aurora i:nth-child(2) {
+  background: #8a3a2a;
+  top: 10vmax;
+  right: -16vmax;
+  animation-delay: -8s;
+}
+.aurora i:nth-child(3) {
+  background: #4b3c8f;
+  bottom: -22vmax;
+  left: 25vmax;
+  animation-delay: -16s;
 }
 
 .font-display {
-  font-family: var(--font-bricolage), var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  letter-spacing: -0.035em;
+  font-family: var(--font-fredoka), var(--font-nunito), ui-rounded, system-ui, sans-serif;
+  letter-spacing: -0.01em;
 }
 
+/* every number, amount and address: the body face with even-width figures */
 .num {
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
+  font-feature-settings: "tnum";
+  letter-spacing: -0.005em;
 }
 
 .eyebrow {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.14em;
+  font-family: var(--font-fredoka), var(--font-nunito), ui-rounded, system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
 }
 
-/* the brand spectrum, in bucket order */
+/* the brand gradient: ember → gold */
 .spectrum {
-  background-image: linear-gradient(
-    90deg,
-    var(--b-protection) 0%,
-    var(--b-airdrop) 26%,
-    var(--b-otc) 50%,
-    var(--b-main) 76%,
-    var(--b-coin) 100%
-  );
+  background-image: var(--grad);
 }
 .text-spectrum {
-  background-image: linear-gradient(
-    100deg,
-    var(--b-protection) 0%,
-    var(--b-airdrop) 30%,
-    var(--b-otc) 55%,
-    var(--b-main) 80%,
-    var(--b-coin) 100%
-  );
+  background-image: linear-gradient(100deg, var(--accent), var(--accent-2) 70%, var(--nest));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -284,48 +235,64 @@ body {
 }
 .surface-hover {
   transition:
-    border-color 0.2s,
-    transform 0.2s,
-    box-shadow 0.2s,
+    border-color 0.3s,
+    transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 0.35s,
     background-color 0.2s;
 }
 .surface-hover:hover {
   border-color: var(--line-strong);
-  transform: translateY(-2px);
-  box-shadow: var(--sh-card), var(--sh-pop);
+  transform: translateY(-4px);
+  box-shadow: var(--sh-pop);
 }
-/* 1px gradient ring, for featured cards */
+/* a warm gradient edge, for one featured element per view */
 .ring-spectrum {
   border: 1px solid transparent;
   background:
     linear-gradient(var(--bg-elev), var(--bg-elev)) padding-box,
     linear-gradient(
         135deg,
-        color-mix(in srgb, var(--b-protection) 70%, transparent),
-        color-mix(in srgb, var(--b-otc) 35%, transparent) 40%,
+        color-mix(in srgb, var(--accent) 75%, transparent),
+        color-mix(in srgb, var(--accent-2) 30%, transparent) 35%,
         var(--line) 60%,
-        color-mix(in srgb, var(--b-main) 45%, transparent)
+        color-mix(in srgb, var(--violet) 40%, transparent)
       )
       border-box;
 }
 .glass {
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  backdrop-filter: blur(16px) saturate(1.4);
-  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  /* standard property last: the CSS optimizer keeps only the final one of the pair */
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  backdrop-filter: blur(18px) saturate(1.4);
 }
 
+/* the main action: a warm gradient with a light sweep on hover */
 .btn-primary {
-  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 60%, var(--b-airdrop)));
-  color: #fff;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: var(--grad);
+  color: var(--accent-fg);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.25) inset,
-    0 8px 24px -8px color-mix(in srgb, var(--accent) 70%, transparent);
+    0 1px 0 rgba(255, 255, 255, 0.3) inset,
+    0 10px 26px -10px color-mix(in srgb, var(--accent) 85%, transparent);
+}
+.btn-primary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.45) 50%, transparent 70%);
+  transform: translateX(-120%);
+  transition: transform 0.7s ease;
+}
+.btn-primary:hover::after {
+  transform: translateX(120%);
 }
 .btn-primary:hover {
-  filter: brightness(1.08);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.25) inset,
-    0 12px 32px -8px color-mix(in srgb, var(--accent) 85%, transparent);
+    0 1px 0 rgba(255, 255, 255, 0.3) inset,
+    0 14px 32px -10px color-mix(in srgb, var(--accent) 95%, transparent);
 }
 
 .shimmer {
@@ -342,17 +309,23 @@ body {
   animation: pulse-dot 2s ease-out infinite;
 }
 
+.squish {
+  animation: squish 3.2s ease-in-out infinite;
+  transform-origin: 50% 100%;
+}
+
 .mask-fade-x {
   mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
 }
 
 ::selection {
-  background: var(--accent-soft);
+  background: var(--accent);
+  color: var(--accent-fg);
 }
 
 :focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
-  outline-offset: 2px;
+  outline: 3px solid color-mix(in srgb, var(--sky) 55%, transparent);
+  outline-offset: 3px;
 }
 
 input[type="number"]::-webkit-inner-spin-button,
@@ -375,6 +348,7 @@ input[type="number"] {
   scrollbar-color: var(--line-strong) transparent;
 }
 .thin-scrollbar::-webkit-scrollbar {
+  width: 6px;
   height: 6px;
 }
 .thin-scrollbar::-webkit-scrollbar-thumb {
@@ -404,16 +378,17 @@ input[type="number"] {
 
 /* long-form docs */
 .prose-docs h2 {
-  font-family: var(--font-bricolage), var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-fredoka), var(--font-nunito), ui-rounded, system-ui, sans-serif;
   font-size: 1.85rem;
-  font-weight: 650;
-  letter-spacing: -0.035em;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   margin-top: 4.5rem;
   margin-bottom: 1rem;
   scroll-margin-top: 6rem;
 }
 .prose-docs h3 {
-  font-size: 1.05rem;
+  font-family: var(--font-fredoka), var(--font-nunito), ui-rounded, system-ui, sans-serif;
+  font-size: 1.1rem;
   font-weight: 600;
   margin-top: 2rem;
   margin-bottom: 0.5rem;
@@ -429,7 +404,7 @@ input[type="number"] {
 }
 .prose-docs strong {
   color: var(--fg);
-  font-weight: 600;
+  font-weight: 700;
 }
 .prose-docs ul {
   list-style: disc;
@@ -440,8 +415,8 @@ input[type="number"] {
   margin-top: 0.4rem;
 }
 .prose-docs a {
-  color: var(--accent);
+  color: var(--accent-2);
   text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  text-decoration-color: color-mix(in srgb, var(--accent-2) 40%, transparent);
   text-underline-offset: 3px;
 }

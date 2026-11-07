@@ -20,7 +20,7 @@ export function Trending() {
       <SectionHeading
         eyebrow={
           <>
-            <TrendingUp size={12} className="text-accent" /> Trending
+            <TrendingUp size={13} className="text-accent" /> Trending
           </>
         }
         title="Hot right now"
@@ -29,13 +29,13 @@ export function Trending() {
       <div className="no-scrollbar -mx-4 mt-6 overflow-x-auto px-4 pb-4 sm:-mx-6 sm:px-6">
         <ol className="flex gap-3.5">
           {isLoading
-            ? Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-[178px] w-[244px] shrink-0 rounded-[22px]" />)
+            ? Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-[178px] w-[244px] shrink-0 rounded-[24px]" />)
             : data!.slice(0, 10).map((c, i) => (
                 <li key={c.address} className="shrink-0">
                   <Link
                     href={`/token/${c.address}`}
                     className={clsx(
-                      "surface-hover relative flex w-[244px] flex-col overflow-hidden rounded-[22px] p-5",
+                      "surface-hover relative flex w-[244px] flex-col overflow-hidden rounded-[24px] p-5",
                       i === 0 ? "ring-spectrum shadow-card" : "surface",
                     )}
                   >
@@ -45,14 +45,14 @@ export function Trending() {
                     <div className="flex items-center gap-3">
                       <CoinAvatar src={c.image} symbol={c.symbol} seed={c.address} size={42} />
                       <div className="min-w-0">
-                        <div className="truncate text-[15px] font-semibold">${c.symbol}</div>
+                        <div className="font-display truncate text-base font-semibold">${c.symbol}</div>
                         <div className="truncate text-xs text-muted">{c.name}</div>
                       </div>
                     </div>
                     <Sparkline data={c.spark} width={204} height={44} strokeWidth={2} className="mt-4" />
                     <div className="mt-3 flex items-end justify-between gap-2">
                       <div>
-                        <div className="num text-base font-medium">{usd(c.marketCapUsd)}</div>
+                        <div className="num text-base font-bold">{usd(c.marketCapUsd)}</div>
                         <div className="mt-1">
                           <QuoteChip symbol={c.quote.symbol} logo={c.quote.logo} />
                         </div>

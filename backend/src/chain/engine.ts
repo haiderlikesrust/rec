@@ -90,11 +90,11 @@ const PENDING = "pending-config:";
 type PendingConfig = { quote: string; usd: number; threshold: string; decimals: number; at: number };
 // polls in a row a transaction may fail to index before the indexer moves past it
 const MAX_INGEST_TRIES = 5;
-// burns and airdrops send many small transactions, so the default priority fee stays low
+// fee splits and entry airdrops send many small transactions, so the default priority fee stays low
 const PRIORITY_MICROLAMPORTS = Number(process.env.PRIORITY_MICROLAMPORTS ?? 5_000);
 
 /**
- * Recur on Solana. Pools are Meteora DBC pools (DAMM v2 after graduation); the five fee buckets are plain wallets
+ * The launchpad on Solana. Pools are Meteora DBC pools (DAMM v2 after graduation); the fee buckets are plain wallets
  * the backend holds the keys to. No custom on-chain program: user-facing transactions are built here and signed
  * by the user's wallet, with the OTC or protection wallet co-signing when it moves funds.
  */
@@ -217,7 +217,7 @@ export class ChainEngine implements Engine {
     });
   }
 
-  /** The fee wallet's quote ATA, used as the referral account so Meteora's referral rebate comes back to Recur. */
+  /** The fee wallet's quote ATA, used as the referral account so Meteora's referral rebate comes back to the fee wallet. */
   private async referral(quoteMint: string): Promise<PublicKey | null> {
     const program = await this.tokenProgram(quoteMint);
     const ata = this.ata(this.wallets.fees, quoteMint, program);
@@ -699,7 +699,7 @@ export class ChainEngine implements Engine {
     return total;
   }
 
-  /** The pool creation fee (90% after Meteora's cut) funds the platform buyback. Claimed once per pool. */
+  /** The pool creation fee (90% after Meteora's cut) is split with the coin's fees. Claimed once per pool. */
   private async claimCreationFee(c: CoinRow) {
     if (kvGet(`creation_fee:${c.mint}`)) return;
     try {
@@ -712,32 +712,10 @@ export class ChainEngine implements Engine {
       await this.send(tx, [this.keys.fees]);
       const gained = BigInt(Math.max(0, (await this.conn.getBalance(this.keys.fees.publicKey)) - before));
       kvSet(`creation_fee:${c.mint}`, gained);
-      kvSet("main_pending_lamports", big(kvGet("main_pending_lamports")) + gained);
+      run("UPDATE coin SET pending_sol = pending_sol + ? WHERE mint = ?", Number(gained) / 1e9, c.mint);
     } catch (e) {
       log(`creation fee ${c.symbol}: ${(e as Error).message}`);
     }
-  }
-
-  async buybackAndBurn(c: CoinRow, quoteRaw: bigint) {
-    const program = await this.tokenProgram(c.mint);
-    const ata = this.ata(this.keys.fees.publicKey, c.mint, program);
-    const balance = async () => {
-      try {
-        return BigInt((await this.conn.getTokenAccountBalance(ata, "confirmed")).value.amount);
-      } catch {
-        return 0n;
-      }
-    };
-    const before = await balance();
-    const q = await this.swapQuote(c, "buy", quoteRaw, 300);
-    const tx = await this.swapTx(c, this.wallets.fees, "buy", quoteRaw, big(q.minOut), false);
-    const sig = await this.send(tx, [this.keys.fees]);
-    const burned = (await balance()) - before;
-    if (burned > 0n) {
-      const burnTx = new Transaction().add(createBurnCheckedInstruction(ata, this.pk(c.mint), this.keys.fees.publicKey, burned, c.decimals, [], program));
-      await this.send(burnTx, [this.keys.fees]);
-    }
-    return { burned, sig };
   }
 
   async burnHeld(from: Role, c: CoinRow, amount: bigint) {
@@ -805,7 +783,7 @@ export class ChainEngine implements Engine {
 
   // ---------------------------------------------------------------- indexing
 
-  /** Walks new signatures of every Recur config (launches and curve swaps) and graduated pool (DAMM swaps). */
+  /** Walks new signatures of every one of our configs (launches and curve swaps) and graduated pool (DAMM swaps). */
   private async poll() {
     const addresses = [
       ...all<{ address: string }>("SELECT address FROM config").map((r) => r.address),
@@ -909,7 +887,7 @@ export class ChainEngine implements Engine {
         ...trade,
         id,
         trader: feePayer,
-        kind: feePayer === this.wallets.fees ? "buyback" : "trade",
+        kind: "trade",
       });
     }
   }
@@ -936,7 +914,6 @@ export class ChainEngine implements Engine {
       uri: meta.uri ?? "",
       creator,
       createdAt: ts,
-      isMain: config.mainToken === mint,
       sqrtStart: curve.sqrtStart,
       sqrtMig: curve.sqrtMig,
       liquidity: curve.liquidity,
