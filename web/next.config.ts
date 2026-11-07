@@ -6,6 +6,10 @@ const backend = process.env.BACKEND_URL ?? "http://127.0.0.1:42069";
 const nextConfig: NextConfig = {
   transpilePackages: ["@cook/shared"],
   reactStrictMode: true,
+  // the protection fund became Soft Landing: keep old links working
+  async redirects() {
+    return [{ source: "/protection", destination: "/soft-landing", permanent: true }];
+  },
   // Same-origin API: /api/* goes to the backend (Next's own routes, like /api/upload, are matched first).
   async rewrites() {
     return { beforeFiles: [], afterFiles: [{ source: "/api/:path*", destination: `${backend}/api/:path*` }], fallback: [] };

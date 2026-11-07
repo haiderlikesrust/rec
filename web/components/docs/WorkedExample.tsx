@@ -127,8 +127,8 @@ export function WorkedExample() {
         <Egg size={16} className="mt-0.5 shrink-0 text-nest" />
         <div className="text-muted">
           <span className="font-semibold text-fg">If this coin were a copy that doesn&apos;t lead its {brand.nest},</span> both
-          halves would go to the leader instead: {$(split.otcReserve)} to the leader&apos;s OTC credit and {$(split.protection)} to its
-          protection pot.
+          halves would go to the leader instead: {$(split.otcReserve)} to the leader&apos;s OTC credit and {$(split.protection)} to its{" "}
+          {brand.landing} pot.
         </div>
       </div>
 

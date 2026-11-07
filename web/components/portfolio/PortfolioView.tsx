@@ -43,7 +43,7 @@ const signedUsd = (v: number) => (v === 0 ? usd(0) : `${v > 0 ? "+" : "−"}${us
 const toneClass = (v: number) => (v > 0 ? "text-up" : v < 0 ? "text-down" : "text-muted");
 
 const bucketMeta: Record<BucketKey, { icon: typeof ShieldCheck; href: string; body: string }> = {
-  protection: { icon: ShieldCheck, href: "/protection", body: "Pays part of realized losses back to the wallets that took them." },
+  protection: { icon: ShieldCheck, href: "/soft-landing", body: "Pays part of realized losses back to the wallets that took them." },
   otcReserve: { icon: ArrowLeftRight, href: "/otc", body: "Buys coins from sellers without moving the chart, and burns them." },
 };
 
@@ -162,7 +162,7 @@ function Portfolio({ data, solUsd }: { data: WalletSummary; solUsd: number }) {
                 <ShieldCheck size={18} />
               </IconTile>
             }
-            title="Protection payouts"
+            title={`${brand.landing} payouts`}
             sub="Losing sales, covered by hold time and the coin's pot, and sent to your wallet automatically."
           />
           <div className="mt-3">
@@ -213,7 +213,7 @@ function ProtectionCard({ data, solUsd }: { data: WalletSummary; solUsd: number 
           <IconTile color={MINT} size={40}>
             <ShieldCheck size={18} />
           </IconTile>
-          <Eyebrow>Protection received</Eyebrow>
+          <Eyebrow>Paid back by {brand.landing}</Eyebrow>
         </div>
         <div className="num font-display mt-6 text-4xl leading-none font-semibold sm:text-5xl">
           <AnimatedNumber value={p.receivedSol * solUsd} format={usd} />
@@ -245,7 +245,7 @@ function ProtectionCard({ data, solUsd }: { data: WalletSummary; solUsd: number 
               Your payouts
             </ButtonLink>
           )}
-          <ButtonLink href="/protection" variant="ghost">
+          <ButtonLink href="/soft-landing" variant="ghost">
             How coverage works <ArrowRight size={15} />
           </ButtonLink>
         </div>
@@ -415,8 +415,8 @@ function ConnectPrompt() {
   const { open } = useWalletModal();
   const benefits = [
     { icon: LineChart, color: "var(--accent)", title: "Entries and P&L", body: "Your average entry on every coin, fee included, against the live price." },
-    { icon: ShieldCheck, color: MINT, title: "Protection payouts", body: "Losses you realized and what the fund sent you for them, automatically." },
-    { icon: ArrowLeftRight, color: SKY, title: "Your fees at work", body: "What your 3% put into the OTC reserve and the protection fund." },
+    { icon: ShieldCheck, color: MINT, title: `${brand.landing} payouts`, body: "Losses you realized and what the fund sent you for them, automatically." },
+    { icon: ArrowLeftRight, color: SKY, title: "Your fees at work", body: `What your 3% put into the OTC reserve and the ${brand.landing} fund.` },
   ];
   return (
     <div className="ring-spectrum shadow-card relative overflow-hidden rounded-[32px]">
@@ -426,7 +426,7 @@ function ConnectPrompt() {
           <LogoMark size={56} className="squish" />
           <h2 className="font-display mt-6 text-3xl leading-tight font-semibold sm:text-4xl">Your coins, all in one place</h2>
           <p className="mt-3 max-w-md text-[15px] leading-relaxed text-muted">
-            Connect a wallet to see your positions, your profit and loss, and the protection payouts you&apos;ve received.
+            Connect a wallet to see your positions, your profit and loss, and the {brand.landing} payouts you&apos;ve received.
           </p>
           <Button size="lg" className="mt-7" onClick={open}>
             Connect wallet <ArrowRight size={16} />

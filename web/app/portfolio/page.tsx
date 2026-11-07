@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { brand } from "@cook/shared";
 import { PortfolioView } from "@/components/portfolio/PortfolioView";
 import { PageHeader } from "@/components/ui";
 
@@ -10,7 +11,7 @@ export default function PortfolioPage() {
       <PageHeader
         eyebrow="Portfolio"
         title="Your coins"
-        sub="What you hold, what it's worth, your entries and P&L, and the protection paid on your losing sales, in one place."
+        sub={`What you hold, what it's worth, your entries and P&L, and what ${brand.landing} paid back on your losing sales, in one place.`}
       />
       <PortfolioView />
     </div>

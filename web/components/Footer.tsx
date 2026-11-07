@@ -10,7 +10,7 @@ const cols = [
       { href: "/", label: "Coins" },
       { href: "/launch", label: "Launch a coin" },
       { href: "/otc", label: "OTC reserve" },
-      { href: "/protection", label: "Protection fund" },
+      { href: "/soft-landing", label: brand.landing },
       { href: "/portfolio", label: "Portfolio" },
     ],
   },
@@ -66,8 +66,8 @@ export function Footer() {
         </div>
         <p className="relative mt-10 border-t border-line pt-6 text-xs leading-relaxed text-faint">
           {brand.chainLabel} · {brand.poolsLabel}. Coins are issued by their creators and are highly volatile. The OTC
-          reserve and protection fund are backend-controlled Solana wallets you can audit on-chain. Protection coverage
-          is discretionary and capped, not insurance.
+          reserve and {brand.landing} fund are backend-controlled Solana wallets you can audit on-chain. {brand.landing}{" "}
+          payouts are discretionary and capped, not insurance.
         </p>
       </div>
     </footer>

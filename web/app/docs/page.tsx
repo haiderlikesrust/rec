@@ -86,7 +86,7 @@ const sections: DocsSection[] = [
   { id: "snipe", label: "Anti-snipe", group: "Mechanics" },
   { id: "graduation", label: "Graduation", group: "Mechanics" },
   { id: "otc", label: "OTC reserve", group: "Mechanics" },
-  { id: "protection", label: "Protection fund", group: "Mechanics" },
+  { id: "protection", label: brand.landing, group: "Mechanics" },
   { id: "nest", label: `The ${brand.nest}: copies`, group: "Mechanics" },
   { id: "wallets", label: "Treasury wallets", group: "Mechanics" },
   { id: "faq", label: "FAQ", group: "More" },
@@ -162,7 +162,7 @@ export default function DocsPage() {
             href: "#protection",
             icon: ShieldCheck,
             color: bucketColor.protection,
-            title: "Protection rules",
+            title: `${brand.landing} rules`,
             body: "Hold-time tiers, each coin's pot, caps, and automatic payouts.",
           },
           {
@@ -185,7 +185,7 @@ export default function DocsPage() {
                   the first second, paired with SOL, a stablecoin, one of 120+ tokenized stocks or any token you paste in. Unlike Pons
                   or pump.fun, <strong>none of the trading fee goes to the creator or the team</strong>. Every buy and sell pays{" "}
                   {TAX}%; after Meteora&apos;s protocol share it&apos;s converted to SOL and split in half:{" "}
-                  <strong>an OTC reserve</strong> anyone can sell into without slippage, and <strong>a protection fund</strong> that
+                  <strong>an OTC reserve</strong> anyone can sell into without slippage, and <strong>a {brand.landing} fund</strong> that
                   pays back part of realized losses. Copies of a coin can launch too, but they feed the original through its{" "}
                   {brand.nest}.
                 </p>
@@ -194,7 +194,7 @@ export default function DocsPage() {
                     { value: `${TAX}%`, label: "on every buy and sell, quote side", color: "var(--accent)" },
                     { value: "0%", label: "to creators and the team" },
                     { value: `${OTC_PCT}%`, label: "of the rest to the OTC reserve", color: bucketColor.otcReserve },
-                    { value: `${PROT_PCT}%`, label: "of the rest to the protection fund", color: bucketColor.protection },
+                    { value: `${PROT_PCT}%`, label: `of the rest to the ${brand.landing} fund`, color: bucketColor.protection },
                   ]}
                 />
               </div>
@@ -221,7 +221,7 @@ export default function DocsPage() {
                   icon: Split,
                   color: "var(--violet)",
                   title: "Split",
-                  body: `${brand.name}'s fee wallet claims the fees from every pool, swaps them to SOL and splits them in half: ${OTC_PCT}% to the OTC reserve, ${PROT_PCT}% to the protection fund.`,
+                  body: `${brand.name}'s fee wallet claims the fees from every pool, swaps them to SOL and splits them in half: ${OTC_PCT}% to the OTC reserve, ${PROT_PCT}% to the ${brand.landing} fund.`,
                 },
                 {
                   icon: ShieldCheck,
@@ -256,7 +256,7 @@ export default function DocsPage() {
               At {TAX}%, <strong>$10,000 of fees means about {$(VOLUME)} of trading volume</strong>, and $20,000 about{" "}
               {$(volumeForFees(20_000))}. Meteora&apos;s protocol share takes {$(10_000 * (1 - SHARE))} (or {$(20_000 * (1 - SHARE))}
               ); the other {$(10_000 * SHARE)} ({$(20_000 * SHARE)}) is converted to SOL and split in half:{" "}
-              {$(ten.otcReserve)} to the OTC reserve and {$(ten.protection)} to the protection fund ({$(twenty.otcReserve)} each at
+              {$(ten.otcReserve)} to the OTC reserve and {$(ten.protection)} to the {brand.landing} fund ({$(twenty.otcReserve)} each at
               $20,000).
             </p>
             <WorkedExample />
@@ -271,7 +271,7 @@ export default function DocsPage() {
                   who: "Ben, who bought the top",
                   color: bucketColor.protection,
                   icon: ShieldCheck,
-                  tag: "Protection fund",
+                  tag: brand.landing,
                   text: `Bought near the peak, held 7 hours, sold at a $120 loss. That's the ${BEN_TIER.label} tier: up to ${BEN_PCT}%, so ${$((120 * BEN_PCT) / 100)}, paid to his wallet in SOL about a minute after the sale, as long as it's within ${PROTECTION_CAP_X_TAX}× the fee he paid and ${PROTECTION_PAYOUT_BPS / 100}% of the coin's ${$(ten.protection)} pot.`,
                 },
                 {
@@ -286,7 +286,7 @@ export default function DocsPage() {
                   color: "var(--nest)",
                   icon: Egg,
                   tag: `The ${brand.nest}`,
-                  text: `Holds CAT. When C4T launches as a copy while CAT is alive, its $${N.entryUsd} entry buys C4T its creator never gets, and Eve is one of the up to ${N.recipients} CAT holders it's airdropped to; her entry is above the price, so her share counts extra. Every C4T trade then grows CAT's OTC credit and protection pot.`,
+                  text: `Holds CAT. When C4T launches as a copy while CAT is alive, its $${N.entryUsd} entry buys C4T its creator never gets, and Eve is one of the up to ${N.recipients} CAT holders it's airdropped to; her entry is above the price, so her share counts extra. Every C4T trade then grows CAT's OTC credit and ${brand.landing} pot.`,
                 },
                 {
                   who: "Every holder",
@@ -349,7 +349,7 @@ export default function DocsPage() {
                 },
                 {
                   label: "Returned to people who lost",
-                  cells: [`Up to ${$(ten.protection)} via the protection fund`, "$0", "$0", "$0"],
+                  cells: [`Up to ${$(ten.protection)} via the ${brand.landing} fund`, "$0", "$0", "$0"],
                   tones: ["good", "bad", "bad", "bad"],
                 },
                 {
@@ -438,7 +438,7 @@ export default function DocsPage() {
               <RuleCard flush icon={Repeat} color={bucketColor.otcReserve} title="Always settled to SOL">
                 <p>
                   Fees are collected in the quote asset. The fee wallet converts everything it claims to SOL before splitting it, so{" "}
-                  <strong>the OTC reserve and the protection fund are each one shared SOL balance</strong>, whatever the pair. Prices
+                  <strong>the OTC reserve and the {brand.landing} fund are each one shared SOL balance</strong>, whatever the pair. Prices
                   on the site are always shown in USD.
                 </p>
                 <p>
@@ -542,7 +542,7 @@ export default function DocsPage() {
             </RuleCard>
 
             <Heading id="protection" eyebrow="Loss cover">
-              Protection fund
+              {brand.landing}
             </Heading>
             <RuleCard icon={ShieldCheck} color={bucketColor.protection} title={`${PROT_PCT}% of fees, covering realized losses`}>
               <p>
@@ -569,7 +569,7 @@ export default function DocsPage() {
                   { title: "Capped by your tax", body: `Payouts are capped at ${PROTECTION_CAP_X_TAX}× the tax that wallet paid on that coin, across all its payouts.` },
                   {
                     title: "Sent automatically",
-                    body: `The protection wallet sends payouts in batches once a wallet is owed ${PROTECTION_MIN_PAYOUT_SOL} SOL. Nothing to claim and nothing expires.`,
+                    body: `The ${brand.landing} wallet sends payouts in batches once a wallet is owed ${PROTECTION_MIN_PAYOUT_SOL} SOL. Nothing to claim and nothing expires.`,
                   },
                   {
                     title: "Public and reproducible",
@@ -603,7 +603,7 @@ export default function DocsPage() {
                 {
                   icon: Egg,
                   title: "C4T trades",
-                  body: "While it doesn't lead, C4T's whole 50/50 split goes to CAT: the OTC half grows CAT's OTC credit, the protection half CAT's protection pot. Every C4T trade cushions CAT's holders.",
+                  body: `While it doesn't lead, C4T's whole 50/50 split goes to CAT: the OTC half grows CAT's OTC credit, the ${brand.landing} half CAT's ${brand.landing} pot. Every C4T trade cushions CAT's holders.`,
                 },
                 {
                   icon: Repeat,
@@ -644,7 +644,7 @@ export default function DocsPage() {
                   {
                     title: "What copies send",
                     icon: Split,
-                    body: `Every member that doesn't lead sends its whole 50/50 split to the leader: the OTC half grows the leader's OTC credit (${CREDIT_X}× sell capacity), the protection half the leader's protection pot.`,
+                    body: `Every member that doesn't lead sends its whole 50/50 split to the leader: the OTC half grows the leader's OTC credit (${CREDIT_X}× sell capacity), the ${brand.landing} half the leader's ${brand.landing} pot.`,
                   },
                   {
                     title: "The entry",
@@ -691,7 +691,7 @@ export default function DocsPage() {
                   "Fees don't buy or burn anything. Coins are burned when someone sells into the OTC reserve: the transaction that pays the seller burns the coins, so the reserve never holds or resells them.",
                 ],
                 [
-                  "Can I farm the protection fund by wash trading?",
+                  `Can I farm the ${brand.landing} fund by wash trading?`,
                   `Each round trip costs about ${TAX * 2}% in fees. Sales within 5 minutes of buying earn nothing, coverage is capped at ${PROTECTION_CAP_X_TAX}× the fee you paid, and a coin only pays from its own pot, at most ${PROTECTION_PAYOUT_BPS / 100}% of it per payout, so a farmer mostly gets back fees they paid in. That limits abuse; it can't rule it out entirely.`,
                 ],
                 [
@@ -708,11 +708,11 @@ export default function DocsPage() {
                 ],
                 [
                   "What if someone copies my coin?",
-                  `Let them: it joins your coin's ${brand.nest}. While your coin leads, the copy's whole 50/50 split goes to your coin, growing its OTC credit and protection pot. If your coin was alive when the copy launched, the copy also paid a $${N.entryUsd} entry that was airdropped to your holders. If your coin goes quiet and a copy carries on, the copy leads instead.`,
+                  `Let them: it joins your coin's ${brand.nest}. While your coin leads, the copy's whole 50/50 split goes to your coin, growing its OTC credit and ${brand.landing} pot. If your coin was alive when the copy launched, the copy also paid a $${N.entryUsd} entry that was airdropped to your holders. If your coin goes quiet and a copy carries on, the copy leads instead.`,
                 ],
                 [
                   "What happens to the launch fee?",
-                  `Each launch pays ${LAUNCH_FEE_SOL} SOL. Meteora keeps ${LAUNCH_FEE_METEORA_SHARE * 100}% and the rest is split like any fee: half to the OTC reserve, half to the protection fund, credited to the new coin (or to its ${brand.nest}'s leader, for a copy that doesn't lead).`,
+                  `Each launch pays ${LAUNCH_FEE_SOL} SOL. Meteora keeps ${LAUNCH_FEE_METEORA_SHARE * 100}% and the rest is split like any fee: half to the OTC reserve, half to the ${brand.landing} fund, credited to the new coin (or to its ${brand.nest}'s leader, for a copy that doesn't lead).`,
                 ],
                 [
                   "Can liquidity be pulled?",
@@ -731,11 +731,11 @@ export default function DocsPage() {
             <RiskCallout>
               <ul>
                 <li>
-                  <strong>Protection is discretionary and capped. It is not insurance.</strong> Payouts depend on the fund&apos;s size,
+                  <strong>{brand.landing} is discretionary and capped. It is not insurance.</strong> Payouts depend on the fund&apos;s size,
                   each coin&apos;s pot and the published rules. A coin can lose more than any coverage returns.
                 </li>
                 <li>
-                  <strong>The wallets are custodial.</strong> The fee wallet, OTC reserve, protection fund and {brand.nest} entries
+                  <strong>The wallets are custodial.</strong> The fee wallet, OTC reserve, {brand.landing} fund and {brand.nest} entries
                   wallet are ordinary Solana wallets controlled by {brand.name}&apos;s backend keys. You are trusting the operator&apos;s
                   key handling and its off-chain calculations of payouts, OTC limits and entry airdrops. Every balance and transfer is
                   public, but no program enforces the policy.
@@ -746,7 +746,7 @@ export default function DocsPage() {
                 </li>
                 <li>
                   <strong>Buying a copy.</strong> While a copy doesn&apos;t lead its {brand.nest}, its fees build its leader&apos;s OTC
-                  credit and protection pot, so its own buyers get little exit room or loss cover from it.
+                  credit and {brand.landing} pot, so its own buyers get little exit room or loss cover from it.
                 </li>
                 <li>
                   <strong>The {brand.nest} matches tickers and names, not logos.</strong> A copy with a different name and ticker but

@@ -21,7 +21,7 @@ export function FeesPanel({ coin, solUsd }: { coin: CoinDetail; solUsd: number }
     {
       key: "protection" as const,
       icon: ShieldCheck,
-      label: "Protection pot",
+      label: `${brand.landing} pot`,
       value: usd(b.solToProtection * solUsd),
       rows: [
         ["Paid in", sol(p.contributedSol)],

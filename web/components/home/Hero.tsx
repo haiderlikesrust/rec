@@ -18,7 +18,7 @@ export function Hero() {
     {
       key: "protection" as const,
       icon: ShieldCheck,
-      title: "Protection fund",
+      title: brand.landing,
       value: s ? usd(s.protectionFundSol * solUsd) : wait,
       sub: s ? `${usd(s.protectionPaidSol * solUsd)} paid back on losses` : "",
     },

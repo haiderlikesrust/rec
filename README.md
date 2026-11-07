@@ -11,7 +11,7 @@ fee wallet claims the rest, converts it to SOL and splits it in half:
 
 | Bucket | Share | Paid in | Goes to |
 |---|---|---|---|
-| Protection fund | 50% | SOL (converted) | Loss payouts, sent automatically: up to 60% by hold time (70% on rugs), from the coin's own pot |
+| Soft Landing (protection fund) | 50% | SOL (converted) | Loss payouts, sent automatically: up to 60% by hold time (70% on rugs), from the coin's own pot |
 | OTC reserve | 50% | SOL (converted) | A SOL wallet you sell coins into with no slippage; limits follow each coin's contributions |
 
 There is no platform token, no buyback and no fee airdrop.

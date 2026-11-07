@@ -29,7 +29,7 @@ const slots: Slot[] = [
     key: "protection",
     icon: ShieldCheck,
     color: bucketColor.protection,
-    title: "Protection fund",
+    title: brand.landing,
     body: "Holds the SOL for loss cover and sends every payout, with nothing to claim.",
   },
   {

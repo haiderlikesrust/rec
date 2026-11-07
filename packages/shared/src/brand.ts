@@ -14,4 +14,6 @@ export const brand = {
   docsPath: "/docs",
   /** What Bloodline (packages/shared/src/bloodline.ts) is called on the site. */
   nest: "Nest",
+  /** What the protection fund is called on the site. */
+  landing: "Soft Landing",
 } as const;

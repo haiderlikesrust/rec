@@ -88,7 +88,7 @@ function Empty({ coin }: { coin: CoinDetail }) {
   const steps = [
     `A look-alike of $${coin.symbol} launches and joins its ${brand.nest}`,
     `While $${coin.symbol} is alive, the copy pays a ${usd(BLOODLINE.entryUsd)} entry, airdropped to $${coin.symbol} holders`,
-    `Every fee the copy makes grows $${coin.symbol}'s OTC limit and protection pot`,
+    `Every fee the copy makes grows $${coin.symbol}'s OTC limit and ${brand.landing} pot`,
   ];
   return (
     <div className="mt-5">
@@ -143,7 +143,7 @@ export function NestPanel({ coin }: { coin: CoinDetail }) {
         <>
           <div className="relative mt-5 grid grid-cols-3 gap-2.5">
             {[
-              { icon: ArrowLeftRight, label: "Sent to leaders", value: usd(data.routedUsd), sub: "OTC + protection" },
+              { icon: ArrowLeftRight, label: "Sent to leaders", value: usd(data.routedUsd), sub: `OTC + ${brand.landing}` },
               { icon: Gift, label: "Entries paid", value: usd(data.entriesUsd), sub: "by copies, at launch" },
               { icon: Users, label: "Holders airdropped", value: num(data.entryRecipients, 0), sub: "from entries" },
             ].map((s) => (

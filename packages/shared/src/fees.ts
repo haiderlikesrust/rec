@@ -1,9 +1,11 @@
+import { brand } from "./brand";
+
 /**
  * Fee policy, shared by the backend (fee router, protection payouts), the API and the UI.
  *
  * Every pool is a Meteora DBC pool configured with a 3% fee taken on the quote side of every buy and sell
  * (CollectFeeMode.QuoteToken), 0% to the creator. Meteora keeps its protocol share of that fee; the rest is claimed
- * by the backend's fee wallet, converted to SOL and split in half: the OTC reserve and the protection fund. Graduated
+ * by the backend's fee wallet, converted to SOL and split in half: the OTC reserve and the protection fund (Soft Landing on the site). Graduated
  * pools (DAMM v2) keep the same 3%.
  */
 export const TAX_BPS = 300;
@@ -30,8 +32,8 @@ export const buckets: {
   {
     key: "protection",
     bps: 5000,
-    label: "Protection fund",
-    short: "Protection",
+    label: brand.landing,
+    short: brand.landing,
     paidIn: "SOL",
     blurb: "Covers realized losses: up to 70%, by hold time and by how much the coin paid into the fund.",
   },

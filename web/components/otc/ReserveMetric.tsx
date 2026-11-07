@@ -3,7 +3,7 @@
 import clsx from "clsx";
 import { ArrowLeftRight, ArrowUpRight } from "lucide-react";
 import Link from "next/link";
-import { otcPolicy } from "@cook/shared";
+import { brand, otcPolicy } from "@cook/shared";
 import { bucketColor } from "@/lib/buckets";
 import { useOtc, useStats } from "@/lib/data";
 import { explorerAddress } from "@/lib/explorer";
@@ -86,8 +86,8 @@ export function ReservePanel({ className }: { className?: string }) {
           <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: SKY }} />
           <span>
             Funded by half of every trading fee on every coin, converted to SOL after Meteora&apos;s share. The other half goes to the{" "}
-            <Link href="/protection" className="font-semibold text-fg underline decoration-line-strong underline-offset-4 hover:decoration-up">
-              protection fund
+            <Link href="/soft-landing" className="font-semibold text-fg underline decoration-line-strong underline-offset-4 hover:decoration-up">
+              {brand.landing} fund
             </Link>
             .
           </span>

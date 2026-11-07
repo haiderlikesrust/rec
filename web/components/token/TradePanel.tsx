@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
 import { ArrowDown, Loader2, Settings2, Zap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { buyTaxBpsAt, NATIVE_MINT, SNIPE, TAX_BPS, type Coin } from "@cook/shared";
+import { brand, buyTaxBpsAt, NATIVE_MINT, SNIPE, TAX_BPS, type Coin } from "@cook/shared";
 import { client, useBalances } from "@/lib/data";
 import { bps, formatRaw, num, pct, sig, toRaw, tokens, units, usd } from "@/lib/format";
 import { errorMessage, useSolanaTx } from "@/lib/tx";
@@ -315,7 +315,7 @@ export function TradePanel({ coin, initialSide = "buy" }: { coin: Coin; initialS
       <TxStatus state={tx.state} className="mt-3" />
       <p className="mt-3 px-1 text-[11px] leading-relaxed text-faint">
         3% of the {quote.symbol} side, after Meteora&apos;s protocol share, is split in half between the OTC reserve and the
-        protection fund. None goes to the creator or the team.
+        {brand.landing} fund. None goes to the creator or the team.
       </p>
     </section>
   );

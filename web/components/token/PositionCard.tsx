@@ -93,7 +93,7 @@ export function PositionCard({ coin }: { coin: CoinDetail }) {
           <span className="text-muted">
             Loss cover if sold now: <span className="num font-bold text-fg">{bps(tierBps)}</span>
           </span>
-          <Link href="/protection" className="font-display ml-auto font-semibold text-accent-2 hover:underline">
+          <Link href="/soft-landing" className="font-display ml-auto font-semibold text-accent-2 hover:underline">
             Rules
           </Link>
         </div>

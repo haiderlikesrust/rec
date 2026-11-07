@@ -82,7 +82,7 @@ function GraduationStatus({ coin }: { coin: CoinDetail }) {
           <span className="font-display font-semibold">Graduated to Meteora DAMM v2</span>
         </div>
         <span className="text-xs text-muted sm:flex-1">
-          Same 3% fee on every trade. The pool&apos;s liquidity is locked for good, and its fees keep funding OTC and protection.
+          Same 3% fee on every trade. The pool&apos;s liquidity is locked for good, and its fees keep funding OTC and {brand.landing}.
         </span>
         {coin.dammPool && (
           <a
@@ -266,7 +266,7 @@ export function TokenView({ address }: { address: string }) {
             <Stat label="24h volume" value={usd(coin.volume24hUsd)} sub={`${coin.trades24h} trades`} />
             <Stat label="Holders" value={num(coin.holders)} sub="wallets" />
             <Stat label="Burned via OTC" value={`${burnedPct.toFixed(2)}%`} sub={`${tokens(coin.burned, coin.decimals)} ${coin.symbol}`} />
-            <Stat label="Fees paid" value={usd(coin.feesUsd)} sub="all to OTC + protection" />
+            <Stat label="Fees paid" value={usd(coin.feesUsd)} sub={`all to OTC + ${brand.landing}`} />
           </div>
         </div>
 

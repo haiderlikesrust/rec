@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
+import { brand } from "@cook/shared";
 import { ProtectionView } from "@/components/protection/ProtectionView";
 import { PageHeader } from "@/components/ui";
 
-export const metadata: Metadata = { title: "Protection fund" };
+export const metadata: Metadata = { title: brand.landing };
 
-export default function ProtectionPage() {
+export default function SoftLandingPage() {
   return (
     <div className="space-y-10">
       <PageHeader
-        eyebrow="Protection fund"
+        eyebrow={brand.landing}
         title={
           <>
             Sold at a loss?

@@ -5,7 +5,7 @@ display type over **Nunito**, soft-shadowed panels with barely-there edges, pill
 never corporate. Adapted from the Ripburn "cloud & ember" system, tuned for one dark theme.
 
 ## Product facts the UI must reflect
-- Every trade pays 3%. Meteora keeps its share; the rest is split **50% OTC reserve, 50% protection fund**. Nothing
+- Every trade pays 3%. Meteora keeps its share; the rest is split **50% OTC reserve, 50% protection fund** (shown as `brand.landing`, "Soft Landing"). Nothing
   else: no buybacks, no burns from fees, no airdrops from fees, no platform token, 0% to creators and the team.
 - **The Nest** (code name: bloodline): look-alike copies of a coin (CAT, C4T, C@T) join the original's Nest. While
   the leader leads, each copy sends its whole 50/50 split to the leader's OTC credit and protection pot. A copy

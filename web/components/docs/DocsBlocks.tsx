@@ -164,7 +164,7 @@ export function SplitCards({ icon }: { icon: Record<(typeof buckets)[number]["ke
             Each launch pays <span className="num text-fg">{LAUNCH_FEE_SOL} SOL</span>. Meteora keeps {LAUNCH_FEE_METEORA_SHARE * 100}%;
             the other <span className="num">{launchRest.toFixed(3)}</span> SOL is split like the coin&apos;s fees:{" "}
             <span className="num">{launchSplit.otcReserve.toFixed(4)}</span> to the OTC reserve,{" "}
-            <span className="num">{launchSplit.protection.toFixed(4)}</span> to the protection fund.
+            <span className="num">{launchSplit.protection.toFixed(4)}</span> to the {brand.landing} fund.
           </div>
         </div>
       </div>

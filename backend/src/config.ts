@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Keypair } from "@solana/web3.js";
 import bs58 from "bs58";
-import { clusters, type Cluster, type TreasuryWallet } from "@cook/shared";
+import { brand, clusters, type Cluster, type TreasuryWallet } from "@cook/shared";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const demo = process.env.DEMO === "1";
@@ -48,7 +48,7 @@ export type Role = TreasuryWallet["role"];
 export const roles: { role: Role; label: string; env: string }[] = [
   { role: "fees", label: "Fee wallet (claims and splits)", env: "FEE_WALLET" },
   { role: "otc", label: "OTC reserve", env: "OTC_WALLET" },
-  { role: "protection", label: "Protection fund", env: "PROTECTION_WALLET" },
+  { role: "protection", label: brand.landing, env: "PROTECTION_WALLET" },
   { role: "airdrop", label: "Nest entries wallet", env: "AIRDROP_WALLET" },
 ];
 

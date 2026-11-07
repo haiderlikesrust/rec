@@ -72,7 +72,7 @@ export function ProtectionView() {
               </IconTile>
             }
             title="Recent payouts"
-            sub="Every covered loss, newest first, paid from the protection wallet."
+            sub={`Every covered loss, newest first, paid from the ${brand.landing} wallet.`}
           />
           <div className="mt-3 border-t border-line px-5 sm:px-6">
             {isError ? (
@@ -359,7 +359,7 @@ function PotCard({ payoutBps }: { payoutBps: number }) {
       <div className="mt-4 flex items-start gap-3 rounded-2xl bg-nest-soft px-4 py-3">
         <Egg size={16} className="mt-0.5 shrink-0 text-nest" />
         <p className="text-[12px] leading-relaxed text-muted">
-          <span className="font-semibold text-nest">The {brand.nest}.</span> Copies of a coin send their protection half to their {brand.nest}&apos;s leader, so
+          <span className="font-semibold text-nest">The {brand.nest}.</span> Copies of a coin send their {brand.landing} half to their {brand.nest}&apos;s leader, so
           a leader&apos;s pot grows from its copies too.
         </p>
       </div>
@@ -427,7 +427,7 @@ function CoinPots({ coins, loading, error, solUsd }: { coins?: CoinProtection[];
           </div>
         ) : !coins || coins.length === 0 ? (
           <div className="px-5 pb-6 sm:px-6">
-            <EmptyState title="No pots yet" detail="A coin gets a pot as soon as its first fees reach the protection fund." />
+            <EmptyState title="No pots yet" detail={`A coin gets a pot as soon as its first fees reach the ${brand.landing} fund.`} />
           </div>
         ) : (
           <>

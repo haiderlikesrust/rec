@@ -14,7 +14,7 @@ import { ConnectWallet } from "./wallet/ConnectWallet";
 const nav = [
   { href: "/", label: "Coins", blurb: "Every coin, every pair" },
   { href: "/otc", label: "OTC", blurb: "Sell into the SOL reserve, no slippage" },
-  { href: "/protection", label: "Protection", blurb: "Part of a loss, paid back automatically" },
+  { href: "/soft-landing", label: brand.landing, blurb: "Part of a loss, paid back automatically" },
   { href: "/portfolio", label: "Portfolio", blurb: "Your coins and payouts" },
   { href: "/docs", label: "Docs", blurb: "How the 3% comes back" },
 ];

@@ -151,7 +151,7 @@ function NestNotice({ check, ticker, entryCost }: { check: BloodlineCheck; ticke
             are airdropped to ${e.to.symbol}&apos;s holders. Your own first buy comes right after it.
           </li>
           <li>
-            While ${f.leader.symbol} leads, every fee ${ticker} makes goes to its OTC reserve and protection pot. Outgrow it and ${ticker}{" "}
+            While ${f.leader.symbol} leads, every fee ${ticker} makes goes to its OTC reserve and {brand.landing} pot. Outgrow it and ${ticker}{" "}
             leads.
           </li>
           <li className="text-faint">Pick a ticker and name of your own to launch without the entry.</li>
@@ -451,7 +451,7 @@ export function LaunchForm() {
         <StepCard
           n={3}
           title="Market"
-          sub="Pick what your coin trades against: SOL, a stablecoin, a tokenized stock or any token by its address. Whatever the pair, the protection fund and OTC reserve always receive SOL."
+          sub={`Pick what your coin trades against: SOL, a stablecoin, a tokenized stock or any token by its address. Whatever the pair, the ${brand.landing} fund and OTC reserve always receive SOL.`}
         >
           {quotesLoading && <p className="mb-3 text-xs text-muted">Loading pairs…</p>}
           {quotesError && <p className="mb-3 text-xs text-down">Couldn&apos;t load pairs from {brand.name}.</p>}

@@ -30,7 +30,7 @@ const roleColor: Record<TreasuryWallet["role"], string> = {
 const roleLabel: Record<TreasuryWallet["role"], string> = {
   fees: "Fee wallet",
   otc: "OTC reserve",
-  protection: "Protection",
+  protection: brand.landing,
   airdrop: `${brand.nest} entries`,
 };
 
@@ -153,7 +153,7 @@ export function FeeBuckets() {
           icon={ShieldCheck}
           color={bucketColor.protection}
           pct={share("protection")}
-          title="Protection fund"
+          title={brand.landing}
           value={s ? usd(s.protectionFundSol * solUsd) : wait}
           sub={s ? `in the fund · ${usd(s.protectionPaidSol * solUsd)} paid out` : ""}
           body="Sold at a loss? Part of it comes back to your wallet on its own, with nothing to claim."
@@ -162,7 +162,7 @@ export function FeeBuckets() {
             `Capped at ${PROTECTION_CAP_X_TAX}× the tax you paid on that coin`,
             `One payout takes at most ${bps(PROTECTION_PAYOUT_BPS)} of the coin's own pot`,
           ]}
-          href="/protection"
+          href="/soft-landing"
           cta="See the fund"
         />
         <Half
@@ -214,7 +214,7 @@ export function FeeBuckets() {
           {[
             { n: 1, text: `A copy launched while the original is alive pays a $${BLOODLINE.entryUsd} entry it never gets back` },
             { n: 2, text: `Those coins go to up to ${BLOODLINE.recipients} of the original's holders, weighted toward high entries` },
-            { n: 3, text: "Every fee the copy makes goes to the original's OTC limit and protection pot" },
+            { n: 3, text: `Every fee the copy makes goes to the original's OTC limit and ${brand.landing} pot` },
           ].map((step) => (
             <li key={step.n} className="rounded-2xl bg-sunk p-4 text-[13px] leading-relaxed text-muted shadow-[inset_0_0_0_1px_var(--line)]">
               <span className="font-display mb-2 flex h-7 w-7 items-center justify-center rounded-full bg-nest-soft text-sm font-bold text-nest">{step.n}</span>
