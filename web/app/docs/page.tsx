@@ -286,7 +286,7 @@ export default function DocsPage() {
                   color: "var(--nest)",
                   icon: Egg,
                   tag: `The ${brand.nest}`,
-                  text: `Holds CAT. When C4T launches as a copy while CAT is alive, its $${N.entryUsd} entry buys C4T its creator never gets, and Eve is one of the up to ${N.recipients} CAT holders it's airdropped to; her entry is above the price, so her share counts extra. Every C4T trade then grows CAT's OTC credit and ${brand.landing} pot.`,
+                  text: `Holds DOGE. When DOG3 launches as a copy while DOGE is alive, its $${N.entryUsd} entry buys DOG3 its creator never gets, and Eve is one of the up to ${N.recipients} DOGE holders it's airdropped to; her entry is above the price, so her share counts extra. Every DOG3 trade then grows DOGE's OTC credit and ${brand.landing} pot.`,
                 },
                 {
                   who: "Every holder",
@@ -587,28 +587,28 @@ export default function DocsPage() {
               The {brand.nest}: copies feed the original
             </Heading>
             <p>
-              A vamp copies a coin that&apos;s working, with the same name, a near-identical ticker like C4T or C@T and the same story,
+              A vamp copies a coin that&apos;s working, with the same name, a near-identical ticker like DOG3 or DÖGE and the same story,
               and tries to pull its buyers away. Other launchpads try to block copies. {brand.name} lets them launch, and puts them in
               the original&apos;s <strong>{brand.nest}</strong>, where they feed the coin they copied.
             </p>
             <StepCards
               color="var(--nest)"
               steps={[
-                { icon: Crown, title: "CAT launches", body: `The first coin with a name is the OG. While people trade it, it leads its ${brand.nest}.` },
+                { icon: Crown, title: "DOGE launches", body: `The first coin with a name is the OG. While people trade it, it leads its ${brand.nest}.` },
                 {
                   icon: Copy,
-                  title: "C4T copies it",
-                  body: `C4T joins CAT's ${brand.nest}. Because CAT is alive, C4T's launch opens with a $${N.entryUsd} buy of C4T that its creator never receives: about ${ENTRY_SUPPLY_PCT.toFixed(1)}% of C4T's supply, airdropped to CAT's holders.`,
+                  title: "DOG3 copies it",
+                  body: `DOG3 joins DOGE's ${brand.nest}. Because DOGE is alive, DOG3's launch opens with a $${N.entryUsd} buy of DOG3 that its creator never receives: about ${ENTRY_SUPPLY_PCT.toFixed(1)}% of DOG3's supply, airdropped to DOGE's holders.`,
                 },
                 {
                   icon: Egg,
-                  title: "C4T trades",
-                  body: `While it doesn't lead, C4T's whole 50/50 split goes to CAT: the OTC half grows CAT's OTC credit, the ${brand.landing} half CAT's ${brand.landing} pot. Every C4T trade cushions CAT's holders.`,
+                  title: "DOG3 trades",
+                  body: `While it doesn't lead, DOG3's whole 50/50 split goes to DOGE: the OTC half grows DOGE's OTC credit, the ${brand.landing} half DOGE's ${brand.landing} pot. Every DOG3 trade cushions DOGE's holders.`,
                 },
                 {
                   icon: Repeat,
-                  title: "CAT goes quiet",
-                  body: `Once CAT stops being alive, the best alive member leads. If that's C4T, CAT's split and every other copy's flow to C4T: the ${brand.nest} follows whoever the market keeps alive.`,
+                  title: "DOGE goes quiet",
+                  body: `Once DOGE stops being alive, the best alive member leads. If that's DOG3, DOGE's split and every other copy's flow to DOG3: the ${brand.nest} follows whoever the market keeps alive.`,
                 },
               ]}
             />
@@ -632,7 +632,7 @@ export default function DocsPage() {
                       <>
                         Coins whose ticker or name reads the same once look-alike characters are folded together: 0 reads as O, 1 and L
                         as I, 4 and @ as A, 5 and $ as S, Cyrillic and Greek look-alikes as their Latin twins, with accents, spaces and
-                        punctuation dropped. CAT, C4T, C@T and &quot;Cat&quot; all read as CAT.
+                        punctuation dropped. DOGE, DOG3, DÖGE and &quot;Doge&quot; all read as DOGE.
                       </>
                     ),
                   },

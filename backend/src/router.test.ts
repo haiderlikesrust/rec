@@ -175,6 +175,20 @@ test("a send that fails puts the unsent SOL back for the next pass instead of st
   }
 });
 
+test("a config built for older market caps is replaced at the next launch, and keeps its own curve", async () => {
+  const { GRADUATION_MCAP_USD, START_MCAP_USD } = await import("@cook/shared");
+  const { configCurve } = await import("./prices");
+  const usdt = one<{ mint: string }>("SELECT mint FROM quote WHERE symbol = 'USDT'")!.mint;
+  const old = engine.configFor(usdt);
+  run("UPDATE config SET start_mcap_usd = 2500, grad_mcap_usd = 30000 WHERE address = ?", old.address);
+  const fresh = engine.configFor(usdt);
+  assert.notEqual(fresh.address, old.address, "the outdated config is retired");
+  assert.equal(fresh.start_mcap_usd, START_MCAP_USD);
+  assert.equal(fresh.grad_mcap_usd, GRADUATION_MCAP_USD);
+  const legacy = one<{ quote_usd: number; start_mcap_usd: number; grad_mcap_usd: number }>("SELECT * FROM config WHERE address = ?", old.address)!;
+  assert.ok(Math.abs(configCurve(legacy).sqrtStart ** 2 * 1e9 * legacy.quote_usd - 2500) < 1, "its coins still price from $2.5k");
+});
+
 test("a first buy paid in SOL on another pair swaps into the quote, then launches with what arrived", async () => {
   const usdc = one<{ mint: string }>("SELECT mint FROM quote WHERE symbol = 'USDC'")!.mint;
   const creator = fakeKey();

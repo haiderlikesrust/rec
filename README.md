@@ -2,8 +2,8 @@
 
 Every Cushion coin is a [Meteora](https://meteora.ag) pool: a Dynamic Bonding Curve from launch, then a DAMM v2 pool
 once it graduates. A coin can pair with SOL, a stablecoin or any of 120+ tokenized stocks (xStocks, Backpack stocks,
-PreStocks, Tessera). The quote list is the set stonk.fun offers. Every coin starts at a **$2.5k** market cap and
-graduates at **$30k**, whatever its pair.
+PreStocks, Tessera). The quote list is the set stonk.fun offers. Every coin starts at a **$3k** market cap and
+graduates at **$35k**, whatever its pair.
 
 The pool charges **3% on the quote side of every buy and sell**. Creators and the team take nothing. Meteora keeps
 its protocol share: 20% of the fee, or 16% on trades the site builds, because the fee wallet is the referral. The
@@ -16,7 +16,7 @@ fee wallet claims the rest, converts it to SOL and splits it in half:
 
 There is no platform token, no buyback and no fee airdrop.
 
-**The Nest.** Coins whose ticker or name reads the same once look-alikes are folded (CAT, C4T, C@T) form one Nest.
+**The Nest.** Coins whose ticker or name reads the same once look-alikes are folded (DOGE, DOG3, DÖGE) form one Nest.
 The original leads while it's alive (3+ traders and $300+ volume in 12 hours), then the best alive member, then the
 best member overall. Every member that doesn't lead sends its whole split to the leader: its OTC half grows the
 leader's OTC credit and its protection half the leader's pot. A copy launched while the leader is alive pays a $500
@@ -36,7 +36,7 @@ settles atomically or not at all. Nest entries and protection payouts are pushed
 The brand lives in [packages/shared/src/brand.ts](packages/shared/src/brand.ts): `Cushion`, the domain and X account.
 
 The policy lives in [packages/shared/src/fees.ts](packages/shared/src/fees.ts) (split, anti-snipe, OTC, protection)
-and [packages/shared/src/quotes.ts](packages/shared/src/quotes.ts) (quote catalog with logos, $2.5k / $30k).
+and [packages/shared/src/quotes.ts](packages/shared/src/quotes.ts) (quote catalog with logos, $3k / $35k).
 
 ## Layout
 
@@ -53,8 +53,8 @@ packages/shared/  API types, fee policy, quote catalog, brand, Solana constants
 
 1. **Launch.** The backend builds `createPoolWithFirstBuy` against the quote's config. The new mint key
    co-signs, and the creator signs and pays the network fee plus a 0.01 SOL pool-creation fee (split like the coin's
-   fees). Each quote has its own DBC config, priced from the quote's live USD price so the curve starts at $2.5k
-   and completes at $30k. A config is replaced when that price drifts more than 15%.
+   fees). Each quote has its own DBC config, priced from the quote's live USD price so the curve starts at $3k
+   and completes at $35k. A config is replaced when that price drifts more than 15%, or when those targets change.
 2. **Trade.** The 3% fee is charged by Meteora on every swap, through the site or any aggregator. It starts at 99% and
    decays to 3% over the first 6 seconds as anti-snipe. The creator's bundled first buy skips that ramp.
 3. **Graduate.** The curve migrates to DAMM v2 with the same 3%. 100% of the LP is permanently locked to the fee

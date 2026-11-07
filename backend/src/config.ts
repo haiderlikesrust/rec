@@ -34,7 +34,7 @@ export const config = {
   entriesEveryMs: Number(process.env.ENTRIES_EVERY_MS ?? process.env.AIRDROPS_EVERY_MS ?? (demo ? 5_000 : 20_000)),
   /** How often realized losses are covered and owed protection payouts sent. */
   protectionEveryMs: Number(process.env.PROTECTION_EVERY_MS ?? (demo ? 5_000 : 30_000)),
-  /** A config is replaced once its quote's USD price drifts this far, so new coins still start at $2.5k. */
+  /** A config is replaced once its quote's USD price drifts this far, so new coins still start at START_MCAP_USD. */
   configDriftBps: Number(process.env.CONFIG_DRIFT_BPS ?? 1500),
   pollMs: Number(process.env.POLL_MS ?? 4000),
   solUsdFallback: Number(process.env.SOL_USD ?? 100),

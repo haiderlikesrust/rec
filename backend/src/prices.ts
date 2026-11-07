@@ -1,5 +1,6 @@
 import { GRADUATION_MCAP_USD, NATIVE_MINT, START_MCAP_USD, quoteCatalog, type QuoteAsset, type QuoteCategory } from "@cook/shared";
 import { config, log } from "./config";
+import { curveFor } from "./curve";
 import { all, one, run, type QuoteRow } from "./db";
 
 /** Seeds the quote table from the shared catalog (keeps live prices and availability already stored). */
@@ -85,12 +86,27 @@ export const solPerUnit = (mint: string) => (mint === NATIVE_MINT ? 1 : (quoteRo
 export const toUnits = (raw: bigint | string, decimals: number) => Number(BigInt(raw)) / 10 ** decimals;
 export const fromUnits = (units: number, decimals: number) => BigInt(Math.floor(units * 10 ** decimals));
 
-type ConfigRow = { address: string; quote: string; quote_usd: number; threshold: string; created_at: number };
+type ConfigRow = {
+  address: string;
+  quote: string;
+  quote_usd: number;
+  threshold: string;
+  created_at: number;
+  start_mcap_usd: number;
+  grad_mcap_usd: number;
+};
 
 /** The config new coins on a quote launch from: the newest active one, if its price band is still current. */
 export function activeConfig(mint: string): ConfigRow | undefined {
   return one<ConfigRow>("SELECT * FROM config WHERE quote = ? AND active = 1 ORDER BY created_at DESC LIMIT 1", mint);
 }
+
+/** True for a config built for today's start and graduation market caps; an older one is replaced at the next launch. */
+export const currentTargets = (c: ConfigRow) => c.start_mcap_usd === START_MCAP_USD && c.grad_mcap_usd === GRADUATION_MCAP_USD;
+
+/** The curve a config's coins trade on, from the market caps it was built for. */
+export const configCurve = (c: Pick<ConfigRow, "quote_usd" | "start_mcap_usd" | "grad_mcap_usd">) =>
+  curveFor(c.start_mcap_usd / c.quote_usd, c.grad_mcap_usd / c.quote_usd);
 
 export function toQuoteAsset(q: QuoteRow): QuoteAsset {
   const cfg = activeConfig(q.mint);

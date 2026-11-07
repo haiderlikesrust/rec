@@ -197,7 +197,7 @@ export function FeeBuckets() {
             The {brand.nest}: copies feed the original
           </h3>
           <p className="mt-3 text-[15px] leading-relaxed text-muted">
-            Launch CAT, and C4T, C@T or Сat join its {brand.nest}. Copying is allowed, it just pays the coin it copied.
+            Launch DOGE, and DOG3, DÖGE or D0G3 join its {brand.nest}. Copying is allowed, it just pays the coin it copied.
           </p>
           {s && s.nestRoutedSol > 0 ? (
             <div className="mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">

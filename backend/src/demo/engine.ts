@@ -29,7 +29,7 @@ import { all, big, kvGet, kvSet, one, run, tx, type CoinRow, type OtcQuoteRow } 
 import { UserError, type Engine } from "../engine";
 import { COIN_DECIMALS, SUPPLY_RAW, buy, curveFor, quoteReserve, sell, type CurveState } from "../curve";
 import { SYSTEM, getCoin, quoteDecimals, recordLaunch, recordTrade } from "../ledger";
-import { activeConfig, quoteRow, solPerUnit, toUnits } from "../prices";
+import { activeConfig, configCurve, currentTargets, quoteRow, solPerUnit, toUnits } from "../prices";
 import { now } from "../services";
 
 const SOL = "SOL";
@@ -234,17 +234,19 @@ export class DemoEngine implements Engine {
   configFor(quoteMint: string) {
     const q = quoteRow(quoteMint)!;
     const cfg = activeConfig(quoteMint);
-    if (cfg && Math.abs(q.usd - cfg.quote_usd) / cfg.quote_usd < 0.15) return cfg;
+    if (cfg && currentTargets(cfg) && Math.abs(q.usd - cfg.quote_usd) / cfg.quote_usd < 0.15) return cfg;
     const curve = curveFor(START_MCAP_USD / q.usd, GRADUATION_MCAP_USD / q.usd);
     const address = fakeKey();
     run("UPDATE config SET active = 0 WHERE quote = ?", quoteMint);
     run(
-      "INSERT INTO config (address, quote, quote_usd, threshold, created_at) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO config (address, quote, quote_usd, threshold, created_at, start_mcap_usd, grad_mcap_usd) VALUES (?, ?, ?, ?, ?, ?, ?)",
       address,
       quoteMint,
       q.usd,
       BigInt(Math.floor(curve.threshold * 10 ** q.decimals)).toString(),
       this.at(),
+      START_MCAP_USD,
+      GRADUATION_MCAP_USD,
     );
     return activeConfig(quoteMint)!;
   }
@@ -254,7 +256,7 @@ export class DemoEngine implements Engine {
     const q = quoteRow(req.quote);
     if (!q) throw new UserError("Unknown quote asset.");
     const cfg = this.configFor(req.quote);
-    const curve = curveFor(START_MCAP_USD / cfg.quote_usd, GRADUATION_MCAP_USD / cfg.quote_usd);
+    const curve = configCurve(cfg);
     const mint = fakeKey();
     const pool = fakeKey();
     return tx(() => {

@@ -4,13 +4,13 @@ export const brand = {
   tagline: "Launch on Solana. Every fee cushions the holders.",
   /** Short line for titles and link previews. */
   slogan: "every fee cushions the fall",
-  // the site still runs on the old domain and X account until new ones are set up
+  // the site still runs on the old domain until a new one is set up
   domain: "recur.lol",
   url: "https://recur.lol",
   chainLabel: "Built on Solana",
   poolsLabel: "Pools on Meteora",
-  x: "https://x.com/recurdotlol",
-  xHandle: "@recurdotlol",
+  x: "https://x.com/launchoncushion",
+  xHandle: "@launchoncushion",
   docsPath: "/docs",
   /** What Bloodline (packages/shared/src/bloodline.ts) is called on the site. */
   nest: "Nest",

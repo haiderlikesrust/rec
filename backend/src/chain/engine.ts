@@ -60,7 +60,7 @@ import { COIN_DECIMALS, SUPPLY_RAW, curveFor } from "../curve";
 import { all, big, kvGet, kvSet, one, run, type CoinRow, type OtcQuoteRow } from "../db";
 import { UserError, memoFor, type Engine } from "../engine";
 import { SYSTEM, coinByPool, getCoin, quoteDecimals, recordLaunch, recordTrade, recordTransfer } from "../ledger";
-import { activeConfig, quoteRow } from "../prices";
+import { activeConfig, configCurve, currentTargets, quoteRow } from "../prices";
 import { LOW_SOL, QUOTE_REJECTED } from "./errors";
 import { accountKeys, asBig, asKey, decodeEvents, field, sqrtFromQ64, swapsOf } from "./events";
 import { jupQuote, jupSwapTx } from "./jupiter";
@@ -87,7 +87,7 @@ const PLAIN_EXTENSIONS = [ExtensionType.MetadataPointer, ExtensionType.TokenMeta
 const PENDING_CONFIG_SECONDS = 15 * 60;
 // kv prefix for custom-pair configs built in pairSetup that may not have landed yet
 const PENDING = "pending-config:";
-type PendingConfig = { quote: string; usd: number; threshold: string; decimals: number; at: number };
+type PendingConfig = { quote: string; usd: number; threshold: string; decimals: number; at: number; start?: number; grad?: number };
 // polls in a row a transaction may fail to index before the indexer moves past it
 const MAX_INGEST_TRIES = 5;
 // fee splits and entry airdrops send many small transactions, so the default priority fee stays low
@@ -262,7 +262,7 @@ export class ChainEngine implements Engine {
       return custom;
     }
     const cfg = activeConfig(quoteMint);
-    if (cfg && Math.abs(q.usd - cfg.quote_usd) / cfg.quote_usd < config.configDriftBps / 10_000) return cfg;
+    if (cfg && currentTargets(cfg) && Math.abs(q.usd - cfg.quote_usd) / cfg.quote_usd < config.configDriftBps / 10_000) return cfg;
     let p = this.configInFlight.get(quoteMint);
     if (!p) {
       p = this.createConfig(quoteMint, q.usd).finally(() => this.configInFlight.delete(quoteMint));
@@ -309,12 +309,14 @@ export class ChainEngine implements Engine {
     }
     run("UPDATE config SET active = 0 WHERE quote = ?", quoteMint);
     run(
-      "INSERT INTO config (address, quote, quote_usd, threshold, created_at) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO config (address, quote, quote_usd, threshold, created_at, start_mcap_usd, grad_mcap_usd) VALUES (?, ?, ?, ?, ?, ?, ?)",
       kp.publicKey.toBase58(),
       quoteMint,
       usd,
       params.migrationQuoteThreshold.toString(),
       Math.floor(Date.now() / 1000),
+      START_MCAP_USD,
+      GRADUATION_MCAP_USD,
     );
     run("UPDATE quote SET decimals = ? WHERE mint = ?", mint.decimals, quoteMint);
     return activeConfig(quoteMint)!;
@@ -370,6 +372,8 @@ export class ChainEngine implements Engine {
       threshold: params.migrationQuoteThreshold.toString(),
       decimals: mint.decimals,
       at: Math.floor(Date.now() / 1000),
+      start: START_MCAP_USD,
+      grad: GRADUATION_MCAP_USD,
     };
     kvSet(`${PENDING}${kp.publicKey.toBase58()}`, JSON.stringify(pending));
     const rent = await this.conn.getMinimumBalanceForRentExemption(this.dbc.program.account.poolConfig.size);
@@ -384,13 +388,14 @@ export class ChainEngine implements Engine {
     const q = quoteRow(quoteMint)!;
     const inBand = (usd: number) => Math.abs(q.usd - usd) / usd < config.configDriftBps / 10_000;
     const cfg = activeConfig(quoteMint);
-    if (cfg && inBand(cfg.quote_usd)) return cfg;
+    if (cfg && currentTargets(cfg) && inBand(cfg.quote_usd)) return cfg;
     const now = Math.floor(Date.now() / 1000);
     const pending = all<{ k: string; v: string }>("SELECT k, v FROM kv WHERE k LIKE ?", `${PENDING}%`)
       .map((r) => ({ key: r.k, address: r.k.slice(PENDING.length), ...(JSON.parse(r.v) as PendingConfig) }))
       .sort((a, b) => b.at - a.at);
     for (const p of pending) {
-      if (p.quote !== quoteMint) {
+      // one set up before the market caps changed is left to expire
+      if (p.quote !== quoteMint || p.start !== START_MCAP_USD || p.grad !== GRADUATION_MCAP_USD) {
         if (now - p.at > 86_400) run("DELETE FROM kv WHERE k = ?", p.key);
         continue;
       }
@@ -402,12 +407,14 @@ export class ChainEngine implements Engine {
       }
       run("UPDATE config SET active = 0 WHERE quote = ?", quoteMint);
       run(
-        "INSERT OR IGNORE INTO config (address, quote, quote_usd, threshold, created_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO config (address, quote, quote_usd, threshold, created_at, start_mcap_usd, grad_mcap_usd) VALUES (?, ?, ?, ?, ?, ?, ?)",
         p.address,
         quoteMint,
         p.usd,
         p.threshold,
         p.at,
+        p.start,
+        p.grad,
       );
       run("UPDATE quote SET decimals = ? WHERE mint = ?", p.decimals, quoteMint);
       run("DELETE FROM kv WHERE k = ?", p.key);
@@ -894,11 +901,15 @@ export class ChainEngine implements Engine {
 
   private async onLaunch(pool: string, cfgAddress: string, creator: string, mint: string, ts: number, entryTokens = 0n) {
     if (getCoin(mint)) return;
-    const cfg = one<{ quote: string; quote_usd: number; threshold: string }>("SELECT quote, quote_usd, threshold FROM config WHERE address = ?", cfgAddress);
+    const cfg = one<{ quote: string; quote_usd: number; threshold: string; start_mcap_usd: number; grad_mcap_usd: number }>(
+      "SELECT quote, quote_usd, threshold, start_mcap_usd, grad_mcap_usd FROM config WHERE address = ?",
+      cfgAddress,
+    );
     if (!cfg) return; // not one of ours
     const saved = kvGet(`launch:${mint}`);
     const meta: Partial<LaunchRequest> & { uri?: string; entryFor?: string } = saved ? JSON.parse(saved) : await this.readMetadata(mint);
-    const curve = curveFor(START_MCAP_USD / cfg.quote_usd, GRADUATION_MCAP_USD / cfg.quote_usd);
+    // the curve this config was built for, so coins from before a change of targets are still priced right
+    const curve = configCurve(cfg);
     recordLaunch({
       mint,
       pool,

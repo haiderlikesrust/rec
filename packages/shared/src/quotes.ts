@@ -1,8 +1,8 @@
 import { NATIVE_MINT, type Cluster } from "./solana";
 
 /** USD market cap a coin starts at, and where its curve completes and graduates to DAMM v2. */
-export const START_MCAP_USD = 2_500;
-export const GRADUATION_MCAP_USD = 30_000;
+export const START_MCAP_USD = 3_000;
+export const GRADUATION_MCAP_USD = 35_000;
 
 export type QuoteCategory = "solana" | "currency" | "xstock" | "backpack" | "prestock" | "tessera" | "custom";
 

@@ -1,14 +1,16 @@
-import { NATIVE_MINT, isSolanaAddress, type TokenPreview } from "@cook/shared";
+import { GRADUATION_MCAP_USD, NATIVE_MINT, START_MCAP_USD, isSolanaAddress, type TokenPreview } from "@cook/shared";
 import { jupQuote } from "./chain/jupiter";
 import { one, run, type QuoteRow } from "./db";
 import { UserError, type Engine } from "./engine";
+import { curveFor } from "./curve";
 import { jupTokens, quoteRow, refreshQuotePrice } from "./prices";
 
 /**
  * Custom pairs: any Solana token a launcher pastes in, on top of the curated quotes. A coin graduates with about
- * $6.7k of its quote in the pool, so a quote worth less than that in total could never graduate one. Set
- * CUSTOM_PAIR_MIN_MCAP_USD=0 to allow any size.
+ * $7.9k of its quote in the pool (GRADUATION_USD), so a quote worth less than that in total could never graduate one.
+ * Set CUSTOM_PAIR_MIN_MCAP_USD=0 to allow any size.
  */
+const GRADUATION_USD = curveFor(START_MCAP_USD, GRADUATION_MCAP_USD).threshold;
 const MIN_MCAP_USD = Number(process.env.CUSTOM_PAIR_MIN_MCAP_USD ?? 10_000);
 // fees on a custom pair are sold for SOL through Jupiter: this much has to sell without moving the price too far
 const PROBE_USD = 50;
@@ -61,7 +63,7 @@ export async function addCustomQuote(engine: Engine, mint: string): Promise<Quot
   const symbol = cleanSymbol(t.symbol, mint);
   if (t.mcap !== undefined && t.mcap < MIN_MCAP_USD)
     throw new UserError(
-      `${symbol} is worth ${usd(t.mcap)} in total. A coin needs about $6.7k of its pair token to graduate, so custom pairs need a ${usd(MIN_MCAP_USD)}+ market cap.`,
+      `${symbol} is worth ${usd(t.mcap)} in total. A coin needs about ${usd(GRADUATION_USD)} of its pair token to graduate, so custom pairs need a ${usd(MIN_MCAP_USD)}+ market cap.`,
     );
   // a lookalike of a listed pair (a fake USDC, say) would read as the real one on every coin page
   if (one("SELECT 1 FROM quote WHERE category != 'custom' AND UPPER(symbol) = UPPER(?)", symbol)) throw new UserError(`${symbol} is already a listed pair. Pick it from the list instead.`);

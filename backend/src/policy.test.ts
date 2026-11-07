@@ -38,7 +38,7 @@ test("anti-snipe schedule mirrors the DBC exponential fee scheduler", () => {
   assert.equal(buyTaxBpsAt(3600), TAX_BPS);
 });
 
-test("every quote's DBC config starts at $2.5k and graduates at $30k, and Meteora's validator accepts it", () => {
+test("every quote's DBC config starts at $3k and graduates at $35k, and Meteora's validator accepts it", () => {
   for (const [usd, decimals] of [
     [100, 9], // SOL
     [1, 6], // USDC
@@ -51,7 +51,7 @@ test("every quote's DBC config starts at $2.5k and graduates at $30k, and Meteor
     const threshold = Number(params.migrationQuoteThreshold.toString()) / 10 ** decimals;
     // the demo curve and Meteora's curve agree on how much quote completes the curve
     assert.ok(Math.abs(threshold - curve.threshold) / curve.threshold < 0.01, `threshold ${threshold} vs ${curve.threshold}`);
-    assert.ok(Math.abs(threshold * usd - 6720) < 30, `~$6.7k in the curve at graduation, got $${(threshold * usd).toFixed(0)}`);
+    assert.ok(Math.abs(threshold * usd - 7926) < 35, `~$7.9k in the curve at graduation, got $${(threshold * usd).toFixed(0)}`);
     const fees = Keypair.generate().publicKey;
     assert.doesNotThrow(() => validateConfigParameters({ ...params, leftoverReceiver: fees }, { feeClaimer: fees }));
     assert.equal(params.creatorTradingFeePercentage, 0);
@@ -73,7 +73,7 @@ test("quotes with a transfer fee (PreStocks, Tessera) graduate to a Compounding 
   assert.equal(params.migratedPoolFee.poolFeeBps, TAX_BPS);
 });
 
-test("demo curve: buying to the threshold reaches the $30k graduation price", () => {
+test("demo curve: buying to the threshold reaches the $35k graduation price", () => {
   const c = curveFor(START_MCAP_USD, GRADUATION_MCAP_USD); // quote = USD
   const s = { sqrtPrice: c.sqrtStart, liquidity: c.liquidity, sqrtStart: c.sqrtStart, sqrtMig: c.sqrtMig };
   const r = buy(s, c.threshold * 2, true);

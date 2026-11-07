@@ -1,10 +1,11 @@
 import { Lock, Rocket, Sparkles, Wallet } from "lucide-react";
+import { GRADUATION_MCAP_USD, START_MCAP_USD } from "@cook/shared";
 import { ButtonLink, IconTile } from "@/components/ui";
 
 const steps = [
   { icon: Sparkles, title: "Name it", body: "Name, ticker, image and socials." },
   { icon: Wallet, title: "Pick a pair", body: "SOL, a stablecoin, one of 120+ tokenized stocks or any token you paste in." },
-  { icon: Lock, title: "Launch", body: "1B supply on a Meteora curve: $2.5k start, graduates at $30k." },
+  { icon: Lock, title: "Launch", body: `1B supply on a Meteora curve: $${START_MCAP_USD / 1000}k start, graduates at $${GRADUATION_MCAP_USD / 1000}k.` },
 ];
 
 export function LaunchCta() {

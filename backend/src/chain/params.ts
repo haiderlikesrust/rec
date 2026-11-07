@@ -15,8 +15,8 @@ import { GRADUATION_MCAP_USD, LAUNCH_FEE_SOL, SNIPE, START_MCAP_USD, TAX_BPS } f
 import { SUPPLY } from "../curve";
 
 /**
- * The Meteora DBC config every coin on a quote launches from, priced so the coin starts at $2.5k and
- * graduates at $30k at the quote's current USD price:
+ * The Meteora DBC config every coin on a quote launches from, priced so the coin starts at START_MCAP_USD ($3k) and
+ * graduates at GRADUATION_MCAP_USD ($35k) at the quote's current USD price:
  *  - 1B supply, 6 decimals, immutable metadata, no vesting, no leftover.
  *  - 3% fee on the quote side of every swap, all of it to the partner (the backend's fee wallet), 0% to the creator;
  *    an exponential scheduler starts it at 99% and decays to 3% over the first 6 seconds (anti-snipe).

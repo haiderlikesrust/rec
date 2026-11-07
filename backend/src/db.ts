@@ -18,10 +18,12 @@ CREATE TABLE IF NOT EXISTS quote (
   decimals INTEGER NOT NULL, usd REAL NOT NULL, price_at INTEGER NOT NULL DEFAULT 0,
   available INTEGER NOT NULL DEFAULT 1, error TEXT
 );
--- one DBC config per quote per price band; the newest active one is used for new launches
+-- one DBC config per quote per price band; the newest active one is used for new launches. Each remembers the market
+-- caps it was built for (the defaults are the original $2.5k / $30k)
 CREATE TABLE IF NOT EXISTS config (
   address TEXT PRIMARY KEY, quote TEXT NOT NULL, quote_usd REAL NOT NULL, threshold TEXT NOT NULL,
-  created_at INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1
+  created_at INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1,
+  start_mcap_usd REAL NOT NULL DEFAULT 2500, grad_mcap_usd REAL NOT NULL DEFAULT 30000
 );
 CREATE TABLE IF NOT EXISTS coin (
   mint TEXT PRIMARY KEY, pool TEXT NOT NULL, damm_pool TEXT, config TEXT NOT NULL, quote TEXT NOT NULL,
@@ -130,6 +132,11 @@ export const all = <T>(sql: string, ...params: SQLInputValue[]) => db.prepare(sq
 export const run = (sql: string, ...params: SQLInputValue[]) => db.prepare(sql).run(...params);
 
 // columns added after a database was first created
+const configColumns = new Set(all<{ name: string }>("PRAGMA table_info(config)").map((c) => c.name));
+if (!configColumns.has("start_mcap_usd")) {
+  db.exec("ALTER TABLE config ADD COLUMN start_mcap_usd REAL NOT NULL DEFAULT 2500");
+  db.exec("ALTER TABLE config ADD COLUMN grad_mcap_usd REAL NOT NULL DEFAULT 30000");
+}
 const coinColumns = new Set(all<{ name: string }>("PRAGMA table_info(coin)").map((c) => c.name));
 if (!coinColumns.has("otc_burned")) db.exec("ALTER TABLE coin ADD COLUMN otc_burned TEXT NOT NULL DEFAULT '0'");
 if (!coinColumns.has("protection_paid")) {
