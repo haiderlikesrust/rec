@@ -17,7 +17,7 @@ const { TOKEN_PROGRAM_ID, TokenInstruction, getAssociatedTokenAddressSync } = aw
 const { NATIVE_MINT } = await import("@cook/shared");
 const { ChainEngine } = await import("./engine");
 
-const keys = { fees: Keypair.generate(), otc: Keypair.generate(), protection: Keypair.generate(), airdrop: Keypair.generate() };
+const keys = { fees: Keypair.generate(), otc: Keypair.generate(), protection: Keypair.generate() };
 const engine = new ChainEngine(keys);
 const conn = (engine as unknown as { conn: Connection }).conn;
 conn.getLatestBlockhash = async () => ({ blockhash: Keypair.generate().publicKey.toBase58(), lastValidBlockHeight: 100 });

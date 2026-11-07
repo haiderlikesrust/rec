@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeftRight, ArrowUpRight, Egg, ShieldCheck, Wallet, type LucideIcon } from "lucide-react";
+import { ArrowLeftRight, ArrowUpRight, ShieldCheck, Wallet, type LucideIcon } from "lucide-react";
 import { brand, type TreasuryWallet } from "@cook/shared";
 import { bucketColor } from "@/lib/buckets";
 import { useStats } from "@/lib/data";
@@ -8,7 +8,7 @@ import { explorerAddress } from "@/lib/explorer";
 import { short, sol, usd } from "@/lib/format";
 import { IconTile, Skeleton } from "@/components/ui";
 
-type Slot = { key: "fees" | "otc" | "protection" | "entries"; icon: LucideIcon; color: string; title: string; body: string };
+type Slot = { key: TreasuryWallet["role"]; icon: LucideIcon; color: string; title: string; body: string };
 
 const slots: Slot[] = [
   {
@@ -16,7 +16,7 @@ const slots: Slot[] = [
     icon: Wallet,
     color: "var(--violet)",
     title: "Fee wallet",
-    body: "Claims every pool's fees (and owns the locked LP after graduation), converts them to SOL and splits them in half.",
+    body: `Claims every pool's fees (and owns the locked LP after graduation), converts them to SOL and splits them in half. It also holds copies' ${brand.nest} entries until they're airdropped to the leader's holders.`,
   },
   {
     key: "otc",
@@ -32,23 +32,11 @@ const slots: Slot[] = [
     title: brand.landing,
     body: "Holds the SOL for loss cover and sends every payout, with nothing to claim.",
   },
-  {
-    key: "entries",
-    icon: Egg,
-    color: "var(--nest)",
-    title: `${brand.nest} entries wallet`,
-    body: `Holds the coins copies pay as their ${brand.nest} entry until they're airdropped to the leader's holders.`,
-  },
 ];
 
-const KNOWN = new Set<string>(["fees", "otc", "protection"]);
+const walletFor = (slot: Slot["key"], wallets: TreasuryWallet[]) => wallets.find((w) => w.role === slot);
 
-/** The match for a slot: by role, and the entries wallet is the one role that isn't fees, OTC or protection. */
-function walletFor(slot: Slot["key"], wallets: TreasuryWallet[]) {
-  return slot === "entries" ? wallets.find((w) => !KNOWN.has(w.role)) : wallets.find((w) => w.role === slot);
-}
-
-/** The four backend-controlled wallets, what each does, and (when the API answers) their live balances and addresses. */
+/** The three backend-controlled wallets, what each does, and (when the API answers) their live balances and addresses. */
 export function DocsTreasury() {
   const { data: s, isError } = useStats();
   const wallets = s?.treasury ?? [];
@@ -56,7 +44,7 @@ export function DocsTreasury() {
 
   return (
     <div className="mt-5">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         {slots.map((slot) => {
           const w = walletFor(slot.key, wallets);
           return (

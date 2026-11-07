@@ -24,10 +24,10 @@ entry, bought in its first buy and airdropped to up to 50 of the leader's holder
 bloodline ([packages/shared/src/bloodline.ts](packages/shared/src/bloodline.ts)).
 
 **No custom Solana programs.** The buckets are plain wallets controlled by the backend:
-- **fee**: Meteora partner and LP fee claimer; it converts and splits.
+- **fee**: Meteora partner and LP fee claimer; it converts and splits, and holds copies' Nest entries until they're
+  airdropped to the leader's holders.
 - **OTC**: the reserve.
-- **protection**: the fund.
-- **airdrop**: holds copies' Nest entries until they're airdropped to the leader's holders.
+- **protection**: the Soft Landing fund.
 
 Their addresses are public, on the site and in `/api/stats`, so anyone can audit them on Solscan. An OTC trade is a
 single transaction co-signed by the reserve and the user (coins one way, SOL the other, the 3% to the fee wallet), so it
@@ -118,9 +118,8 @@ That covers:
 
 1. Copy `backend/.env.example` to `backend/.env`. Set `CLUSTER` (`devnet` or `mainnet-beta`) and a real `RPC_URL`
    (Helius, Triton…). Indexing uses `getProgramAccounts`, which public RPCs refuse.
-2. `pnpm --filter @cook/backend wallets` creates the four wallets in `backend/data/wallets` (gitignored) and prints
-   their addresses. Back the keys up, or supply your own via `FEE_WALLET`, `OTC_WALLET`, `PROTECTION_WALLET` and
-   `AIRDROP_WALLET`. Fund the fee wallet with ~0.5 SOL for config rent and fees.
+2. `pnpm --filter @cook/backend wallets` creates the three wallets in `backend/data/wallets` (gitignored) and prints
+   their addresses. Back the keys up, or supply your own via `FEE_WALLET`, `OTC_WALLET` and `PROTECTION_WALLET`. Fund the fee wallet with ~0.5 SOL for config rent and fees.
 3. Optional: `pnpm --filter @cook/backend setup:configs SOL USDC NVDAX` pre-creates configs. Otherwise each is
    created on the first launch for that pair.
 4. `pnpm --filter @cook/backend start`, and run the web app with `NEXT_PUBLIC_CLUSTER` (and `NEXT_PUBLIC_SOLANA_RPC`)

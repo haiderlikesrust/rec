@@ -200,7 +200,7 @@ export type WalletSummary = {
 
 /** A backend-controlled wallet. Each one is a plain Solana account anyone can audit. */
 export type TreasuryWallet = {
-  role: "fees" | "otc" | "protection" | "airdrop";
+  role: "fees" | "otc" | "protection";
   label: string;
   address: Address;
   sol: number;

@@ -286,12 +286,12 @@ export class DemoEngine implements Engine {
       });
       run("UPDATE coin SET pending_sol = pending_sol + ? WHERE mint = ?", Number((fee * 9n) / 10n) / 1e9, mint);
       if (entry) {
-        // a copy's Nest entry: the first buy, for the entries wallet, plus rent for the accounts it's sent to
+        // a copy's Nest entry: the first buy, for the fee wallet, plus rent for the accounts it's sent to
         this.add(req.wallet, req.quote, -entry.raw, q.symbol);
-        this.add(this.wallets.airdrop, req.quote, entry.raw);
+        this.add(this.wallets.fees, req.quote, entry.raw);
         this.add(req.wallet, NATIVE_MINT, -BigInt(ENTRY_RENT_LAMPORTS), "SOL for the Nest entry");
-        this.add(this.wallets.airdrop, NATIVE_MINT, BigInt(ENTRY_RENT_LAMPORTS));
-        const { fill } = this.trade(getCoin(mint)!, this.wallets.airdrop, "buy", entry.raw, at, true);
+        this.add(this.wallets.fees, NATIVE_MINT, BigInt(ENTRY_RENT_LAMPORTS));
+        const { fill } = this.trade(getCoin(mint)!, this.wallets.fees, "buy", entry.raw, at, true);
         recordEntry(mint, fill.amountOut, entry.raw, entry.to, true, at);
       }
       const initial = big(req.initialBuy);

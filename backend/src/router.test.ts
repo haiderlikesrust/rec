@@ -235,7 +235,7 @@ test("Nest: a copy pays its entry to the leader's holders and feeds the leader i
   assert.equal(c.family, og, "the copy joins the OG's family");
   assert.equal(c.entry_status, "pending");
   const entryTokens = big(c.entry_tokens);
-  assert.equal(engine.bal(engine.wallets.airdrop, copy), entryTokens, "the entry's coins sit in the airdrop wallet");
+  assert.equal(engine.bal(engine.wallets.fees, copy), entryTokens, "the entry's coins sit in the fee wallet");
   const own = big(one<{ balance: string }>("SELECT balance FROM holder WHERE coin = ? AND wallet = ?", copy, copier)!.balance);
   assert.ok(own > 0n && own < entryTokens, "the launcher gets only their own buy, bought after the entry at a higher price");
 

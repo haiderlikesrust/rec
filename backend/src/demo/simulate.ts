@@ -146,7 +146,6 @@ export async function refreshTreasury(engine: DemoEngine) {
   treasury.feesSol = await engine.solBalance(engine.wallets.fees);
   treasury.otcSol = await engine.solBalance(engine.wallets.otc);
   treasury.protectionSol = await engine.solBalance(engine.wallets.protection);
-  treasury.airdropSol = await engine.solBalance(engine.wallets.airdrop);
 }
 
 /** The demo market's heartbeat: one trade per tick, a new coin every few minutes. Runs on the leader only. */

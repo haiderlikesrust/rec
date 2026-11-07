@@ -450,16 +450,16 @@ export class ChainEngine implements Engine {
           : undefined,
     });
     if (entry) {
-      // the coins the entry's amount buys first move on to the airdrop wallet in the same transaction, plus rent for the
+      // the coins the entry's amount buys first move on to the fee wallet in the same transaction, plus rent for the
       // token accounts they're airdropped into
       const entryTokens = await this.firstBuyOut(cfg.address, req.quote, entry.raw, referralTokenAccount !== null);
-      const airdrop = this.pk(this.wallets.airdrop);
+      const holder = this.pk(this.wallets.fees);
       const from = this.ata(user, mintAddr, TOKEN_PROGRAM_ID);
-      const to = this.ata(airdrop, mintAddr, TOKEN_PROGRAM_ID);
+      const to = this.ata(holder, mintAddr, TOKEN_PROGRAM_ID);
       tx.add(
-        createAssociatedTokenAccountIdempotentInstruction(user, to, airdrop, mint.publicKey, TOKEN_PROGRAM_ID),
+        createAssociatedTokenAccountIdempotentInstruction(user, to, holder, mint.publicKey, TOKEN_PROGRAM_ID),
         createTransferCheckedInstruction(from, mint.publicKey, to, user, entryTokens, COIN_DECIMALS, [], TOKEN_PROGRAM_ID),
-        SystemProgram.transfer({ fromPubkey: user, toPubkey: airdrop, lamports: ENTRY_RENT_LAMPORTS }),
+        SystemProgram.transfer({ fromPubkey: user, toPubkey: holder, lamports: ENTRY_RENT_LAMPORTS }),
       );
     }
     const pool = deriveDbcPoolAddress(this.pk(req.quote), mint.publicKey, this.pk(cfg.address)).toBase58();
@@ -828,18 +828,18 @@ export class ChainEngine implements Engine {
     const keys = accountKeys(tx);
     const feePayer = keys[0]!;
     const events = decodeEvents(tx);
-    // a copy's Bloodline entry: a buy in its launch whose coins went to the airdrop wallet (pool → coins bought)
+    // a copy's Bloodline entry: a buy in its launch whose coins went to the fee wallet (pool → coins bought)
     const entries = new Map<string, bigint>();
-    const toAirdrop = (mint: string) => {
+    const toFeeWallet = (mint: string) => {
       const sum = (b?: TokenBalance[] | null) =>
-        (b ?? []).filter((x) => x.owner === this.wallets.airdrop && x.mint === mint).reduce((s, x) => s + BigInt(x.uiTokenAmount.amount), 0n);
+        (b ?? []).filter((x) => x.owner === this.wallets.fees && x.mint === mint).reduce((s, x) => s + BigInt(x.uiTokenAmount.amount), 0n);
       return sum(tx.meta?.postTokenBalances) - sum(tx.meta?.preTokenBalances);
     };
     for (const ev of events) {
       if (ev.program === "dbc" && ev.name === "EvtInitializePool") {
         const pool = asKey(field(ev.data, "pool"));
         const mint = asKey(field(ev.data, "base_mint"));
-        const entry = toAirdrop(mint);
+        const entry = toFeeWallet(mint);
         if (entry > 0n) entries.set(pool, entry);
         await this.onLaunch(pool, asKey(field(ev.data, "config")), asKey(field(ev.data, "creator")), mint, ts, entry);
         continue;
@@ -871,7 +871,7 @@ export class ChainEngine implements Engine {
         ts,
         tx: signature,
       };
-      // a copy's launch buy carries its Bloodline entry: that part is the airdrop wallet's, at its share of the quote
+      // a copy's launch buy carries its Bloodline entry: that part is the fee wallet's, at its share of the quote
       const entryTokens = f.isBuy ? entries.get(f.pool) : undefined;
       if (entryTokens !== undefined && entryTokens <= f.tokenAmount) {
         entries.delete(f.pool);
@@ -879,7 +879,7 @@ export class ChainEngine implements Engine {
         const quoteE = paid > 0n && paid <= f.quoteAmount ? paid : (f.quoteAmount * entryTokens) / f.tokenAmount;
         const part = (x: bigint) => (x * quoteE) / (f.quoteAmount || 1n);
         const e = { quoteAmount: quoteE, tokenAmount: entryTokens, tax: part(trade.tax), meteora: part(trade.meteora), claimable: part(trade.claimable), referral: part(trade.referral) };
-        recordTrade({ ...trade, ...e, id: `${id}:entry`, trader: this.wallets.airdrop, kind: "trade" });
+        recordTrade({ ...trade, ...e, id: `${id}:entry`, trader: this.wallets.fees, kind: "trade" });
         if (f.tokenAmount === entryTokens) continue;
         for (const k of ["quoteAmount", "tokenAmount", "tax", "meteora", "claimable", "referral"] as const) trade[k] -= e[k];
       }
@@ -990,7 +990,7 @@ export class ChainEngine implements Engine {
 
   /**
    * Wallet-to-wallet transfers don't go through a pool, so holder balances are reconciled against the chain:
-   * coins that arrived without a trade carry zero cost basis (no fake high entries for airdrops).
+   * coins that arrived without a trade carry zero cost basis (no fake high entries for Nest entry shares).
    */
   private async reconcileHolders() {
     const since = Math.floor(Date.now() / 1000) - 86_400;

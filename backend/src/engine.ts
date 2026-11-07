@@ -37,7 +37,7 @@ export interface Engine {
   // ---- user transactions (built here, signed by the user's wallet)
   swapQuote(c: CoinRow, side: SwapSide, amount: bigint, slippageBps: number, wallet?: string): Promise<SwapQuote>;
   swap(c: CoinRow, req: SwapRequest): Promise<SwapResponse>;
-  /** `entry`: a copy's Nest entry in raw quote, bought with the first buy for the entries wallet, and the leader it goes to. */
+  /** `entry`: a copy's Nest entry in raw quote, bought with the first buy for the fee wallet, and the leader it goes to. */
   launch(req: LaunchRequest, metadataUri: string, entry?: { raw: bigint; to: string }): Promise<LaunchResponse>;
   /** A custom pair's config, created with the launcher as payer; no transaction when a current one exists. */
   pairSetup(wallet: string, quote: string): Promise<PairSetup>;

@@ -36,13 +36,12 @@ if (config.demo) {
 await engine.start();
 
 async function refreshTreasuryBalances() {
-  const [fees, otc, protection, airdrop] = await Promise.all(
-    (["fees", "otc", "protection", "airdrop"] as const).map((r) => engine.solBalance(engine.wallets[r]).catch(() => NaN)),
+  const [fees, otc, protection] = await Promise.all(
+    (["fees", "otc", "protection"] as const).map((r) => engine.solBalance(engine.wallets[r]).catch(() => NaN)),
   );
   if (!Number.isNaN(fees)) treasury.feesSol = fees!;
   if (!Number.isNaN(otc)) treasury.otcSol = otc!;
   if (!Number.isNaN(protection)) treasury.protectionSol = protection!;
-  if (!Number.isNaN(airdrop)) treasury.airdropSol = airdrop!;
 }
 await refreshTreasuryBalances();
 

@@ -134,7 +134,7 @@ export function checkLaunch(symbol: string, name: string, quote: string, at = no
 }
 
 /**
- * Books a new coin's entry once its launch is indexed: `tokens` is what the entry bought (held by the airdrop wallet),
+ * Books a new coin's entry once its launch is indexed: `tokens` is what the entry bought (held by the fee wallet),
  * `quoteRaw` what it paid. A copy of an alive family that paid none (launched straight on-chain, past the launch form)
  * is marked unpaid and left off the coin lists.
  */
@@ -224,7 +224,7 @@ async function payEntry(engine: Engine, c: CoinRow, at: number) {
     const shares = leader ? entryShares(c, leader, total) : [];
     if (!shares.length) {
       // nobody to give it to: burn it, so the launcher still gets none of it
-      const { burned, sig } = await engine.burnHeld("airdrop", c, total);
+      const { burned, sig } = await engine.burnHeld("fees", c, total);
       tx(() => {
         recordBurn(c.mint, burned, "entry");
         run("UPDATE coin SET entry_status = 'done' WHERE mint = ?", c.mint);
@@ -243,7 +243,7 @@ async function payEntry(engine: Engine, c: CoinRow, at: number) {
   let count = 0;
   if (owed.length) {
     run("UPDATE entry_drop SET tx = ? WHERE coin = ? AND tx IS NULL", batch, c.mint);
-    const done = new Map((await engine.sendTokens("airdrop", c.mint, owed.map((o) => ({ to: o.wallet, amount: big(o.amount) })))).map((r) => [r.to, r.sig]));
+    const done = new Map((await engine.sendTokens("fees", c.mint, owed.map((o) => ({ to: o.wallet, amount: big(o.amount) })))).map((r) => [r.to, r.sig]));
     tx(() => {
       let paid = 0n;
       for (const o of owed) {

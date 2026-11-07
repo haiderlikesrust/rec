@@ -649,7 +649,7 @@ export default function DocsPage() {
                   {
                     title: "The entry",
                     icon: Gift,
-                    body: `A copy launched while its leader is alive pays $${N.entryUsd} in its pair's token as the launch's first buy, ahead of its creator's own, plus about ${(ENTRY_RENT_LAMPORTS / 1e9).toFixed(2)} SOL for the recipients' token accounts. The launcher never receives those coins: the ${brand.nest} entries wallet holds them until they're airdropped to up to ${N.recipients} of the leader's holders, weighted by what each put in, counted up to ${N.maxEntryBoost}× for holders whose entry is above the price, none over ${N.maxShareBps / 100}%.`,
+                    body: `A copy launched while its leader is alive pays $${N.entryUsd} in its pair's token as the launch's first buy, ahead of its creator's own, plus about ${(ENTRY_RENT_LAMPORTS / 1e9).toFixed(2)} SOL for the recipients' token accounts. The launcher never receives those coins: the fee wallet holds them until they're airdropped to up to ${N.recipients} of the leader's holders, weighted by what each put in, counted up to ${N.maxEntryBoost}× for holders whose entry is above the price, none over ${N.maxShareBps / 100}%.`,
                   },
                   {
                     title: "Who doesn't pay",
@@ -671,7 +671,7 @@ export default function DocsPage() {
             <RuleCard icon={Wallet} color="var(--accent)" title="Plain Solana wallets, not custom programs">
               <p>
                 {brand.name} deploys no programs of its own. Trading runs entirely on Meteora&apos;s pools; the money that comes back
-                lives in four ordinary Solana wallets run by the {brand.name} backend. Every balance and transfer is public. Here they
+                lives in three ordinary Solana wallets run by the {brand.name} backend. Every balance and transfer is public. Here they
                 are, live:
               </p>
               <DocsTreasury />
@@ -735,8 +735,8 @@ export default function DocsPage() {
                   each coin&apos;s pot and the published rules. A coin can lose more than any coverage returns.
                 </li>
                 <li>
-                  <strong>The wallets are custodial.</strong> The fee wallet, OTC reserve, {brand.landing} fund and {brand.nest} entries
-                  wallet are ordinary Solana wallets controlled by {brand.name}&apos;s backend keys. You are trusting the operator&apos;s
+                  <strong>The wallets are custodial.</strong> The fee wallet, OTC reserve and {brand.landing}{" "}
+                  fund are ordinary Solana wallets controlled by {brand.name}&apos;s backend keys. You are trusting the operator&apos;s
                   key handling and its off-chain calculations of payouts, OTC limits and entry airdrops. Every balance and transfer is
                   public, but no program enforces the policy.
                 </li>

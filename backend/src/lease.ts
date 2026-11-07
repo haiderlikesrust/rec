@@ -3,7 +3,7 @@ import { hostname } from "node:os";
 import { one, run } from "./db";
 
 /**
- * Only one server runs background work: indexing, the fee router (burns), airdrops, protection epochs and the
+ * Only one server runs background work: indexing, the fee router, Nest entries, protection payouts and the
  * demo market. During a zero-downtime update the new container starts while the old one is still running. It
  * serves the API at once (both read and write the same SQLite file), but stays on standby until the old one
  * releases this lease on shutdown, or the lease lapses because the old one died.

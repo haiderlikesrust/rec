@@ -1,4 +1,4 @@
-// Creates the four backend wallets (data/wallets/*.json, gitignored) if missing and prints their addresses.
+// Creates the three backend wallets (data/wallets/*.json, gitignored) if missing and prints their addresses.
 // Fund the fee wallet with a little SOL for network fees and config rent before going live.
 import { Connection } from "@solana/web3.js";
 import { config, loadWallets, roles } from "../config";
@@ -14,4 +14,4 @@ for (const r of roles) {
     .catch(() => "?");
   console.log(`${r.label.padEnd(36)} ${pk.toBase58()}  ${sol} SOL`);
 }
-console.log(`\nKeys live in ${config.dataDir}/wallets. Back them up, or set FEE_WALLET, OTC_WALLET, PROTECTION_WALLET and AIRDROP_WALLET.`);
+console.log(`\nKeys live in ${config.dataDir}/wallets. Back them up, or set FEE_WALLET, OTC_WALLET and PROTECTION_WALLET.`);

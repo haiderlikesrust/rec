@@ -20,7 +20,7 @@ import { solPerUnit, solUsd, toQuoteAsset, toUnits } from "./prices";
 export const now = () => Math.floor(Date.now() / 1000);
 
 /** Treasury wallet balances (SOL), refreshed in the background so the API never waits on RPC. */
-export const treasury = { otcSol: 0, protectionSol: 0, feesSol: 0, airdropSol: 0 };
+export const treasury = { otcSol: 0, protectionSol: 0, feesSol: 0 };
 
 export function quotesMap() {
   return new Map(all<QuoteRow>("SELECT * FROM quote").map((q) => [q.mint, q]));

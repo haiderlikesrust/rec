@@ -24,14 +24,12 @@ const roleColor: Record<TreasuryWallet["role"], string> = {
   fees: "var(--accent)",
   otc: bucketColor.otcReserve,
   protection: bucketColor.protection,
-  airdrop: "var(--nest)",
 };
 
 const roleLabel: Record<TreasuryWallet["role"], string> = {
   fees: "Fee wallet",
   otc: "OTC reserve",
   protection: brand.landing,
-  airdrop: `${brand.nest} entries`,
 };
 
 /** The backend-controlled wallets, with live balances and Solscan links, so anyone can audit them. */
@@ -39,7 +37,7 @@ export function TreasuryWallets({ wallets, solUsd, className }: { wallets: Treas
   if (!wallets.length) return null;
   return (
     <div className={className}>
-      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
         {wallets.map((w) => (
           <a
             key={w.role}

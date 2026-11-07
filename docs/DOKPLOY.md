@@ -107,8 +107,8 @@ The old one logs `SIGTERM: handing over`.
 ## Go live on Solana
 
 1. Set `DEMO=` (empty), `CLUSTER=devnet` first, `RPC_URL` and `PUBLIC_RPC_URL`.
-2. Generate the four wallets offline, for example with `solana-keygen new`. Paste their secret keys as `FEE_WALLET`,
-   `OTC_WALLET`, `PROTECTION_WALLET` and `AIRDROP_WALLET`, then fund the fee wallet with ~0.5 SOL. Redeploy.
+2. Generate the three wallets offline, for example with `solana-keygen new`. Paste their secret keys as `FEE_WALLET`,
+   `OTC_WALLET` and `PROTECTION_WALLET`, then fund the fee wallet with ~0.5 SOL. Redeploy.
 3. Do a full cycle on devnet: launch, trade, wait for a split, sell at a loss and watch the payout, OTC sell, and
    launch a look-alike copy to see its Nest entry airdropped. Compare the wallets on Solscan with `/api/stats`.
 4. Switch `CLUSTER=mainnet-beta` with fresh wallets and redeploy.

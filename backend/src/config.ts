@@ -46,10 +46,9 @@ mkdirSync(config.dataDir, { recursive: true });
 
 export type Role = TreasuryWallet["role"];
 export const roles: { role: Role; label: string; env: string }[] = [
-  { role: "fees", label: "Fee wallet (claims and splits)", env: "FEE_WALLET" },
+  { role: "fees", label: "Fee wallet (claims, splits, Nest entries)", env: "FEE_WALLET" },
   { role: "otc", label: "OTC reserve", env: "OTC_WALLET" },
   { role: "protection", label: brand.landing, env: "PROTECTION_WALLET" },
-  { role: "airdrop", label: "Nest entries wallet", env: "AIRDROP_WALLET" },
 ];
 
 const walletDir = path.join(config.dataDir, "wallets");

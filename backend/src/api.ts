@@ -114,7 +114,7 @@ export function createApi(engine: Engine) {
         role: r.role,
         label: r.label,
         address: engine.wallets[r.role],
-        sol: { fees: treasury.feesSol, otc: treasury.otcSol, protection: treasury.protectionSol, airdrop: treasury.airdropSol }[r.role],
+        sol: { fees: treasury.feesSol, otc: treasury.otcSol, protection: treasury.protectionSol }[r.role],
       })),
     };
     return ctx.json(stats);
