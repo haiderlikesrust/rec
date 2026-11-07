@@ -203,6 +203,7 @@ export function TokenView({ address }: { address: string }) {
                 </div>
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted">
                   <QuoteChip symbol={q.symbol} logo={q.logo} pair={coin.symbol} />
+                  {coin.isMain && <Badge tone="accent">Official {brand.name} token</Badge>}
                   {coin.bloodline &&
                     (coin.bloodline.unpaid ? (
                       <Badge tone="down">

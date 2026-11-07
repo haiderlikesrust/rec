@@ -687,6 +687,10 @@ export default function DocsPage() {
                   "Not from fees. Creators earn the way everyone else does: by holding. They get the first buy at the launch price with no anti-snipe surcharge.",
                 ],
                 [
+                  `Is there a ${brand.name} token?`,
+                  `Yes: $${brand.mainTicker}, with its contract address on the home page. Only trust that address. It gets no share of anyone's fees and nothing buys it back; it trades like any other coin.`,
+                ],
+                [
                   "Where do burns come from?",
                   "Fees don't buy or burn anything. Coins are burned when someone sells into the OTC reserve: the transaction that pays the seller burns the coins, so the reserve never holds or resells them.",
                 ],

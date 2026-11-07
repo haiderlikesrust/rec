@@ -7,6 +7,7 @@ import { useStats } from "@/lib/data";
 import { sol, usd } from "@/lib/format";
 import { LogoMark } from "@/components/LogoMark";
 import { AnimatedNumber, ButtonLink, IconTile, Skeleton } from "@/components/ui";
+import { ContractAddress } from "./ContractAddress";
 
 const pct = (key: "protection" | "otcReserve") => `${(buckets.find((b) => b.key === key)?.bps ?? 0) / 100}%`;
 
@@ -54,7 +55,9 @@ export function Hero() {
           </ButtonLink>
         </div>
 
-        <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-3 text-sm font-semibold text-muted">
+        <ContractAddress className="mt-6" />
+
+        <ul className="mt-7 flex flex-wrap gap-x-6 gap-y-3 text-sm font-semibold text-muted">
           {["Sell into SOL, no slippage", "Losses partly paid back", `Copies feed the original (${brand.nest})`].map((t) => (
             <li key={t} className="flex items-center gap-2">
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-up-soft text-up">

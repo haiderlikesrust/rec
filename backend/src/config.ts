@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Keypair } from "@solana/web3.js";
 import bs58 from "bs58";
-import { brand, clusters, type Cluster, type TreasuryWallet } from "@cook/shared";
+import { brand, clusters, isSolanaAddress, type Cluster, type TreasuryWallet } from "@cook/shared";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const demo = process.env.DEMO === "1";
@@ -25,6 +25,8 @@ export const config = {
   pinataJwt: process.env.PINATA_JWT,
   jupiterApi: (process.env.JUPITER_API ?? "https://lite-api.jup.ag").replace(/\/$/, ""),
   jupiterKey: process.env.JUPITER_API_KEY,
+  /** The platform token's mint, shown on the home page. Nothing buys it back; it trades like any coin. */
+  mainToken: isSolanaAddress(process.env.MAIN_TOKEN_MINT ?? "") ? process.env.MAIN_TOKEN_MINT! : null,
   // The fee router loops every few seconds and splits a coin's fees as soon as they are worth more than the network
   // fees it costs to move them.
   /** Split a coin's fees (convert to SOL, send to OTC and protection) once they are worth this much. */

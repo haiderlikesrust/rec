@@ -15,7 +15,7 @@ for (const k of Object.values(keys)) SYSTEM.add(k.publicKey.toBase58());
 
 syncQuotes();
 await refreshPrices();
-// there is no platform token any more
+// the platform token is read from MAIN_TOKEN_MINT whenever a coin is shaped (services.ts); the old flag isn't used
 run("UPDATE coin SET is_main = 0 WHERE is_main = 1");
 
 let engine: Engine;

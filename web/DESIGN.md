@@ -6,7 +6,8 @@ never corporate. Adapted from the Ripburn "cloud & ember" system, tuned for one 
 
 ## Product facts the UI must reflect
 - Every trade pays 3%. Meteora keeps its share; the rest is split **50% OTC reserve, 50% protection fund** (shown as `brand.landing`, "Soft Landing"). Nothing
-  else: no buybacks, no burns from fees, no airdrops from fees, no platform token, 0% to creators and the team.
+  else: no buybacks, no burns from fees, no airdrops from fees, 0% to creators and the team. The platform token ($CUSHION, `brand.mainTicker`) gets a
+  contract-address card on the home page and an "Official" badge, and no fees.
 - **The Nest** (code name: bloodline): look-alike copies of a coin (DOGE, DOG3, DÖGE) join the original's Nest. While
   the leader leads, each copy sends its whole 50/50 split to the leader's OTC credit and protection pot. A copy
   launched while the leader is alive pays a $500 entry, airdropped to the leader's holders. Use `brand.nest` for the

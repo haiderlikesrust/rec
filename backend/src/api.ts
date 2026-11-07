@@ -100,6 +100,7 @@ export function createApi(engine: Engine) {
       demo: engine.demo,
       solUsd: sUsd,
       coins: sums.coins,
+      mainToken: config.mainToken,
       volume24hSol: vol,
       volume24hUsd: vol * sUsd,
       totalFeesSol: sums.fees,

@@ -13,6 +13,7 @@ import {
   type Holder,
   type OtcCoin,
 } from "@cook/shared";
+import { config } from "./config";
 import { all, big, claimByCoin, one, type ClaimRow, type CoinRow, type HolderRow, type LossRow, type PayoutRow, type QuoteRow } from "./db";
 import { SYSTEM, quoteDecimals } from "./ledger";
 import { solPerUnit, solUsd, toQuoteAsset, toUnits } from "./prices";
@@ -65,6 +66,7 @@ export function shapeCoin(c: CoinRow, q: QuoteRow, candles24h: CandleRow[], trad
     creator: c.creator,
     createdAt: c.created_at,
     quote: qa,
+    isMain: c.mint === config.mainToken,
     decimals: c.decimals,
     price: c.price,
     priceSol: c.price * qa.solPerUnit,

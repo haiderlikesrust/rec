@@ -14,7 +14,8 @@ fee wallet claims the rest, converts it to SOL and splits it in half:
 | Soft Landing (protection fund) | 50% | SOL (converted) | Loss payouts, sent automatically: up to 60% by hold time (70% on rugs), from the coin's own pot |
 | OTC reserve | 50% | SOL (converted) | A SOL wallet you sell coins into with no slippage; limits follow each coin's contributions |
 
-There is no platform token, no buyback and no fee airdrop.
+There is no buyback and no fee airdrop. The platform token, $CUSHION (set with `MAIN_TOKEN_MINT`), is featured on
+the home page with its contract address, but no fees go to it: it trades like any other coin.
 
 **The Nest.** Coins whose ticker or name reads the same once look-alikes are folded (DOGE, DOG3, DÖGE) form one Nest.
 The original leads while it's alive (3+ traders and $300+ volume in 12 hours), then the best alive member, then the

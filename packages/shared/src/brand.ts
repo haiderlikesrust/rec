@@ -1,6 +1,8 @@
 /** Brand in one place: rename the launchpad by editing this file. */
 export const brand = {
   name: "Cushion",
+  /** The platform token's ticker. Its mint comes from MAIN_TOKEN_MINT; it's featured on the home page, and no fees go to it. */
+  mainTicker: "CUSHION",
   tagline: "Launch on Solana. Every fee cushions the holders.",
   /** Short line for titles and link previews. */
   slogan: "every fee cushions the fall",

@@ -49,6 +49,8 @@ export type Coin = {
   creator: Address;
   createdAt: number; // unix seconds
   quote: QuoteAsset;
+  /** the platform token (brand.mainTicker), featured on the home page; it gets no share of fees */
+  isMain: boolean;
   decimals: number;
   /** price of one coin, in whole quote units */
   price: number;
@@ -211,6 +213,8 @@ export type PlatformStats = {
   demo: boolean;
   solUsd: number;
   coins: number;
+  /** the platform token's mint (MAIN_TOKEN_MINT), or null before it's set */
+  mainToken: Address | null;
   volume24hSol: number;
   volume24hUsd: number;
   totalFeesSol: number;

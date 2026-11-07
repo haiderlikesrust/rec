@@ -187,6 +187,7 @@ function TokenCell({ c, size = 40, pair = false }: { c: Coin; size?: number; pai
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
           <span className="font-display truncate text-[15px] font-semibold">{c.name}</span>
+          {c.isMain && <Badge tone="accent">Official</Badge>}
           <NestBadge c={c} />
         </div>
         <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs whitespace-nowrap text-muted">
@@ -269,6 +270,7 @@ function MobileList({ coins }: { coins: Coin[] }) {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
                 <span className="font-display truncate text-[15px] font-semibold">{c.name}</span>
+                {c.isMain && <Badge tone="accent">Official</Badge>}
                 <NestBadge c={c} />
               </div>
               <div className="mt-1 flex items-center gap-1.5 text-xs text-muted">
