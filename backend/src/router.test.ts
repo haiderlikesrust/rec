@@ -79,7 +79,7 @@ test("fees flow from trades into the OTC and protection wallets, and losses are 
   refresh();
   // half of what the reserve will take from this wallet for this coin right now
   const info = otcCoin(getCoin(mint)!, t0 + 7400);
-  assert.ok(info.twapReady && info.sellLimitSol > 0, "OTC is open after 30 minutes of history");
+  assert.ok(info.twapReady && info.sellLimitSol > 0, "OTC is open once there is enough history");
   const rest = BigInt(Math.floor(((Math.min(info.sellLimitSol, walletDailyCapSol()) * 0.5) / info.sellPriceSol) * 1e6));
   const before = sol(buyer);
   const feesBefore = sol(engine.wallets.fees);

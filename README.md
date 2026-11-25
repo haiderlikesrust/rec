@@ -82,7 +82,7 @@ nothing to the reserve or the fund, so a graduated coin feeds the two buckets at
 
 What the two buckets do with it:
 
-- **OTC reserve.** A SOL wallet that only buys. A holder sells coins to it at `min(spot, 30-minute TWAP)` minus 3%,
+- **OTC reserve.** A SOL wallet that only buys. A holder sells coins to it at `min(spot, 15-minute TWAP)` minus 3%,
   with no price impact. The coins are burned in the same transaction that pays the seller, co-signed by the reserve.
   Each coin's sell limit is 2× the SOL its fees contributed, drops to 5% after 2 days without fees, and is capped at
   10% of the reserve per coin and 5% of the reserve per wallet per coin per day.

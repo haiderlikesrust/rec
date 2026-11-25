@@ -121,7 +121,7 @@ export const otcPolicy = {
   /** 1 SOL contributed = 2 SOL of sell capacity. */
   creditMultiplierBps: 20_000,
   /** Sells price at min(spot, TWAP). OTC opens once this much history exists. */
-  twapSeconds: 30 * 60,
+  twapSeconds: 15 * 60,
   /** Full limit while the coin paid fees within this window... */
   activeSeconds: 2 * 86_400,
   /** ...and only this share of its credit once it has gone that long without any. */

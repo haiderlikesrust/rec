@@ -20,7 +20,7 @@ export async function otcQuote(engine: Engine, req: OtcQuoteRequest): Promise<Ot
   const amount = big(req.amount);
   if (amount <= 0n) throw new UserError("Enter an amount.");
   const info = otcCoin(c);
-  if (!info.twapReady) throw new UserError("OTC opens once the coin has 30 minutes of price history.");
+  if (!info.twapReady) throw new UserError(`OTC opens once the coin has ${otcPolicy.twapSeconds / 60} minutes of price history.`);
   const spread = otcPolicy.spreadBps / 10_000;
   const at = now();
 
