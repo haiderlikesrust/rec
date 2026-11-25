@@ -11,8 +11,8 @@ export const brand = {
   chainLabel: "Built on Solana",
   poolsLabel: "Pools on Raydium",
   /** The project's X account. Leave both empty to hide the X link everywhere (site footer, link previews, promo). */
-  x: "" as string,
-  xHandle: "" as string,
+  x: "https://x.com/gantryfast" as string,
+  xHandle: "@gantryfast" as string,
   docsPath: "/docs",
   /** What a family of same-ticker coins (packages/shared/src/fleet.ts) is called on the site. */
   fleet: "Fleet",
