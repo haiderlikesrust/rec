@@ -57,6 +57,7 @@ import {
   Keypair,
   PublicKey,
   SYSVAR_RENT_PUBKEY,
+  SYSVAR_SLOT_HASHES_PUBKEY,
   SystemProgram,
   Transaction,
   TransactionInstruction,
@@ -122,6 +123,8 @@ const CONFIG_TTL_MS = 10 * 60_000;
 const ACCOUNTS_PER_CALL = 100;
 // addresses one transaction can add to a lookup table
 const TABLE_ADDS_PER_TX = 24;
+// how many slots back a lookup table's slot is taken from: old enough for any RPC node to have seen, far short of the 512 kept
+const SETTLED_SLOTS = 64;
 // quotes whose route to SOL is asked for per pass (three passes a minute), a moment apart
 const ROUTES_PER_PASS = 3;
 // at a launch, the quote's price may be this old and its route to SOL have been asked for this long ago (seconds)
@@ -571,7 +574,7 @@ export class ChainEngine implements Engine {
     for (let i = 0; i < missing.length; i += TABLE_ADDS_PER_TX) {
       const ixs: TransactionInstruction[] = [];
       if (!address) {
-        const [create, created] = AddressLookupTableProgram.createLookupTable({ authority: fees, payer: fees, recentSlot: await this.conn.getSlot("finalized") });
+        const [create, created] = AddressLookupTableProgram.createLookupTable({ authority: fees, payer: fees, recentSlot: await this.settledSlot() });
         ixs.push(create);
         address = created;
       }
@@ -591,6 +594,18 @@ export class ChainEngine implements Engine {
       if (table && wanted.every((k) => has(table, k)) && (await this.conn.getSlot("confirmed")) > table.state.lastExtendedSlot) return table;
     }
     throw new UserError("The platform's lookup table isn't ready yet. Try again in a few seconds.");
+  }
+
+  /**
+   * A slot a lookup table can be created from. The program only takes one listed in the SlotHashes sysvar, as seen by
+   * the node that runs the transaction, and that node may be a few slots behind the one that answered here. So this
+   * reads the list itself (newest first: a count, then a slot and its hash per entry) and takes one well down it.
+   */
+  private async settledSlot() {
+    const info = await this.conn.getAccountInfo(SYSVAR_SLOT_HASHES_PUBKEY, "confirmed");
+    const count = info ? Number(info.data.readBigUInt64LE(0)) : 0;
+    if (!info || count === 0) throw new Error("the SlotHashes sysvar can't be read");
+    return Number(info.data.readBigUInt64LE(8 + Math.min(SETTLED_SLOTS, count - 1) * 40));
   }
 
   /** In the lookup table for every launch: the platform's own accounts, LaunchLab's, and the programs a launch touches without calling them itself. */
