@@ -12,22 +12,29 @@ const twapMinutes = otcPolicy.twapSeconds / 60;
 /** The reserve's rules in four sentences, closed by default. Every number reads `otcPolicy`. */
 export function HowLimits({ reserveWallet }: { reserveWallet?: string }) {
   return (
-    <Disclosure title="How limits work">
+    <Disclosure title={otcPolicy.limited ? "How limits work" : "How the price works"}>
       <div className="max-w-2xl space-y-3 text-[15px] leading-relaxed text-ink-2">
+        {otcPolicy.limited ? (
+          <>
+            <p>
+              Each coin earns its own limit: every SOL its trading fees send to the reserve lets holders sell {creditX} SOL worth of that
+              coin.
+            </p>
+            <p>
+              The limit is full while the coin keeps trading, and drops to {bps(otcPolicy.floorBps)} of itself after {quietDays} days
+              without a trade.
+            </p>
+            <p>
+              One coin can use up to {bps(otcPolicy.maxShareOfReserveBps)} of the reserve at once, and one wallet can sell up to{" "}
+              {bps(otcPolicy.walletDailyBps)} of the reserve per coin each day (the day restarts at 00:00 UTC).
+            </p>
+          </>
+        ) : (
+          <p>There are no sell limits. The reserve buys until its SOL runs out, and refills as coins trade.</p>
+        )}
         <p>
-          Each coin earns its own limit: every SOL its trading fees send to the reserve lets holders sell {creditX} SOL worth of that coin.
-        </p>
-        <p>
-          The limit is full while the coin keeps trading, and drops to {bps(otcPolicy.floorBps)} of itself after {quietDays} days without a
-          trade.
-        </p>
-        <p>
-          One coin can use up to {bps(otcPolicy.maxShareOfReserveBps)} of the reserve at once, and one wallet can sell up to{" "}
-          {bps(otcPolicy.walletDailyBps)} of the reserve per coin each day (the day restarts at 00:00 UTC).
-        </p>
-        <p>
-          The price is the lower of the current price and the {twapMinutes}-minute average, minus the {bps(otcPolicy.spreadBps)} spread, so a
-          new coin can be sold after {twapMinutes} minutes.
+          The price is the lower of the current price and the {twapMinutes}-minute average, plus {bps(otcPolicy.premiumBps)}, so a new coin
+          can be sold after {twapMinutes} minutes.
         </p>
         <p className="flex flex-wrap gap-x-6 gap-y-1 pt-1">
           <Link href={`${brand.docsPath}#otc`} className="link">

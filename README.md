@@ -82,10 +82,11 @@ nothing to the reserve or the fund, so a graduated coin feeds the two buckets at
 
 What the two buckets do with it:
 
-- **OTC reserve.** A SOL wallet that only buys. A holder sells coins to it at `min(spot, 15-minute TWAP)` minus 3%,
+- **OTC reserve.** A SOL wallet that only buys. A holder sells coins to it at `min(spot, 15-minute TWAP)` plus 10%,
   with no price impact. The coins are burned in the same transaction that pays the seller, co-signed by the reserve.
-  Each coin's sell limit is 2× the SOL its fees contributed, drops to 5% after 2 days without fees, and is capped at
-  10% of the reserve per coin and 5% of the reserve per wallet per coin per day.
+  Sellers pay no fee. There are no sell limits: the reserve buys any coin until its SOL runs out. With
+  `otcPolicy.limited` set to true, a coin's limit is 2× the SOL its fees contributed (5% of that after 2 days without
+  fees), capped at 10% of the reserve per coin and 5% of the reserve per wallet per coin per day.
 - **Heat Shield.** Pays part of a realized loss automatically, with nothing to claim. The rate depends on hold time
   (under 5 minutes 0%, 5 to 30 minutes 25%, 30 minutes to 6 hours 45%, longer 60%; 70% on a coin flagged as a rug).
   A payout is capped at 5× the fees that wallet paid on the coin and at 15% of the coin's own pot, and is sent once

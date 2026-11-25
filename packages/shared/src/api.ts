@@ -130,8 +130,8 @@ export type OtcCoin = {
   burned: string; // raw coin units the reserve has bought and burned (it never holds any)
   lastContribution: number;
   /**
-   * What the reserve pays a seller per whole coin right now, before the limits: the lower of spot and the TWAP, less
-   * the spread. In SOL (what it pays in), in the coin's quote (the unit of its chart) and in USD. 0 until `twapReady`.
+   * What the reserve pays a seller per whole coin right now, before the limits: the lower of spot and the TWAP, plus
+   * the premium. In SOL (what it pays in), in the coin's quote (the unit of its chart) and in USD. 0 until `twapReady`.
    */
   sellPriceSol: number;
   sellPrice: number;

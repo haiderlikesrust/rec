@@ -1023,13 +1023,13 @@ export class ChainEngine implements Engine {
     const mint = this.pk(c.mint);
     if (q.side !== "sell") throw new UserError("The OTC reserve only buys coins.");
     const coins = BigInt(q.amount_in);
-    // one transaction: the coins reach the reserve, the seller and the fee wallet are paid, and the reserve burns
+    // one transaction: the coins reach the reserve, the seller is paid (and the fee wallet, on a quote with a fee), and the reserve burns
     // exactly those coins, so it settles completely or not at all and the reserve never holds any
     const tx = new Transaction().add(
       createAssociatedTokenAccountIdempotentInstruction(user, otcAta, otc, mint, program),
       createTransferCheckedInstruction(userAta, mint, otcAta, user, coins, c.decimals, [], program),
       SystemProgram.transfer({ fromPubkey: otc, toPubkey: user, lamports: BigInt(q.amount_out) }),
-      SystemProgram.transfer({ fromPubkey: otc, toPubkey: fees, lamports: BigInt(q.tax) }),
+      ...(BigInt(q.tax) > 0n ? [SystemProgram.transfer({ fromPubkey: otc, toPubkey: fees, lamports: BigInt(q.tax) })] : []),
       createBurnCheckedInstruction(otcAta, mint, otc, coins, c.decimals, [], program),
       this.memo(memoFor("otc", q.id), otc),
     );

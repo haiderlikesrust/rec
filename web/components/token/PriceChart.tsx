@@ -274,7 +274,7 @@ function ReserveNote({ coin, price }: { coin: CoinDetail; price: string }) {
       </p>
       <p id={id} hidden={!open} className="mt-2 max-w-2xl text-[13px] leading-relaxed text-ink-2">
         The reserve is a SOL wallet you can sell this coin into with no slippage. Its price follows the market: the lower of the current price
-        and the {otcPolicy.twapSeconds / 60}-minute average, minus {bps(otcPolicy.spreadBps)}, and it only buys up to its limit.
+        and the {otcPolicy.twapSeconds / 60}-minute average, plus {bps(otcPolicy.premiumBps)}, and it buys until its SOL runs out.
       </p>
     </div>
   );

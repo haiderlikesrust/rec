@@ -22,7 +22,7 @@ const lamports = (sol: number) => BigInt(Math.floor(sol * LAMPORTS));
 
 export async function processFees(engine: Engine, at = now()) {
   let processed = 0;
-  for (const c0 of all<CoinRow>("SELECT * FROM coin WHERE income_quote != split_quote OR claimable_quote != '0' OR harvest_quote != '0' OR pending_sol > 0")) {
+  for (const c0 of all<CoinRow>("SELECT * FROM coin WHERE income_quote != split_quote OR claimable_quote != '0' OR harvest_quote != '0' OR pending_sol > 0 OR EXISTS (SELECT 1 FROM kv WHERE k = 'protection_due:' || coin.mint AND v != '0')")) {
     try {
       if (await processCoin(engine, c0, at)) processed++;
     } catch (e) {
@@ -51,11 +51,17 @@ async function processCoin(engine: Engine, c0: CoinRow, at: number) {
   const c = getCoin(c0.mint)!;
   const quoteIn = big(c.income_quote) - big(c.split_quote);
   const solIn = lamports(c.pending_sol);
-  const usd = toUnits(quoteIn > 0n ? quoteIn : 0n, q.decimals) * q.usd + c.pending_sol * solUsd();
+  // a protection half an earlier pass couldn't send: it goes out whole, not through the split again
+  const dueKey = `protection_due:${c.mint}`;
+  const due = big(kvGet(dueKey));
+  const usd = toUnits(quoteIn > 0n ? quoteIn : 0n, q.decimals) * q.usd + (c.pending_sol + Number(due) / LAMPORTS) * solUsd();
   if (usd < config.feeMinUsd) return false;
 
   // book the batch before moving anything, so a crash mid-way never splits the same fees twice
-  run("UPDATE coin SET split_quote = ?, pending_sol = MAX(0, pending_sol - ?) WHERE mint = ?", c.income_quote, c.pending_sol, c.mint);
+  tx(() => {
+    run("UPDATE coin SET split_quote = ?, pending_sol = MAX(0, pending_sol - ?) WHERE mint = ?", c.income_quote, c.pending_sol, c.mint);
+    kvSet(dueKey, 0);
+  });
   // anything not sent yet goes back as pending SOL for the next pass, so a failure never strands it in the fee wallet
   const requeue = (sol: bigint) => run("UPDATE coin SET pending_sol = pending_sol + ? WHERE mint = ?", Number(sol) / LAMPORTS, c.mint);
   let converted = 0n;
@@ -63,12 +69,15 @@ async function processCoin(engine: Engine, c0: CoinRow, at: number) {
     if (quoteIn > 0n) converted = (await engine.convert(c.quote, NATIVE_MINT, quoteIn)).out;
   } catch (e) {
     run("UPDATE coin SET split_quote = ?, pending_sol = pending_sol + ? WHERE mint = ?", c.split_quote, c.pending_sol, c.mint);
+    kvSet(dueKey, due);
     throw e;
   }
   const total = converted + solIn;
-  if (total <= 0n) return true;
+  if (total + due <= 0n) return true;
 
-  const { otcReserve: otc, protection } = splitRaw(total);
+  const halves = splitRaw(total);
+  const otc = halves.otcReserve;
+  const protection = halves.protection + due;
   const lead = leaderOf(c, at);
   const routed = lead.mint !== c.mint;
   const note = routed ? `fleet: from ${c.symbol} (${c.mint})` : undefined;
@@ -78,28 +87,33 @@ async function processCoin(engine: Engine, c0: CoinRow, at: number) {
     run("UPDATE coin SET fleet_sent_sol = fleet_sent_sol + ? WHERE mint = ?", sol, c.mint);
     run("UPDATE coin SET fleet_received_sol = fleet_received_sol + ? WHERE mint = ?", sol, lead.mint);
   };
-  const send = async (to: string, amount: bigint, unsent: bigint) => {
+  const send = async (to: string, amount: bigint, failed: () => void) => {
     try {
       return await engine.sendSol("fees", to, amount);
     } catch (e) {
-      requeue(unsent);
+      failed();
       throw e;
     }
   };
-  const otcSig = await send(engine.wallets.otc, otc, total);
-  const otcSol = Number(otc) / LAMPORTS;
-  run(
-    "UPDATE coin SET sol_to_otc = sol_to_otc + ?, otc_credit = otc_credit + ?, otc_last_contribution = ? WHERE mint = ?",
-    otcSol,
-    (otcSol * otcPolicy.creditMultiplierBps) / 10_000,
-    at,
-    lead.mint,
-  );
-  ledger({ coin: lead.mint, kind: "to-otc", mint: NATIVE_MINT, amount: otc, sol: otcSol, tx: otcSig, note });
-  treasury.otcSol += otcSol;
-  tally(otcSol);
+  if (otc > 0n) {
+    const otcSig = await send(engine.wallets.otc, otc, () => {
+      requeue(total);
+      kvSet(dueKey, due);
+    });
+    const otcSol = Number(otc) / LAMPORTS;
+    run(
+      "UPDATE coin SET sol_to_otc = sol_to_otc + ?, otc_credit = otc_credit + ?, otc_last_contribution = ? WHERE mint = ?",
+      otcSol,
+      (otcSol * otcPolicy.creditMultiplierBps) / 10_000,
+      at,
+      lead.mint,
+    );
+    ledger({ coin: lead.mint, kind: "to-otc", mint: NATIVE_MINT, amount: otc, sol: otcSol, tx: otcSig, note });
+    treasury.otcSol += otcSol;
+    tally(otcSol);
+  }
 
-  const protSig = await send(engine.wallets.protection, protection, protection);
+  const protSig = await send(engine.wallets.protection, protection, () => kvSet(dueKey, protection));
   const protSol = Number(protection) / LAMPORTS;
   run("UPDATE coin SET sol_to_protection = sol_to_protection + ? WHERE mint = ?", protSol, lead.mint);
   ledger({ coin: lead.mint, kind: "to-protection", mint: NATIVE_MINT, amount: protection, sol: protSol, tx: protSig, note });

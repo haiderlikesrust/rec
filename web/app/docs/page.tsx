@@ -226,21 +226,27 @@ export default function DocsPage() {
               <p>
                 The OTC reserve is a wallet of SOL that buys coins straight from holders. You ask for a quote and, if you accept, you
                 get exactly that amount: the sale skips the coin&apos;s pool, so it does not move the price. The quote is the lower
-                of the current price and the average of the last {otc.twapMinutes} minutes, minus a {pct(otcPolicy.spreadBps)} fee.
+                of the current price and the average of the last {otc.twapMinutes} minutes, plus {pct(otcPolicy.premiumBps)}.
               </p>
               <p>
-                The coins you sell are burned on the spot, and the reserve never sells. How much of a coin it will buy depends on how
-                much that coin&apos;s trading has paid in.
+                The coins you sell are burned on the spot, and the reserve never sells.{" "}
+                {otcPolicy.limited
+                  ? "How much of a coin it will buy depends on how much that coin's trading has paid in."
+                  : "It is one wallet shared by every coin, with no sell limits: it buys until its SOL runs out, and refills as coins trade."}
               </p>
             </Prose>
-            <Details summary="How limits work">
+            <Details summary={otcPolicy.limited ? "How limits work" : "Quotes and timing"}>
               <FigureTable
-                caption="Limits on selling to the OTC reserve"
+                caption="Selling to the OTC reserve"
                 rows={[
-                  ["A coin's sell limit", `${otc.creditX}× the SOL its fees sent in`],
-                  [`After ${otc.idleDays} days with no fees`, `${pct(otcPolicy.floorBps)} of that, until the next fee`],
-                  ["One coin, at any moment", `${pct(otcPolicy.maxShareOfReserveBps)} of the reserve`],
-                  ["One wallet, per coin, per day", `${pct(otcPolicy.walletDailyBps)} of the reserve`],
+                  ...(otcPolicy.limited
+                    ? ([
+                        ["A coin's sell limit", `${otc.creditX}× the SOL its fees sent in`],
+                        [`After ${otc.idleDays} days with no fees`, `${pct(otcPolicy.floorBps)} of that, until the next fee`],
+                        ["One coin, at any moment", `${pct(otcPolicy.maxShareOfReserveBps)} of the reserve`],
+                        ["One wallet, per coin, per day", `${pct(otcPolicy.walletDailyBps)} of the reserve`],
+                      ] as [string, string][])
+                    : ([["Sell limits", "None, while the reserve has SOL"]] as [string, string][])),
                   ["A quote stays valid for", `${otcPolicy.quoteTtlSeconds} seconds`],
                 ]}
               />
@@ -324,13 +330,13 @@ export default function DocsPage() {
               <p>
                 Anyone can launch a copy of a coin that is already trading, but a copy works for the coin it copied. Coins whose
                 ticker or name read the same form one family, called a {brand.fleet}, and one of them leads it: the original, for as
-                long as people keep trading it. Every other member&apos;s fees go to the leader, building the leader&apos;s OTC
-                limit and protection pot instead of its own.
+                long as people keep trading it. Every other member&apos;s fees go to the leader, building the leader&apos;s{" "}
+                {otcPolicy.limited ? "OTC limit and protection pot" : "protection pot"} instead of its own.
               </p>
               <p>
                 A copy launched while the leader is active also pays a {dollars(FLEET.entryUsd)} entry. It is spent on the copy&apos;s
                 own coins, which are handed to the leader&apos;s holders. So before you buy a copy, know that it gives its buyers
-                little or no OTC exit and little or no loss cover.
+                {otcPolicy.limited ? "little or no OTC exit and little or no loss cover" : "little or no loss cover"}.
               </p>
             </Prose>
             <Details summary="What counts as the same name">
@@ -379,8 +385,10 @@ export default function DocsPage() {
                   the coin they farm.
                 </li>
                 <li>
-                  <strong>The OTC reserve can run short.</strong> Sell limits add up to more than it holds, so heavy selling can
-                  leave it unable to quote the size you want until new fees arrive.
+                  <strong>The OTC reserve can run out.</strong>{" "}
+                  {otcPolicy.limited
+                    ? "Sell limits add up to more than it holds, so heavy selling can leave it unable to quote the size you want until new fees arrive."
+                    : "It pays above the market with no sell limits, and one wallet serves every coin, so a few sellers of any coin can empty it. It then has nothing to pay with until new fees arrive."}
                 </li>
                 <li>
                   <strong>Stock tokens answer to their issuers.</strong> A coin paired with a tokenized stock trades against a token

@@ -5,6 +5,7 @@ import {
   otcActivityBps,
   otcPolicy,
   otcSellLimitSol,
+  otcUsableSol,
   type FleetTag,
   type Coin,
   type CoinProtection,
@@ -302,12 +303,13 @@ export function otcCoin(c: CoinRow, at = now()): OtcCoin {
   const solPer = solPerUnit(c.quote);
   const activityBps = otcActivityBps(c.otc_last_contribution, at);
   const avg = twap(c, otcPolicy.twapSeconds, at);
-  const spread = otcPolicy.spreadBps / 10_000;
-  // what a seller gets per coin, in the coin's quote: the lower of spot and the TWAP, less the spread
-  const bid = avg === null ? 0 : Math.min(c.price, avg) * (1 - spread);
+  // what a seller gets per coin, in the coin's quote: the lower of spot and the TWAP, plus the premium
+  const bid = avg === null ? 0 : Math.min(c.price, avg) * (1 + otcPolicy.premiumBps / 10_000);
   const outstanding =
-    one<{ s: number }>("SELECT COALESCE(SUM(sol_gross), 0) AS s FROM otc_quote WHERE coin = ? AND side = 'sell' AND status = 'issued'", c.mint)
-      ?.s ?? 0;
+    (otcPolicy.limited
+      ? one<{ s: number }>("SELECT COALESCE(SUM(sol_gross), 0) AS s FROM otc_quote WHERE coin = ? AND side = 'sell' AND status = 'issued'", c.mint)
+      : // one reserve for every coin: what it has promised any of them is spoken for
+        one<{ s: number }>("SELECT COALESCE(SUM(sol_gross), 0) AS s FROM otc_quote WHERE side = 'sell' AND status = 'issued'"))?.s ?? 0;
   return {
     coin: c.mint,
     symbol: c.symbol,
@@ -339,4 +341,8 @@ export function walletSoldToday(coin: string, wallet: string, at = now()) {
   );
 }
 
-export const walletDailyCapSol = () => (treasury.otcSol * otcPolicy.walletDailyBps) / 10_000;
+export const walletDailyCapSol = () => (otcPolicy.limited ? (treasury.otcSol * otcPolicy.walletDailyBps) / 10_000 : otcUsableSol(treasury.otcSol));
+
+/** SOL a wallet may still sell the reserve for a coin today. */
+export const walletRemainingSol = (coin: string, wallet: string, at = now()) =>
+  otcPolicy.limited ? Math.max(0, walletDailyCapSol() - walletSoldToday(coin, wallet, at)) : walletDailyCapSol();

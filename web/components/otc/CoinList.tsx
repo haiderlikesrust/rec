@@ -196,9 +196,11 @@ export function AllCoins({
               <tr>
                 <Th>Coin</Th>
                 <Th num>Reserve price</Th>
-                <Th num className="hidden sm:table-cell" title="The most one wallet can sell of this coin today">
-                  Limit today
-                </Th>
+                {otcPolicy.limited && (
+                  <Th num className="hidden sm:table-cell" title="The most one wallet can sell of this coin today">
+                    Limit today
+                  </Th>
+                )}
                 <Th className="hidden w-10 sm:table-cell">
                   <span className="sr-only">Open</span>
                 </Th>
@@ -226,11 +228,13 @@ export function AllCoins({
                     </Td>
                     <Td num className="max-sm:py-2.5">
                       <ReservePrice row={r} solUsd={solUsd} />
-                      <span className="block text-[13px] text-ink-3 sm:hidden">limit {usd(limitSol * solUsd)}</span>
+                      {otcPolicy.limited && <span className="block text-[13px] text-ink-3 sm:hidden">limit {usd(limitSol * solUsd)}</span>}
                     </Td>
-                    <Td num className={clsx("hidden sm:table-cell", limitSol > 0 ? "text-ink-2" : "text-ink-3")}>
-                      {usd(limitSol * solUsd)}
-                    </Td>
+                    {otcPolicy.limited && (
+                      <Td num className={clsx("hidden sm:table-cell", limitSol > 0 ? "text-ink-2" : "text-ink-3")}>
+                        {usd(limitSol * solUsd)}
+                      </Td>
+                    )}
                     <Td align="right" className="hidden sm:table-cell">
                       <ChevronRight size={16} aria-hidden className={clsx("inline", active ? "text-ink" : "text-ink-3")} />
                     </Td>

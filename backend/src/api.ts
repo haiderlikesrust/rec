@@ -49,7 +49,7 @@ import {
   treasury,
   walletDailyCapSol,
   walletProtection,
-  walletSoldToday,
+  walletRemainingSol,
 } from "./services";
 
 export function createApi(engine: Engine) {
@@ -344,7 +344,7 @@ export function createApi(engine: Engine) {
       wallet: engine.wallets.otc,
       reserveSol: treasury.otcSol,
       walletDailyCapSol: walletDailyCapSol(),
-      coins: all<CoinRow>("SELECT * FROM coin WHERE otc_credit > 0 OR otc_burned != '0' ORDER BY sol_to_otc DESC").map((c) => otcCoin(c)),
+      coins: all<CoinRow>("SELECT * FROM coin WHERE sol_to_otc > 0 OR otc_credit > 0 OR otc_burned != '0' ORDER BY sol_to_otc DESC").map((c) => otcCoin(c)),
     }),
   );
 
@@ -353,11 +353,10 @@ export function createApi(engine: Engine) {
     if (!c) return ctx.json({ error: "not found" }, 404);
     const wallet = ctx.req.query("wallet");
     const info = otcCoin(c);
-    const cap = walletDailyCapSol();
     return ctx.json({
       ...info,
       reserveSol: treasury.otcSol,
-      walletRemainingSol: wallet && isSolanaAddress(wallet) ? Math.max(0, cap - walletSoldToday(c.mint, wallet)) : cap,
+      walletRemainingSol: wallet && isSolanaAddress(wallet) ? walletRemainingSol(c.mint, wallet) : walletDailyCapSol(),
     });
   });
 

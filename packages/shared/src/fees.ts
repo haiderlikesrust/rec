@@ -90,7 +90,7 @@ export const buckets: {
     label: "OTC reserve",
     short: "OTC reserve",
     paidIn: "SOL",
-    blurb: "A SOL wallet you can sell coins into without slippage. Coins that pay more get higher limits.",
+    blurb: "A SOL wallet you can sell coins into without slippage, above the market price.",
   },
 ];
 
@@ -116,11 +116,18 @@ export const volumeForFees = (fees: number) => fees / (TAX_BPS / 10_000);
 // at all and the reserve never holds coins.
 
 export const otcPolicy = {
-  /** OTC trades carry the same 3%; it goes to the fee wallet in the same transaction. */
-  spreadBps: TAX_BPS,
+  /** What the reserve pays over the market price below. Sellers pay it no fee. */
+  premiumBps: 1_000,
+  /**
+   * Whether the limits below (credit, activity, share of the reserve, a wallet's day) hold sales back. While they
+   * don't, any coin can be sold to the reserve until its SOL runs out.
+   */
+  limited: false as boolean,
+  /** The most of its SOL the reserve offers: the rest pays for network fees and prices that move. */
+  usableBps: 9_500,
   /** 1 SOL contributed = 2 SOL of sell capacity. */
   creditMultiplierBps: 20_000,
-  /** Sells price at min(spot, TWAP). OTC opens once this much history exists. */
+  /** The market price a sale starts from is min(spot, TWAP). OTC opens once this much history exists. */
   twapSeconds: 15 * 60,
   /** Full limit while the coin paid fees within this window... */
   activeSeconds: 2 * 86_400,
@@ -140,9 +147,14 @@ export function otcActivityBps(lastContribution: number, now: number) {
   return now - lastContribution <= otcPolicy.activeSeconds ? 10_000 : otcPolicy.floorBps;
 }
 
+/** SOL the reserve has for sellers. */
+export const otcUsableSol = (reserveSol: number) => (reserveSol * otcPolicy.usableBps) / 10_000;
+
 /** Current SOL sell capacity for a coin. */
 export const otcSellLimitSol = (creditSol: number, activityBps: number, reserveSol: number) =>
-  Math.min((creditSol * activityBps) / 10_000, (reserveSol * otcPolicy.maxShareOfReserveBps) / 10_000);
+  otcPolicy.limited
+    ? Math.min((creditSol * activityBps) / 10_000, (reserveSol * otcPolicy.maxShareOfReserveBps) / 10_000)
+    : otcUsableSol(reserveSol);
 
 // ---------------------------------------------------------------- protection policy
 //

@@ -89,7 +89,9 @@ test("fees flow from trades into the OTC and protection wallets, and losses are 
   assert.ok(Math.abs(sol(buyer) - before - Number(q.amountOut) / 1e9) < 1e-9);
   assert.ok(Math.abs(sol(engine.wallets.fees) - feesBefore - Number(q.taxLamports) / 1e9) < 1e-9);
   assert.equal(one<{ status: string }>("SELECT status FROM otc_quote WHERE id = ?", q.id)!.status, "done");
-  assert.ok(getCoin(mint)!.pending_sol > 0, "OTC tax is queued for the next split");
+  assert.equal(q.taxLamports, "0", "the reserve charges no fee");
+  const paidEach = Number(q.amountOut) / 1e9 / (Number(rest) / 1e6);
+  assert.ok(Math.abs(paidEach / info.sellPriceSol - 1) < 1e-3, "and pays its posted price");
   // the reserve burned exactly what it bought, in the same settlement, and holds none of it
   assert.equal(big(getCoin(mint)!.otc_burned), rest, "every coin sold to the reserve is burned");
   assert.equal(big(getCoin(mint)!.total_supply), supplyBefore - rest, "supply went down by the OTC sale");
@@ -146,11 +148,14 @@ test("a send that fails puts the unsent SOL back for the next pass instead of st
     const c = getCoin(mint)!;
     assert.ok(c.sol_to_otc > 0, "the OTC half went out");
     assert.equal(c.sol_to_protection, 0, "the protection half didn't");
-    assert.ok(Math.abs(c.pending_sol - c.sol_to_otc) < 2e-9, "it waits as pending SOL");
+    const due = Number(one<{ v: string }>("SELECT v FROM kv WHERE k = ?", `protection_due:${mint}`)!.v) / 1e9;
+    assert.ok(Math.abs(due - c.sol_to_otc) < 2e-9, "it waits for the protection fund alone");
+    assert.equal(c.pending_sol, 0, "and isn't split again");
     await processFees(engine, at + 30);
     const d = getCoin(mint)!;
-    assert.equal(d.pending_sol, 0, "the next pass sent it");
-    assert.ok(Math.abs(d.sol_to_otc + d.sol_to_protection - (c.sol_to_otc + c.pending_sol)) < 1e-9, "nothing was lost");
+    assert.ok(Math.abs(d.sol_to_protection - due) < 1e-9, "the next pass sent it whole");
+    assert.equal(d.sol_to_otc, c.sol_to_otc, "and the two halves stay even");
+    assert.equal(one<{ v: string }>("SELECT v FROM kv WHERE k = ?", `protection_due:${mint}`)!.v, "0");
   } finally {
     engine.sendSol = send;
   }

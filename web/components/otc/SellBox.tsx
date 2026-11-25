@@ -71,7 +71,7 @@ function Form({ coin, onClose }: { coin: CoinDetail; onClose: () => void }) {
   const outSol = l ? inputUnits * l.sellPriceSol : 0;
 
   // the limit that applies to this sale: the coin's own, or what one wallet may still sell today, whichever is lower
-  const walletCapSol = !l ? 0 : wallet ? l.walletRemainingSol : (l.reserveSol * otcPolicy.walletDailyBps) / 10_000;
+  const walletCapSol = !l ? 0 : wallet ? l.walletRemainingSol : otcPolicy.limited ? (l.reserveSol * otcPolicy.walletDailyBps) / 10_000 : l.sellLimitSol;
   const capSol = l ? Math.min(l.sellLimitSol, walletCapSol) : 0;
   const capUnits = l && l.sellPriceSol > 0 ? capSol / l.sellPriceSol : 0;
 
@@ -103,26 +103,34 @@ function Form({ coin, onClose }: { coin: CoinDetail; onClose: () => void }) {
   const label = notReady
     ? "Not open yet"
     : closed
-      ? "Limit reached"
+      ? otcPolicy.limited
+        ? "Limit reached"
+        : "Reserve is empty"
       : insufficient
         ? `Not enough ${coin.symbol}`
         : over
-          ? "Over today's limit"
+          ? otcPolicy.limited
+            ? "Over today's limit"
+            : "More than the reserve holds"
           : tx.busy
             ? "Selling…"
             : `Sell ${coin.symbol}`;
 
   const limitLine = limits.isError
-    ? "Today's limit didn't load. It retries on its own."
+    ? "The reserve didn't load. It retries on its own."
     : !l
-      ? "Checking today's limit…"
+      ? "Checking the reserve…"
       : notReady
         ? `The reserve starts buying a coin once it has ${twapMinutes} minutes of price history.`
         : closed
-          ? wallet && l.sellLimitSol > 0
+          ? !otcPolicy.limited
+            ? "The reserve has no SOL left right now. It refills as coins trade."
+            : wallet && l.sellLimitSol > 0
             ? "You've reached today's limit for this coin. It resets at 00:00 UTC."
             : "The reserve isn't buying this coin right now."
-          : `You can sell up to ${num(Math.floor(capUnits))} ${coin.symbol} today (${sol(capSol)}).`;
+          : otcPolicy.limited
+            ? `You can sell up to ${num(Math.floor(capUnits))} ${coin.symbol} today (${sol(capSol)}).`
+            : `The reserve can buy up to ${num(Math.floor(capUnits))} ${coin.symbol} right now (${sol(capSol)}).`;
 
   return (
     <div className="space-y-5">
@@ -188,11 +196,11 @@ function Form({ coin, onClose }: { coin: CoinDetail; onClose: () => void }) {
 
       <div className="space-y-2 text-[14px] leading-relaxed">
         <p className="flex items-baseline justify-between gap-4 text-ink-2">
-          <span>Price per coin, after the {bps(otcPolicy.spreadBps)} spread</span>
+          <span>Price per coin, {bps(otcPolicy.premiumBps)} over market</span>
           <span className="num shrink-0 text-ink">{l?.twapReady && solUsd > 0 ? usd(l.sellPriceSol * solUsd) : "—"}</span>
         </p>
         <p className={over ? "text-loss" : "text-ink-2"}>{limitLine}</p>
-        {copyOf && (
+        {copyOf && otcPolicy.limited && (
           <p className="text-ink-3">
             This is a copy in a {brand.fleet}: its fees go to the original, {copyOf.symbol}, so its own limit stays small.
           </p>

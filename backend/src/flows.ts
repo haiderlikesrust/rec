@@ -1,17 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { otcPolicy, type OtcQuote, type OtcQuoteRequest } from "@gantry/shared";
+import { otcPolicy, otcUsableSol, type OtcQuote, type OtcQuoteRequest } from "@gantry/shared";
 import { big, one, run, type OtcQuoteRow } from "./db";
 import { UserError, memoFor, type Engine } from "./engine";
 import { settleOtc } from "./jobs";
 import { getCoin } from "./ledger";
-import { now, otcCoin, treasury, walletDailyCapSol, walletSoldToday } from "./services";
+import { now, otcCoin, treasury, walletRemainingSol } from "./services";
 import { toUnits } from "./prices";
 
 const LAMPORTS = 1_000_000_000;
 
 /**
  * OTC: the reserve quotes a fixed price, reserves the limit, and co-signs one transaction that moves both legs
- * (coins in, SOL out, the 3% to the fee wallet) and burns the coins it took. It settles atomically or not at all.
+ * (coins in, SOL out) and burns the coins it took. It settles atomically or not at all.
  */
 export async function otcQuote(engine: Engine, req: OtcQuoteRequest): Promise<OtcQuote> {
   if (req.side !== "sell") throw new UserError("The OTC reserve only buys coins, and burns every one it buys.");
@@ -21,18 +21,17 @@ export async function otcQuote(engine: Engine, req: OtcQuoteRequest): Promise<Ot
   if (amount <= 0n) throw new UserError("Enter an amount.");
   const info = otcCoin(c);
   if (!info.twapReady) throw new UserError(`OTC opens once the coin has ${otcPolicy.twapSeconds / 60} minutes of price history.`);
-  const spread = otcPolicy.spreadBps / 10_000;
   const at = now();
 
-  // coins in, SOL out at min(spot, TWAP) minus the spread
-  const solGross = toUnits(amount, c.decimals) * (info.sellPriceSol / (1 - spread));
-  const tax = BigInt(Math.floor(solGross * spread * LAMPORTS));
-  const amountOut = BigInt(Math.floor(solGross * LAMPORTS)) - tax;
-  if (solGross > info.sellLimitSol) throw new UserError("That's above this coin's current OTC limit.");
-  if (walletSoldToday(c.mint, req.wallet, at) + solGross > walletDailyCapSol())
+  // coins in, SOL out at min(spot, TWAP) plus the premium, with no fee
+  const solGross = toUnits(amount, c.decimals) * info.sellPriceSol;
+  const tax = 0n;
+  const amountOut = BigInt(Math.floor(solGross * LAMPORTS));
+  if (solGross > info.sellLimitSol) throw new UserError(otcPolicy.limited ? "That's above this coin's current OTC limit." : "The reserve can't cover that right now.");
+  if (solGross > walletRemainingSol(c.mint, req.wallet, at))
     throw new UserError("That's above your daily OTC cap for this coin.");
   if (amountOut <= 0n) throw new UserError("Amount too small.");
-  if (solGross > treasury.otcSol * 0.95) throw new UserError("The reserve can't cover that right now.");
+  if (solGross > otcUsableSol(treasury.otcSol)) throw new UserError("The reserve can't cover that right now.");
 
   const id = randomUUID();
   const row: OtcQuoteRow = {
