@@ -9,7 +9,7 @@ import { config } from "./config";
  * One SQLite file holds everything the API serves: coins, trades, holders, fee buckets, OTC and protection state.
  * Real mode fills it from the chain; demo mode fills it from the simulator. Raw token amounts are TEXT (bigint).
  */
-const file = process.env.DB_FILE ?? path.join(config.dataDir, config.demo ? "demo.db" : `${config.cluster}.db`);
+const file = process.env.DB_FILE ?? path.join(config.dataDir, config.demo ? "demo.db" : `gantry-${config.cluster}.db`);
 
 const SCHEMA = `
 -- grp: its group in the pair picker. usd: the price of one whole unit of the raw amount (raw / 10^decimals), last

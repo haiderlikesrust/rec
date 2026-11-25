@@ -17,7 +17,7 @@ State lives in two volumes:
 
 | Volume | Mounted at | Contents | Lose it and |
 |---|---|---|---|
-| `gantry-data` | `/app/data` | The SQLite database (`demo.db`, `devnet.db` or `mainnet-beta.db`), demo wallet files, uploaded coin images | you lose the platform's books. Required. |
+| `gantry-data` | `/app/data` | The SQLite database (`demo.db`, `gantry-devnet.db` or `gantry-mainnet-beta.db`), demo wallet files, uploaded coin images | you lose the platform's books. Required. |
 | `gantry-static` | `/app/web/.next/static` | Hashed scripts, styles and fonts of this build and of earlier ones | pages opened before an update can fail to load their scripts until reloaded. |
 
 The wallet keys are not in the image or on a volume in a real deployment: they are environment variables read when
@@ -188,7 +188,7 @@ Do this on devnet first, then repeat it for mainnet with new wallets.
 Everything worth keeping is the SQLite file on `gantry-data`. From the application's **Terminal**:
 
 ```sh
-node -e "const {DatabaseSync}=require('node:sqlite');new DatabaseSync('/app/data/mainnet-beta.db').exec(\"VACUUM INTO '/app/data/backup.db'\")"
+node -e "const {DatabaseSync}=require('node:sqlite');new DatabaseSync('/app/data/gantry-mainnet-beta.db').exec(\"VACUUM INTO '/app/data/backup.db'\")"
 ```
 
 That writes a consistent copy while the server keeps running. Move `backup.db` off the machine, or schedule a
