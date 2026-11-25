@@ -94,6 +94,53 @@ async function build(over: Partial<LaunchRequest>, entry?: { raw: bigint; to: st
   return { req, res, raw, tx, ixs, user: new PublicKey(req.wallet), mint: new PublicKey(res.mint) };
 }
 
+test("a coin's web link is its page here, unless the launcher gave one", async () => {
+  const { kvGet } = await import("../db");
+  const { coinPage } = await import("../api");
+  const metaOf = async (website: string) => {
+    const { res } = await build({ website });
+    const meta = JSON.parse(kvGet(`meta:${res.mint}`)!) as { external_url: string; extensions: { website: string } };
+    return { mint: res.mint, links: [meta.external_url, meta.extensions.website] };
+  };
+  const own = await metaOf("");
+  assert.deepEqual(own.links, [coinPage(own.mint), coinPage(own.mint)]);
+  assert.ok(own.links[0]!.endsWith(`/token/${own.mint}`));
+  assert.deepEqual((await metaOf("orbitdog.xyz")).links, ["orbitdog.xyz", "orbitdog.xyz"]);
+});
+
+test("a lookup table left from another fee wallet is passed over for a new one", async () => {
+  const { kvSet, kvGet } = await import("../db");
+  const { SYSVAR_SLOT_HASHES_PUBKEY } = await import("@solana/web3.js");
+  const conn = e.conn as unknown as Record<string, unknown>;
+  const saved = { table: conn.getAddressLookupTable, info: conn.getAccountInfo, slot: conn.getSlot };
+  const old = Keypair.generate().publicKey.toBase58();
+  kvSet("lookup_table", old);
+  let sent = 0;
+  const x = engine as unknown as { send: () => Promise<string>; lookupTable: () => Promise<{ key: { toBase58(): string } }> };
+  x.send = async () => (sent++, "sig");
+  conn.getAddressLookupTable = async (k: InstanceType<typeof PublicKey>) => ({
+    value: k.toBase58() === old ? new AddressLookupTableAccount({ key: k, state: { ...table.state, authority: Keypair.generate().publicKey, addresses: [] } }) : new AddressLookupTableAccount({ key: k, state: table.state }),
+  });
+  conn.getSlot = async () => 1000;
+  const hashes = Buffer.alloc(8 + 40);
+  hashes.writeBigUInt64LE(1n, 0);
+  hashes.writeBigUInt64LE(900n, 8);
+  conn.getAccountInfo = async (k: InstanceType<typeof PublicKey>) => {
+    assert.ok(k.equals(SYSVAR_SLOT_HASHES_PUBKEY));
+    return { data: hashes };
+  };
+  try {
+    const t = await x.lookupTable();
+    assert.notEqual(t.key.toBase58(), old);
+    assert.equal(kvGet("lookup_table"), t.key.toBase58());
+    assert.equal(sent, 1);
+  } finally {
+    conn.getAddressLookupTable = saved.table;
+    conn.getAccountInfo = saved.info;
+    conn.getSlot = saved.slot;
+  }
+});
+
 test("a launch with a first buy and a Fleet entry is one transaction: create, buy, hand the entry to the fee wallet", async () => {
   const sol = quoteRow(NATIVE_MINT)!;
   const entry = { raw: BigInt(Math.ceil((500 / sol.usd) * 1e9)), to: Keypair.generate().publicKey.toBase58() };

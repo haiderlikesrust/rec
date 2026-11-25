@@ -490,15 +490,19 @@ export function createApi(engine: Engine) {
   return app;
 }
 
+/** A coin's page on the site: its web link wherever its metadata is shown, unless the launcher gave one. */
+export const coinPage = (mint: string) => `${config.publicUrl}/token/${mint}`;
+
 /** Store token metadata (Metaplex JSON) for a mint. */
 export function storeMetadata(mint: string, req: LaunchRequest) {
+  const website = req.website?.trim() || coinPage(mint);
   const meta = {
     name: req.name,
     symbol: req.symbol,
     description: req.description,
     image: req.image,
-    external_url: req.website || undefined,
-    extensions: { website: req.website, twitter: req.twitter, telegram: req.telegram },
+    external_url: website,
+    extensions: { website, twitter: req.twitter, telegram: req.telegram },
     createdOn: config.publicUrl,
   };
   kvSet(`meta:${mint}`, JSON.stringify(meta));

@@ -403,7 +403,7 @@ export function LaunchForm() {
               </summary>
               <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <Field label="Website">
-                  <Input value={website} autoComplete="off" onChange={(e) => setWebsite(e.target.value)} placeholder="orbitdog.xyz" />
+                  <Input value={website} autoComplete="off" onChange={(e) => setWebsite(e.target.value)} placeholder="Default: coin page" />
                 </Field>
                 <Field label="X">
                   <Input value={twitter} autoComplete="off" onChange={(e) => setTwitter(e.target.value)} placeholder="@orbitdog" />

@@ -86,7 +86,7 @@ import {
   type SwapSide,
   type TxEnvelope,
 } from "@gantry/shared";
-import { storeMetadata } from "../api";
+import { coinPage, storeMetadata } from "../api";
 import { recordEntry } from "../fleet";
 import { config, log, type Role } from "../config";
 import { COIN_DECIMALS, SUPPLY_RAW, afterTransferFee, beforeTransferFee, cpmmFees, type CpmmRates, type LaunchCurve } from "../curve";
@@ -563,12 +563,17 @@ export class ChainEngine implements Engine {
     const fees = this.keys.fees.publicKey;
     const pinned = all<{ mint: string }>("SELECT mint FROM quote WHERE available = 1 AND category IN ('solana', 'currency') ORDER BY rowid").flatMap((q) => this.quoteAddresses(q.mint));
     const wanted = [...this.commonAddresses(), ...pinned];
-    const known = config.lookupTable ?? kvGet("lookup_table");
-    let table = known ? (await this.conn.getAddressLookupTable(this.pk(known))).value : null;
     const has = (t: AddressLookupTableAccount | null, k: PublicKey) => !!t?.state.addresses.some((a) => a.equals(k));
-    const missing = wanted.filter((k) => !has(table, k));
-    if (table && missing.length === 0) return table;
-    if (table && !table.state.authority?.equals(fees)) throw new Error(`lookup table ${known} isn't the fee wallet's, so it can't be extended`);
+    const missingFrom = (t: AddressLookupTableAccount | null) => wanted.filter((k) => !has(t, k));
+    let table: AddressLookupTableAccount | null = null;
+    for (const known of [config.lookupTable, kvGet("lookup_table")]) {
+      if (!known || table) continue;
+      const t = (await this.conn.getAddressLookupTable(this.pk(known))).value;
+      if (t && missingFrom(t).length === 0) return t;
+      // one left from another fee wallet can't be extended by this one: it is passed over
+      if (t?.state.authority?.equals(fees)) table = t;
+    }
+    const missing = missingFrom(table);
 
     let address = table?.key;
     for (let i = 0; i < missing.length; i += TABLE_ADDS_PER_TX) {
@@ -1461,7 +1466,8 @@ export class ChainEngine implements Engine {
       uri,
       image: json.image ?? "",
       description: json.description ?? "",
-      website: json.extensions?.website ?? "",
+      // the coin's own page is what metadata says when the launcher gave no site
+      website: json.extensions?.website === coinPage(mint) ? "" : (json.extensions?.website ?? ""),
       twitter: json.extensions?.twitter ?? "",
       telegram: json.extensions?.telegram ?? "",
     };
