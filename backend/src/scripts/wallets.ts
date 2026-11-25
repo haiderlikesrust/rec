@@ -1,5 +1,5 @@
 // Creates the three backend wallets (data/wallets/*.json, gitignored) if missing and prints their addresses.
-// Fund the fee wallet with a little SOL for network fees and config rent before going live.
+// Fund the fee wallet with a little SOL for network fees and the rent of the platform's accounts before going live.
 import { Connection } from "@solana/web3.js";
 import { config, loadWallets, roles } from "../config";
 

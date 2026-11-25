@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { isSolanaAddress, type Coin } from "@cook/shared";
+import { isSolanaAddress, type Coin } from "@gantry/shared";
 import { TokenView } from "@/components/token/TokenView";
 
 // server-side: talk to the backend directly (the browser goes through the /api proxy)

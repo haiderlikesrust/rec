@@ -4,11 +4,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Keypair } from "@solana/web3.js";
 import bs58 from "bs58";
-import { brand, clusters, isSolanaAddress, type Cluster, type TreasuryWallet } from "@cook/shared";
+import { brand, clusters, isSolanaAddress, type Cluster, type TreasuryWallet } from "@gantry/shared";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const demo = process.env.DEMO === "1";
-// the demo simulates mainnet, so every quote pair in the catalog is available
+// the demo simulates mainnet, with mainnet's quote pairs
 const cluster = (process.env.CLUSTER ?? (demo ? "mainnet-beta" : "devnet")) as Cluster;
 if (!clusters[cluster]) throw new Error(`Unknown CLUSTER ${cluster}`);
 const port = Number(process.env.PORT ?? 42069);
@@ -32,12 +32,23 @@ export const config = {
   /** Split a coin's fees (convert to SOL, send to OTC and protection) once they are worth this much. */
   feeMinUsd: Number(process.env.FEE_MIN_USD ?? (demo ? 0.25 : 2)),
   feesEveryMs: Number(process.env.FEES_EVERY_MS ?? (demo ? 5_000 : 15_000)),
-  /** How often copies' Nest entries are shared out to their leaders' holders. */
-  entriesEveryMs: Number(process.env.ENTRIES_EVERY_MS ?? process.env.AIRDROPS_EVERY_MS ?? (demo ? 5_000 : 20_000)),
+  /** How often copies' Fleet entries are shared out to their leaders' holders. */
+  entriesEveryMs: Number(process.env.ENTRIES_EVERY_MS ?? (demo ? 5_000 : 20_000)),
   /** How often realized losses are covered and owed protection payouts sent. */
   protectionEveryMs: Number(process.env.PROTECTION_EVERY_MS ?? (demo ? 5_000 : 30_000)),
-  /** A config is replaced once its quote's USD price drifts this far, so new coins still start at START_MCAP_USD. */
-  configDriftBps: Number(process.env.CONFIG_DRIFT_BPS ?? 1500),
+  /**
+   * The address lookup table launches use (see chain/engine.ts). The backend creates it and remembers it in its
+   * database; set this to keep using the same table with a fresh database.
+   */
+  lookupTable: isSolanaAddress(process.env.LOOKUP_TABLE ?? "") ? process.env.LOOKUP_TABLE! : undefined,
+  /**
+   * A quote takes launches while it has at least this much DEX liquidity (Jupiter's figure, read with its price) and
+   * this many dollars of it sell into SOL on Jupiter without moving its price further than this. The same impact
+   * limit holds a first buy paid in SOL, which swaps the other way.
+   */
+  minLiquidityUsd: Number(process.env.MIN_LIQUIDITY_USD ?? 5_000),
+  routeProbeUsd: Number(process.env.ROUTE_PROBE_USD ?? 100),
+  routeMaxImpactBps: Number(process.env.ROUTE_MAX_IMPACT_BPS ?? 200),
   pollMs: Number(process.env.POLL_MS ?? 4000),
   solUsdFallback: Number(process.env.SOL_USD ?? 100),
 };
@@ -48,9 +59,9 @@ mkdirSync(config.dataDir, { recursive: true });
 
 export type Role = TreasuryWallet["role"];
 export const roles: { role: Role; label: string; env: string }[] = [
-  { role: "fees", label: "Fee wallet (claims, splits, Nest entries)", env: "FEE_WALLET" },
+  { role: "fees", label: "Fee wallet (claims, splits, Fleet entries)", env: "FEE_WALLET" },
   { role: "otc", label: "OTC reserve", env: "OTC_WALLET" },
-  { role: "protection", label: brand.landing, env: "PROTECTION_WALLET" },
+  { role: "protection", label: brand.shield, env: "PROTECTION_WALLET" },
 ];
 
 const walletDir = path.join(config.dataDir, "wallets");
@@ -65,7 +76,7 @@ function parseSecret(value: string): Keypair {
 
 /**
  * Loads each role's keypair from `<ROLE>_WALLET`, else from data/wallets/<role>.json. Demo mode creates the files on
- * first run; for a real cluster run `pnpm --filter @cook/backend wallets` once and fund the wallets.
+ * first run; for a real cluster run `pnpm --filter @gantry/backend wallets` once and fund the wallets.
  */
 export function loadWallets(create = config.demo): Record<Role, Keypair> {
   const out = {} as Record<Role, Keypair>;
@@ -77,7 +88,7 @@ export function loadWallets(create = config.demo): Record<Role, Keypair> {
     }
     const file = path.join(walletDir, `${role}.json`);
     if (!existsSync(file)) {
-      if (!create) throw new Error(`No ${env} set and no ${file}. Run \`pnpm --filter @cook/backend wallets\` first.`);
+      if (!create) throw new Error(`No ${env} set and no ${file}. Run \`pnpm --filter @gantry/backend wallets\` first.`);
       mkdirSync(walletDir, { recursive: true });
       writeFileSync(file, JSON.stringify(Array.from(Keypair.generate().secretKey)));
     }

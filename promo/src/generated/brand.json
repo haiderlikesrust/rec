@@ -1,0 +1,59 @@
+{
+  "generatedFrom": "packages/shared/src/{brand,fees,quotes}.ts and web/components/LogoMark.tsx",
+  "brand": {
+    "name": "Gantry",
+    "slogan": "every fee holds the holders up",
+    "tagline": "Launch on Solana. Every fee stays behind to hold the holders up.",
+    "domain": "gantry.fast",
+    "xHandle": "",
+    "shield": "Heat Shield",
+    "chainLabel": "Built on Solana",
+    "poolsLabel": "Pools on Raydium"
+  },
+  "facts": {
+    "feePct": 3,
+    "raydiumPct": 0.25,
+    "bucketSharePct": 50,
+    "tiers": [
+      {
+        "minHoldSeconds": 300,
+        "coveragePct": 25
+      },
+      {
+        "minHoldSeconds": 1800,
+        "coveragePct": 45
+      },
+      {
+        "minHoldSeconds": 21600,
+        "coveragePct": 60
+      }
+    ],
+    "startMcapUsd": 2500,
+    "graduationMcapUsd": 25000,
+    "launchRentSol": 0.021,
+    "pairs": [
+      "SOL",
+      "USDC",
+      "USDT",
+      "USD1"
+    ],
+    "hasStocks": true
+  },
+  "logo": {
+    "viewBox": 32,
+    "paths": [
+      {
+        "d": "M7.5 27.5V7.5a2.5 2.5 0 0 1 2.5-2.5h7a2.5 2.5 0 0 1 2.5 2.5v20",
+        "strokeWidth": 2.6
+      },
+      {
+        "d": "M19.5 7 7.5 16.5l12 9.5",
+        "strokeWidth": 2.2
+      },
+      {
+        "d": "M19.5 11.5H27",
+        "strokeWidth": 2.6
+      }
+    ]
+  }
+}

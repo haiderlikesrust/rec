@@ -1,39 +1,57 @@
-import { GRADUATION_MCAP_USD, NATIVE_MINT, START_MCAP_USD, quoteCatalog, type QuoteAsset, type QuoteCategory } from "@cook/shared";
+import { GRADUATION_MCAP_USD, NATIVE_MINT, START_MCAP_USD, quoteCatalog, quoteGroups, type QuoteAsset, type QuoteCategory, type QuoteGroup, type QuoteGroupInfo, type StockIssuer } from "@gantry/shared";
 import { config, log } from "./config";
-import { curveFor } from "./curve";
-import { all, one, run, type QuoteRow } from "./db";
+import { launchCurve, type TransferFee } from "./curve";
+import { all, big, one, run, type QuoteRow } from "./db";
 
-/** Seeds the quote table from the shared catalog (keeps live prices and availability already stored). */
+export const toUnits = (raw: bigint | string, decimals: number) => Number(BigInt(raw)) / 10 ** decimals;
+export const fromUnits = (units: number, decimals: number) => BigInt(Math.floor(units * 10 ** decimals));
+
+/**
+ * Seeds the quote table from the shared catalog (keeps live prices and availability already stored). What the
+ * catalog copied from the chain and from Jupiter (the floor on a curve's raise, the display multiplier, the transfer
+ * fee, liquidity, why a quote was off) is where a new row starts; the chain engine and the price refresh replace it
+ * with what they read. The demo, which reads no chain, keeps the copies.
+ */
 export function syncQuotes() {
   for (const q of quoteCatalog[config.cluster]) {
     run(
-      `INSERT INTO quote (mint, symbol, name, category, logo, decimals, usd) VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(mint) DO UPDATE SET symbol = excluded.symbol, name = excluded.name, category = excluded.category,
-         logo = CASE WHEN quote.logo = '' THEN excluded.logo ELSE quote.logo END`,
+      `INSERT INTO quote (mint, symbol, name, category, grp, issuer, logo, decimals, usd, ui_scale, fee_bps, fee_max, liquidity, min_raise, error)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(mint) DO UPDATE SET symbol = excluded.symbol, name = excluded.name, category = excluded.category, grp = excluded.grp,
+         issuer = excluded.issuer, min_raise = excluded.min_raise, logo = CASE WHEN quote.logo = '' THEN excluded.logo ELSE quote.logo END`,
       q.mint,
       q.symbol,
       q.name,
       q.category,
+      q.group,
+      q.issuer ?? "",
       q.logo,
       q.decimals,
       q.refUsd,
+      q.uiMultiplier ?? 1,
+      q.transferFeeBps ?? 0,
+      q.transferFeeMax ?? "",
+      q.liquidityUsd ?? 0,
+      // the floors are whole raw units written as decimals: rounding undoes the float
+      BigInt(Math.round(q.minRaise * 10 ** q.decimals)).toString(),
+      q.blocked ?? null,
     );
   }
 }
 
-export type JupToken = {
-  id: string;
-  name?: string;
-  symbol?: string;
-  usdPrice?: number;
-  icon?: string;
-  decimals?: number;
-  liquidity?: number;
-  mcap?: number;
-  launchpad?: string;
-};
+export type JupToken = { id: string; name?: string; symbol?: string; usdPrice?: number; icon?: string; decimals?: number; liquidity?: number };
 
-/** Jupiter's token API for up to 40 mints at a time. Throws when Jupiter is unreachable. */
+/** The most mints Jupiter's token API answers for in one request; it drops the rest without saying so. */
+const JUP_BATCH = 100;
+/** Between two requests of one refresh: the keyless host turns away bursts. */
+const JUP_PAUSE_MS = 2000;
+/** A live quote's price may be this old before coins stop being launched on it. */
+const PRICE_MAX_AGE = 30 * 60;
+/** At a launch, the answer on a live quote's route to SOL may be this old (the launch asks again well before). */
+const ROUTE_MAX_AGE = 45 * 60;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Jupiter's token records for up to JUP_BATCH mints. Throws when Jupiter is unreachable. */
 export async function jupTokens(ids: string[]): Promise<JupToken[]> {
   const res = await fetch(`${config.jupiterApi}/tokens/v2/search?query=${ids.join(",")}`, {
     headers: config.jupiterKey ? { "x-api-key": config.jupiterKey } : {},
@@ -43,86 +61,140 @@ export async function jupTokens(ids: string[]): Promise<JupToken[]> {
   return ((await res.json()) as JupToken[]).filter((t) => ids.includes(t.id));
 }
 
-/** Fresh USD price for one quote right before it's used (custom pairs are only refreshed while they have coins). */
-export async function refreshQuotePrice(mint: string) {
-  const t = (await jupTokens([mint]).catch(() => []))[0];
-  if (t?.usdPrice) run("UPDATE quote SET usd = ?, price_at = ? WHERE mint = ?", t.usdPrice, Math.floor(Date.now() / 1000), mint);
+/**
+ * Live USD prices, logos and DEX liquidity from Jupiter's token API, a batch of mints per request. With hundreds of
+ * quotes a pass refreshes the ones in use (SOL, the stablecoins and every quote a coin trades against) and the batch
+ * of the others that has waited longest, so each pass is two or three requests and every quote comes round within a
+ * few minutes; `everything` refreshes them all (start-up, a handful of requests). A launch refreshes its own quote
+ * first (refreshPrice). A batch that fails leaves its quotes on their last good price.
+ *
+ * Jupiter prices a token as wallets show it, so a mint that scales its displayed amounts is priced per displayed
+ * token: times its multiplier, that is the price of a whole unit of the raw amount, which is what everything here
+ * counts in.
+ */
+export async function refreshPrices(everything = false) {
+  const quotes = all<QuoteRow & { used: number }>(
+    `SELECT q.*, (q.category IN ('solana', 'currency') OR EXISTS (SELECT 1 FROM coin c WHERE c.quote = q.mint)) AS used FROM quote q ORDER BY used DESC, q.price_at, q.rowid`,
+  );
+  const hot = quotes.filter((q) => q.used);
+  const cold = quotes.filter((q) => !q.used);
+  const due = everything ? quotes : [...hot, ...cold.slice(0, JUP_BATCH)];
+  let failed = "";
+  for (let i = 0; i < due.length; i += JUP_BATCH) {
+    if (i) await sleep(JUP_PAUSE_MS);
+    failed = (await priceBatch(due.slice(i, i + JUP_BATCH))) ?? failed;
+  }
+  if (failed) log(`prices: Jupiter unavailable (${failed}); keeping the last prices`);
+  return !failed;
 }
 
-/** Live USD prices (and logos) for every quote from Jupiter's token API. Keeps the last good price on failure. */
-export async function refreshPrices() {
-  // custom pairs nobody has launched on yet are priced when they're used
-  const quotes = all<QuoteRow>("SELECT * FROM quote WHERE category != 'custom' OR mint IN (SELECT quote FROM coin)");
+/** One quote's price, right now. */
+export const refreshPrice = async (mint: string) => {
+  const q = quoteRow(mint);
+  if (q) await priceBatch([q]);
+};
+
+async function priceBatch(quotes: QuoteRow[]) {
   // devnet mints have no market; price them like their mainnet twins
-  const lookup = new Map(quotes.map((q) => [q.mint, q.mint]));
-  if (config.cluster === "devnet") {
-    const usdc = quoteCatalog["mainnet-beta"].find((q) => q.symbol === "USDC")!.mint;
-    for (const q of quotes) if (q.symbol === "USDC") lookup.set(q.mint, usdc);
-  }
-  const ids = [...new Set(lookup.values())];
-  const got = new Map<string, JupToken>();
-  for (let i = 0; i < ids.length; i += 40) {
+  const twin = (q: QuoteRow) => (config.cluster === "devnet" && q.symbol === "USDC" ? quoteCatalog["mainnet-beta"].find((x) => x.symbol === "USDC")!.mint : q.mint);
+  let got: Map<string, JupToken> | null = null;
+  for (let attempt = 0; !got; attempt++) {
     try {
-      for (const t of await jupTokens(ids.slice(i, i + 40))) got.set(t.id, t);
+      got = new Map((await jupTokens([...new Set(quotes.map(twin))])).map((t) => [t.id, t]));
     } catch (e) {
-      log(`prices: Jupiter unavailable (${(e as Error).message}); keeping last prices`);
-      return false;
+      // turned away for asking too fast: wait it out twice before giving the batch up for this pass
+      if ((e as Error).message !== "429" || attempt >= 2) return (e as Error).message;
+      await sleep(JUP_PAUSE_MS * 2 * (attempt + 1));
     }
   }
   const now = Math.floor(Date.now() / 1000);
   for (const q of quotes) {
-    const t = got.get(lookup.get(q.mint)!);
+    const t = got.get(twin(q));
     if (!t?.usdPrice) continue;
-    run("UPDATE quote SET usd = ?, price_at = ?, logo = COALESCE(NULLIF(?, ''), logo) WHERE mint = ?", t.usdPrice, now, t.icon ?? "", q.mint);
+    run(
+      "UPDATE quote SET usd = ?, price_at = ?, liquidity = ?, logo = COALESCE(NULLIF(?, ''), logo) WHERE mint = ?",
+      t.usdPrice * q.ui_scale,
+      now,
+      t.liquidity ?? 0,
+      t.icon ?? "",
+      q.mint,
+    );
   }
-  return true;
+  return null;
 }
 
 export const quoteRow = (mint: string) => one<QuoteRow>("SELECT * FROM quote WHERE mint = ?", mint);
 export const solUsd = () => quoteRow(NATIVE_MINT)?.usd || config.solUsdFallback;
 /** SOL per whole unit of a quote. */
 export const solPerUnit = (mint: string) => (mint === NATIVE_MINT ? 1 : (quoteRow(mint)?.usd ?? 0) / solUsd());
+/** A quote's own transfer fee, or null (see curve.ts). */
+export const transferFeeOf = (q: Pick<QuoteRow, "fee_bps" | "fee_max"> | undefined): TransferFee =>
+  q && q.fee_bps > 0 ? { bps: BigInt(q.fee_bps), max: q.fee_max ? BigInt(q.fee_max) : 2n ** 64n - 1n } : null;
+export const quoteFee = (mint: string) => transferFeeOf(quoteRow(mint));
 
-export const toUnits = (raw: bigint | string, decimals: number) => Number(BigInt(raw)) / 10 ** decimals;
-export const fromUnits = (units: number, decimals: number) => BigInt(Math.floor(units * 10 ** decimals));
+/** What a curve launched on this quote now raises before it graduates, raw. */
+export const graduationRaise = (q: Pick<QuoteRow, "usd" | "decimals">) => (q.usd > 0 ? launchCurve(q.usd, q.decimals).raise : 0n);
 
-type ConfigRow = {
-  address: string;
-  quote: string;
-  quote_usd: number;
-  threshold: string;
-  created_at: number;
-  start_mcap_usd: number;
-  grad_mcap_usd: number;
-};
-
-/** The config new coins on a quote launch from: the newest active one, if its price band is still current. */
-export function activeConfig(mint: string): ConfigRow | undefined {
-  return one<ConfigRow>("SELECT * FROM config WHERE quote = ? AND active = 1 ORDER BY created_at DESC LIMIT 1", mint);
+/**
+ * Why a coin can't be launched on this quote right now, in a sentence for the launcher, or null when it can. A quote
+ * needs a LaunchLab config, a price (it sets what the curve sells for and raises), a mint in a state pools can
+ * trade, enough of a market for the fees it earns to be turned into SOL, and a raise that clears the config's floor.
+ *
+ * `live`: on a real cluster nothing is taken from the catalog's copies. A quote the chain engine hasn't read yet
+ * takes no launches, and neither does one whose price Jupiter hasn't confirmed lately.
+ *
+ * `launching`: the list of quotes goes by liquidity until a quote's route to SOL has been asked for, which takes the
+ * first hour a backend runs. A launch doesn't: it asks (Engine.checkQuote) and is refused while there is no recent
+ * answer, so no coin is ever launched on a quote whose route nobody looked at.
+ */
+export function unavailableReason(q: QuoteRow, live = !config.demo, now = Math.floor(Date.now() / 1000), launching = false): string | null {
+  if (!q.available) return "That quote asset isn't available.";
+  if (live && !q.checked_at) return `${q.symbol} is still being checked. Try again in a minute.`;
+  if (!(q.usd > 0) || (live && now - q.price_at > PRICE_MAX_AGE)) return `No live USD price for ${q.symbol} right now, so its curve can't be priced.`;
+  if (q.error) return q.error;
+  if (q.route_error) return q.route_error;
+  // (a liquidity of zero is Jupiter not having said: the route to SOL, asked for before any launch, settles those)
+  if (q.liquidity > 0 && q.liquidity < config.minLiquidityUsd) return `${q.symbol} is too thinly traded right now for its fees to be turned into SOL.`;
+  if (graduationRaise(q) < big(q.min_raise))
+    return `Launches on ${q.symbol} are paused: at today's price a curve here raises less ${q.symbol} than Raydium asks for.`;
+  if (live && launching && q.mint !== NATIVE_MINT && now - q.route_at > ROUTE_MAX_AGE) return `${q.symbol}'s market couldn't be checked just now. Try again in a minute.`;
+  return null;
 }
-
-/** True for a config built for today's start and graduation market caps; an older one is replaced at the next launch. */
-export const currentTargets = (c: ConfigRow) => c.start_mcap_usd === START_MCAP_USD && c.grad_mcap_usd === GRADUATION_MCAP_USD;
-
-/** The curve a config's coins trade on, from the market caps it was built for. */
-export const configCurve = (c: Pick<ConfigRow, "quote_usd" | "start_mcap_usd" | "grad_mcap_usd">) =>
-  curveFor(c.start_mcap_usd / c.quote_usd, c.grad_mcap_usd / c.quote_usd);
+export const launchable = (q: QuoteRow) => unavailableReason(q) === null;
 
 export function toQuoteAsset(q: QuoteRow): QuoteAsset {
-  const cfg = activeConfig(q.mint);
+  const why = unavailableReason(q);
   return {
     address: q.mint,
     symbol: q.symbol,
     name: q.name,
     category: q.category as QuoteCategory,
+    group: q.grp as QuoteGroup,
+    issuer: (q.issuer || null) as StockIssuer | null,
     logo: q.logo,
     decimals: q.decimals,
+    uiMultiplier: q.ui_scale,
+    transferFeeBps: q.fee_bps,
+    transferFeeMax: q.fee_bps > 0 && q.fee_max ? q.fee_max : null,
     solPerUnit: solPerUnit(q.mint),
     usdPerUnit: q.usd,
     startMcapUsd: START_MCAP_USD,
     graduationMcapUsd: GRADUATION_MCAP_USD,
-    config: cfg?.address ?? null,
-    graduationThreshold: cfg ? toUnits(cfg.threshold, q.decimals) : 0,
-    available: q.available === 1,
+    graduationThreshold: toUnits(graduationRaise(q), q.decimals),
+    available: why === null,
+    unavailableReason: why,
   };
+}
+
+/** The quotes the API lists: the ones LaunchLab has a config for, in the catalog's order. */
+export const listedQuotes = () => all<QuoteRow>("SELECT * FROM quote WHERE available = 1 ORDER BY rowid");
+
+/** The picker's groups that have quotes, in their order, with their counts. */
+export function quoteGroupInfo(quotes = listedQuotes()): QuoteGroupInfo[] {
+  return quoteGroups
+    .map((g) => {
+      const mine = quotes.filter((q) => q.grp === g.key);
+      return { ...g, count: mine.length, available: mine.filter(launchable).length };
+    })
+    .filter((g) => g.count > 0);
 }

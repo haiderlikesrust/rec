@@ -1,170 +1,38 @@
 "use client";
 
 import clsx from "clsx";
-import { Egg, GraduationCap, Globe, ImagePlus, Loader2, Lock, Rocket, Send, Zap } from "lucide-react";
+import { ChevronDown, Loader2 } from "lucide-react";
 import { useConnection } from "@solana/wallet-adapter-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
-import {
-  BLOODLINE,
-  brand,
-  buyTaxBpsAt,
-  GRADUATION_MCAP_USD,
-  LAUNCH_FEE_SOL,
-  NATIVE_MINT,
-  SNIPE,
-  START_MCAP_USD,
-  type BloodlineCheck,
-  type QuoteAsset,
-} from "@cook/shared";
-import { buckets } from "@/lib/buckets";
-import { client, useBalances, useBloodlineCheck, useQuotes, useStats } from "@/lib/data";
-import { bps, formatRaw, num, sol, toRaw, tokens, units, usd } from "@/lib/format";
+import { useCallback, useEffect, useState } from "react";
+import { LAUNCH_RENT_SOL, NATIVE_MINT, feeBreakdown, type QuoteAsset } from "@gantry/shared";
+import { client, useBalances, useFleetCheck, useQuotes, useStats } from "@/lib/data";
+import { bps, formatRaw, num, pct, sig, sol, toRaw, tokens, units } from "@/lib/format";
+import { quoteTokens, rawToTyped, shownPrice, typedToRaw } from "@/lib/quoteUnits";
 import { tokenDelta, useSolanaTx } from "@/lib/tx";
-import { useStickyTop } from "@/lib/useStickyTop";
 import { useAddress } from "@/lib/wallet";
-import { CoinAvatar } from "@/components/CoinAvatar";
-import { FeeSplitBar } from "@/components/FeeSplitBar";
-import { GraduationBar } from "@/components/GraduationBar";
-import { QuoteChip } from "@/components/QuoteChip";
-import { Sparkline } from "@/components/Sparkline";
 import { TxStatus } from "@/components/TxStatus";
-import { Badge, Button, Field, Input } from "@/components/ui";
+import { Button, Field, Input, Notice, Panel, PanelBody, Skeleton, Textarea } from "@/components/ui";
 import { useWalletModal } from "@/components/wallet/WalletModal";
-import { QuotePicker } from "./QuotePicker";
+import { CURVE_COST_USD, curveAfter } from "./curve";
+import { FleetNotice } from "./FleetNotice";
+import { ImageWell } from "./ImageWell";
+import { PairPicker } from "./PairPicker";
 
-const textareaClass =
-  "w-full resize-none rounded-2xl border-[1.5px] border-line-strong bg-sunk px-4 py-3 text-sm font-semibold outline-none transition-all placeholder:font-normal placeholder:text-faint hover:border-muted/40 focus:border-sky focus:bg-elev focus:shadow-[0_0_0_4px_var(--sky-soft)]";
+/** The backend's limits: the name is stored in 32 bytes of on-chain metadata, a ticker is 1–10 letters or digits. */
+const NAME_MAX_BYTES = 32;
+const TICKER_MAX = 10;
+const DESCRIPTION_MAX = 280;
 
-const LAUNCH_FEE_LAMPORTS = BigInt(Math.round(LAUNCH_FEE_SOL * 1e9));
-const SOL_RESERVE = 30_000_000n; // ~0.03 SOL for rent and network fees on top of the launch fee
-// rent for a custom pair's Meteora config, paid by the first launch on it (shown before the exact figure is known)
-const PAIR_SETUP_LAMPORTS = 6_000_000n;
+const RENT_LAMPORTS = BigInt(Math.round(LAUNCH_RENT_SOL * 1e9));
+/** What "Max" leaves in the wallet on top of the rent: network fees and the token accounts a first buy opens. */
+const SOL_HEADROOM = 15_000_000n;
+/** First-buy shortcuts: in SOL, or about this many dollars of the pair's token. */
+const SOL_PRESETS = ["0.1", "0.5", "1"];
+const USD_PRESETS = [10, 50, 100];
 
-function XIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-    </svg>
-  );
-}
-
-function StepCard({
-  n,
-  title,
-  sub,
-  children,
-  aside,
-}: {
-  n: number;
-  title: string;
-  sub?: string;
-  children?: ReactNode;
-  aside?: ReactNode;
-}) {
-  return (
-    <section className="surface rounded-[28px] p-5 sm:p-7">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3.5">
-          <span className="spectrum font-display flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold text-accent-fg shadow-[0_8px_20px_-8px_var(--accent)]">
-            {n}
-          </span>
-          <div>
-            <h2 className="font-display text-[22px] font-semibold">{title}</h2>
-            {sub && <p className="mt-1 text-[13px] leading-relaxed text-muted">{sub}</p>}
-          </div>
-        </div>
-        {aside}
-      </div>
-      {children && <div className="mt-6">{children}</div>}
-    </section>
-  );
-}
-
-function IconInput({ icon, ...props }: { icon: ReactNode } & React.InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <div className="relative">
-      <span className="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-faint">{icon}</span>
-      <Input {...props} className="pl-10" />
-    </div>
-  );
-}
-
-function AntiSnipeChart() {
-  const steps = Array.from({ length: SNIPE.seconds + 1 }, (_, s) => buyTaxBpsAt(s));
-  return (
-    <div className="grid grid-cols-7 items-end gap-1.5">
-      {steps.map((t, s) => {
-        const base = s === SNIPE.seconds;
-        return (
-          <div key={s} className="text-center">
-            <div className="flex h-24 items-end justify-center rounded-xl bg-sunk p-1">
-              <div
-                className="w-full rounded-lg transition-[height] duration-700"
-                style={{
-                  height: `${Math.max(6, t / 100)}%`,
-                  background: base
-                    ? "var(--accent)"
-                    : `linear-gradient(180deg, var(--down), color-mix(in srgb, var(--down) 45%, var(--accent-2)))`,
-                  boxShadow: base ? "0 0 12px -2px var(--accent)" : "0 0 12px -4px var(--down)",
-                }}
-              />
-            </div>
-            <div className={clsx("num mt-1.5 text-[11px] font-bold", base ? "text-accent-2" : "text-fg")}>{bps(t)}</div>
-            <div className="text-[10px] text-faint">{base ? `${SNIPE.seconds}s+` : `${s}s`}</div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/** Shown when the ticker or name reads like an existing coin's: the Nest it joins, and the entry a copy pays. */
-function NestNotice({ check, ticker, entryCost }: { check: BloodlineCheck; ticker: string; entryCost: string }) {
-  const f = check.family;
-  if (!f) return null;
-  const e = check.entry;
-  return (
-    <div className="mt-6 overflow-hidden rounded-3xl bg-nest-soft shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--nest)_28%,transparent)]">
-      <div className="flex items-center gap-3 px-4 pt-4">
-        <div className="relative shrink-0">
-          <CoinAvatar src={f.og.image} symbol={f.og.symbol} seed={f.og.address} size={40} />
-          <span className="absolute -right-1 -bottom-1 flex h-[20px] w-[20px] items-center justify-center rounded-full bg-nest text-[#2a1d00] shadow-[0_0_0_2px_var(--bg-elev)]">
-            <Egg size={11} strokeWidth={2.5} />
-          </span>
-        </div>
-        <div className="min-w-0">
-          <div className="font-display text-[15px] font-semibold">
-            ${ticker} joins ${f.og.symbol}&apos;s {brand.nest}
-          </div>
-          <div className="text-xs text-muted">
-            {f.members === 1 ? "Its ticker or name reads the same" : `${f.members} coins already in the ${brand.nest}`}
-            {f.leader.address !== f.og.address && <> · ${f.leader.symbol} leads</>}
-          </div>
-        </div>
-      </div>
-      {e ? (
-        <ul className="mt-3 space-y-2 border-t border-nest/20 px-4 py-3 text-xs leading-relaxed text-muted">
-          <li>
-            <span className="font-bold text-fg">Copies pay an entry.</span> Your launch opens with a{" "}
-            <span className="num font-bold text-fg">{usd(e.usd)}</span> buy of ${ticker} ({entryCost}) that you never receive: those coins
-            are airdropped to ${e.to.symbol}&apos;s holders. Your own first buy comes right after it.
-          </li>
-          <li>
-            While ${f.leader.symbol} leads, every fee ${ticker} makes goes to its OTC reserve and {brand.landing} pot. Outgrow it and ${ticker}{" "}
-            leads.
-          </li>
-          <li className="text-faint">Pick a ticker and name of your own to launch without the entry.</li>
-        </ul>
-      ) : (
-        <p className="mt-3 border-t border-nest/20 px-4 py-3 text-xs leading-relaxed text-muted">
-          No coin in this {brand.nest} has traded in the last {BLOODLINE.aliveHours} hours, so there&apos;s no entry. Until ${ticker} leads,
-          its fees go to whichever member does.
-        </p>
-      )}
-    </div>
-  );
-}
+const byteLength = (s: string) => new TextEncoder().encode(s).length;
+const dollars = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 
 /** Wallets and explorers need an absolute image URL in token metadata. */
 const absoluteImage = (src: string) => {
@@ -177,24 +45,28 @@ const absoluteImage = (src: string) => {
   }
 };
 
+/**
+ * The launch form: one card with the coin's details, its pair and an optional first buy, then the total and the one
+ * button that connects a wallet or launches. On a phone the button sits in a bar docked above the tab bar.
+ */
 export function LaunchForm() {
   const router = useRouter();
   const address = useAddress();
   const { open: openWallet } = useWalletModal();
-  const { data: allQuotes, isLoading: quotesLoading, isError: quotesError } = useQuotes();
+  const { data: listed, isLoading: quotesLoading, isError: quotesError } = useQuotes();
   const { data: stats } = useStats();
   const balances = useBalances(address);
   const tx = useSolanaTx();
   const { connection } = useConnection();
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [aside, setAside] = useState<HTMLElement | null>(null);
-  const asideTop = useStickyTop(aside);
-  // the summary bar floats over the bottom of the form: keep a focused field scrolled clear of it
+
+  // the launch bar is docked over the bottom of a phone screen: make room for it, and keep a focused field clear of it
   useEffect(() => {
     const html = document.documentElement;
     const before = html.style.scrollPaddingBottom;
-    html.style.scrollPaddingBottom = "9rem";
+    html.classList.add("has-dock");
+    html.style.scrollPaddingBottom = "calc(var(--chrome-bottom) + var(--dock-h) + 1rem)";
     return () => {
+      html.classList.remove("has-dock");
       html.style.scrollPaddingBottom = before;
     };
   }, []);
@@ -203,25 +75,22 @@ export function LaunchForm() {
   const [symbol, setSymbol] = useState("");
   const [image, setImage] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState("");
-  const [dragOver, setDragOver] = useState(false);
+  const [imageError, setImageError] = useState("");
   const [description, setDescription] = useState("");
   const [website, setWebsite] = useState("");
   const [twitter, setTwitter] = useState("");
   const [telegram, setTelegram] = useState("");
-  const [quoteAddr, setQuoteAddr] = useState<string>("");
+  const [quoteAddr, setQuoteAddr] = useState("");
+  const pickQuote = useCallback((q: QuoteAsset) => setQuoteAddr(q.address), []);
   const [initialBuy, setInitialBuy] = useState("");
-  // on a non-SOL pair the first buy can be paid in SOL: it's swapped into the pair's token just before the launch
+  // on a pair other than SOL the first buy can still be paid in SOL: it is swapped into the pair's token just before the launch
   const [payWith, setPayWith] = useState<"sol" | "quote">("sol");
-  // custom pairs this launcher added (the API lists them for everyone once a coin launches on them)
-  const [added, setAdded] = useState<QuoteAsset[]>([]);
 
-  const quotes = useMemo(() => {
-    const listed = (allQuotes ?? []).filter((q) => q.available);
-    return [...listed, ...added.filter((a) => !listed.some((q) => q.address === a.address))];
-  }, [allQuotes, added]);
-  const quote: QuoteAsset | undefined =
-    quotes.find((q) => q.address === quoteAddr) ?? quotes.find((q) => q.address === NATIVE_MINT) ?? quotes[0];
+  // ---------------------------------------------------------------- pair
+  const quotes = listed ?? [];
+  // the chosen pair, or SOL, or whichever pair can take a launch: never one that is paused
+  const launchable = quotes.filter((q) => q.available);
+  const quote = launchable.find((q) => q.address === quoteAddr) ?? launchable.find((q) => q.address === NATIVE_MINT) ?? launchable[0];
   const solQuote = quotes.find((q) => q.address === NATIVE_MINT);
   useEffect(() => {
     setInitialBuy("");
@@ -229,112 +98,117 @@ export function LaunchForm() {
   }, [quote?.address]);
 
   const native = quote?.address === NATIVE_MINT;
-  const custom = quote?.category === "custom";
-  const paySol = !native && payWith === "sol";
+  const paySol = !!quote && !native && payWith === "sol";
   const inSol = native || paySol;
+  const buyUnit = inSol ? "SOL" : (quote?.symbol ?? "");
   const solUsd = stats?.solUsd || solQuote?.usdPerUnit || 0;
   const b = balances.data;
-  const quoteBalance = !b || !quote ? undefined : BigInt(native ? b.sol : b.tokens[quote.address] ?? "0");
   const solBalance = b ? BigInt(b.sol) : undefined;
+  const quoteBalance = !b || !quote ? undefined : BigInt(native ? b.sol : (b.tokens[quote.address] ?? "0"));
 
-  // a copy of a coin whose Nest is alive pays the Nest entry; the check waits for typing to settle
+  // ---------------------------------------------------------------- name and ticker
+  const cleanName = name.trim();
+  const nameBytes = byteLength(cleanName);
+  const nameError =
+    nameBytes > NAME_MAX_BYTES
+      ? `Too long: ${nameBytes} of ${NAME_MAX_BYTES} bytes. Emoji and accented letters count for more than one.`
+      : "";
+  const tickerError = /[^A-Z0-9]/.test(symbol)
+    ? "Letters A–Z and digits 0–9 only."
+    : symbol.length > TICKER_MAX
+      ? `Too long: ${TICKER_MAX} characters at most.`
+      : "";
+
+  // a copy of a coin whose family is active pays that family's entry; the check waits for typing to settle
   const [checked, setChecked] = useState({ symbol: "", name: "" });
   useEffect(() => {
-    const t = setTimeout(() => setChecked({ symbol: symbol.trim(), name: name.trim() }), 350);
+    const t = setTimeout(() => setChecked({ symbol, name: cleanName }), 350);
     return () => clearTimeout(t);
-  }, [symbol, name]);
-  const nest = useBloodlineCheck({ ...checked, quote: quote?.address });
-  const settled = checked.symbol === symbol.trim() && checked.name === name.trim() && !nest.isLoading;
-  const entry = nest.data?.entry ?? null;
+  }, [symbol, cleanName]);
+  const fleet = useFleetCheck({ ...checked, quote: quote?.address });
+  const settled = checked.symbol === symbol && checked.name === cleanName && !fleet.isLoading;
+  const family = settled ? (fleet.data?.family ?? null) : null;
+  const entry = fleet.data?.entry ?? null;
   const entryRaw = entry ? BigInt(entry.quoteRaw) : 0n;
   const entryRent = entry ? BigInt(entry.rentLamports) : 0n;
-  // the SOL that buys the entry: itself on the SOL pair, or swapped into the pair's token with 1% room for the price
+  // the SOL that buys the entry: itself on the SOL pair, or swapped into the pair's token with 1% of room for the price
   const entrySol =
     !entry || !quote ? 0n : native ? entryRaw : paySol ? BigInt(Math.ceil(units(entryRaw, quote.decimals) * quote.solPerUnit * 1.01 * 1e9)) : 0n;
+  const entryCost = !entry || !quote ? "" : inSol ? `≈ ${sol(units(entrySol, 9))}` : quoteTokens(entryRaw, quote, quote.symbol);
 
-  const initialRaw = quote ? toRaw(initialBuy, inSol ? 9 : quote.decimals) : 0n;
-  const initialUsd = inSol ? units(initialRaw, 9) * solUsd : quote ? units(initialRaw, quote.decimals) * quote.usdPerUnit : 0;
-  const estQuote = paySol && quote && quote.solPerUnit > 0 ? units(initialRaw, 9) / quote.solPerUnit : 0;
-  const setupLamports = custom && !quote?.config ? PAIR_SETUP_LAMPORTS : 0n;
+  // ---------------------------------------------------------------- first buy and cost
+  // an amount of the pair's token is typed, and shown, the way a wallet counts it (lib/quoteUnits); everything from
+  // `initialRaw` on is the raw amount the API and the chain use
+  const initialRaw = !quote ? 0n : inSol ? toRaw(initialBuy, 9) : typedToRaw(initialBuy, quote);
+  const buyUsd = inSol ? units(initialRaw, 9) * solUsd : quote ? units(initialRaw, quote.decimals) * quote.usdPerUnit : 0;
   const swapLamports = paySol ? initialRaw + entrySol : 0n;
-  const totalLamports = LAUNCH_FEE_LAMPORTS + setupLamports + entryRent + (inSol ? initialRaw + entrySol : 0n);
-  const insufficient =
-    (solBalance !== undefined && solBalance < totalLamports) || (!inSol && quoteBalance !== undefined && initialRaw + entryRaw > quoteBalance);
-  // what the wallet will be asked to sign, in order
-  const signs = [custom && "set up the pair", swapLamports > 0n && `swap SOL for ${quote?.symbol}`, "launch"].filter(Boolean) as string[];
+  const solLamports = RENT_LAMPORTS + entryRent + (inSol ? initialRaw + entrySol : 0n);
+  const quoteOut = !inSol && quote ? initialRaw + entryRaw : 0n;
+  const shortSol = solBalance !== undefined && solBalance < solLamports;
+  const shortQuote = quoteOut > 0n && quoteBalance !== undefined && quoteOut > quoteBalance;
+  const total = `≈ ${sol(units(solLamports, 9))}${quoteOut > 0n && quote ? ` + ${quoteTokens(quoteOut, quote, quote.symbol)}` : ""}`;
 
-  const errors: string[] = [];
-  if (!name.trim()) errors.push("Name your coin");
-  if (!symbol.trim()) errors.push("Pick a ticker");
-  if (!quote) errors.push("No quote asset available");
-  if ((symbol.trim() || name.trim()) && !settled) errors.push("Checking the ticker…");
-  if (address && insufficient) errors.push("Not enough balance");
+  // what the first buy receives: a copy's entry is bought first, then the creator's own buy
+  const afterEntry = curveAfter(entry?.usd ?? 0);
+  const afterBuy = curveAfter((entry?.usd ?? 0) + buyUsd);
+  const buyShare = Math.max(0, afterBuy.share - afterEntry.share);
 
-  async function upload(file: File) {
-    setUploadError("");
-    setUploading(true);
-    try {
-      const body = new FormData();
-      body.append("file", file);
-      const res = await fetch("/api/upload", { method: "POST", body });
-      const json = (await res.json()) as { url?: string; error?: string };
-      if (!res.ok || !json.url) throw new Error(json.error ?? "Upload failed");
-      setImage(json.url);
-    } catch (e) {
-      setUploadError((e as Error).message);
-    } finally {
-      setUploading(false);
-    }
-  }
+  const balanceKnown = !!address && !!quote && (inSol ? solBalance : quoteBalance) !== undefined;
+  const presets = inSol ? SOL_PRESETS : quote && quote.usdPerUnit > 0 ? USD_PRESETS.map((u) => sig(u / shownPrice(quote.usdPerUnit, quote), 2)) : [];
 
-  function onDrop(e: DragEvent) {
-    e.preventDefault();
-    setDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) upload(file);
-  }
+  // ---------------------------------------------------------------- what holds the launch, most important first
+  const blocker = !cleanName
+    ? "Add a name."
+    : nameError
+      ? "Shorten the name."
+      : !symbol
+        ? "Add a ticker."
+        : tickerError
+          ? "Fix the ticker."
+          : uploading
+            ? "The image is still uploading."
+            : quotesLoading
+              ? "Loading the pairs…"
+              : !quote
+                ? "No pair is open for launches right now."
+                : !settled
+                  ? "Checking the ticker…"
+                  : shortSol && solBalance !== undefined
+                    ? `Not enough SOL: you need ${sol(units(solLamports - solBalance, 9))} more.`
+                    : shortQuote
+                      ? `Not enough ${quote.symbol}: you need ${quoteTokens(quoteOut - (quoteBalance ?? 0n), quote)} more, or pay in SOL.`
+                      : "";
+  const fee = bps(feeBreakdown("curve", stats?.cluster ?? "mainnet-beta").taxBps);
 
   function maxBuy() {
     if (!quote) return;
     if (inSol) {
       if (solBalance === undefined) return;
-      const spare = LAUNCH_FEE_LAMPORTS + SOL_RESERVE + setupLamports + entryRent + entrySol;
-      setInitialBuy(formatRaw(solBalance > spare ? solBalance - spare : 0n, 9));
-    } else if (quoteBalance !== undefined) setInitialBuy(formatRaw(quoteBalance > entryRaw ? quoteBalance - entryRaw : 0n, quote.decimals));
+      const keep = RENT_LAMPORTS + SOL_HEADROOM + entryRent + entrySol;
+      setInitialBuy(formatRaw(solBalance > keep ? solBalance - keep : 0n, 9));
+    } else if (quoteBalance !== undefined) setInitialBuy(rawToTyped(quoteBalance > entryRaw ? quoteBalance - entryRaw : 0n, quote));
   }
 
-  function pickQuote(q: QuoteAsset) {
-    if (q.category === "custom") setAdded((a) => (a.some((x) => x.address === q.address) ? a : [...a, q]));
-    setQuoteAddr(q.address);
-  }
-
-  async function submit() {
-    if (!address || !quote || errors.length) return;
-    // a custom pair's first launch pays for its Meteora config; once it exists this step sends nothing
-    if (custom) {
-      const r = await tx.run(`Set up the ${quote.symbol} pair`, () => client.pairSetup({ wallet: address, quote: quote.address }));
-      if (!r) return;
-    }
+  async function launch() {
+    if (!address || !quote || blocker) return;
     let buy = initialRaw;
     if (swapLamports > 0n) {
-      const r = await tx.run(`Swap ${formatRaw(swapLamports, 9)} SOL for ${quote.symbol}`, () =>
+      const r = await tx.run(`Swap ${sol(units(swapLamports, 9))} into ${quote.symbol}`, () =>
         client.solToQuote({ wallet: address, quote: quote.address, lamports: swapLamports.toString() }),
       );
       if (!r) return;
-      const got = r.res.demo
-        ? BigInt(r.res.outAmount)
-        : await tokenDelta(connection, r.signature, address, quote.address, BigInt(r.res.minOut));
+      const got = r.res.demo ? BigInt(r.res.outAmount) : await tokenDelta(connection, r.signature, address, quote.address, BigInt(r.res.minOut));
       // the entry comes out of what arrived; the rest is the first buy
       buy = got > entryRaw ? got - entryRaw : 0n;
-      // from here it's a first buy in the pair's token, so a failed or rejected launch retries without swapping again
+      // from here it is a first buy in the pair's token, so a failed or rejected launch retries without swapping again
       setPayWith("quote");
-      setInitialBuy(formatRaw(buy, quote.decimals));
+      setInitialBuy(rawToTyped(buy, quote));
     }
-    const r = await tx.run(`Launch ${symbol.toUpperCase()}`, () =>
+    const r = await tx.run(`Launch $${symbol}`, () =>
       client.launch({
         wallet: address,
-        name: name.trim(),
-        symbol: symbol.trim().toUpperCase(),
+        name: cleanName,
+        symbol,
         description: description.trim(),
         image: absoluteImage(image),
         website: website.trim(),
@@ -348,346 +222,233 @@ export function LaunchForm() {
     if (r) router.push(`/token/${r.res.mint}`);
   }
 
-  const busy = tx.busy;
-  const ticker = symbol || "TICKER";
+  // the one primary button, in the page on wide screens and in the dock on phones
+  const action = (className?: string) =>
+    !address ? (
+      <Button type="button" size="lg" className={className} onClick={openWallet}>
+        Connect wallet
+      </Button>
+    ) : (
+      <Button type="button" size="lg" className={className} disabled={tx.busy || !!blocker} onClick={launch}>
+        {tx.busy && <Loader2 size={16} className="animate-spin" aria-hidden />}
+        {tx.busy ? "Working…" : symbol && !tickerError ? `Launch $${symbol}` : "Launch"}
+      </Button>
+    );
+  // why the button is off, once there is a wallet to launch with
+  const hold = address && !tx.busy ? blocker : "";
 
   return (
-    <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-8">
-      {/* ------------------------------------------------ form */}
-      <div className="min-w-0 space-y-5">
-        <StepCard n={1} title="Identity" sub="What people will see in lists, charts and wallets.">
-          <div className="flex flex-col gap-6 sm:flex-row">
-            <div className="shrink-0">
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragOver(true);
-                }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={onDrop}
-                className={clsx(
-                  "group relative flex h-36 w-36 items-center justify-center overflow-hidden rounded-[28px] border-2 border-dashed transition-all",
-                  dragOver
-                    ? "scale-[1.02] border-accent bg-accent-soft text-accent"
-                    : "border-line-strong bg-sunk text-muted hover:border-accent hover:text-fg",
-                )}
-              >
-                {image && !dragOver ? (
-                  <>
-                    <CoinAvatar src={image} symbol={symbol || "?"} size={144} className="rounded-[20px]! shadow-none!" />
-                    <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
-                      Replace
-                    </span>
-                  </>
-                ) : uploading ? (
-                  <Loader2 size={22} className="animate-spin" />
-                ) : (
-                  <span className="flex flex-col items-center gap-2 px-3 text-center text-xs">
-                    <ImagePlus size={24} />
-                    <span className="font-medium">{dragOver ? "Drop it" : "Drop image"}</span>
-                    <span className="text-[10px] text-faint">or click · PNG, JPG, GIF, WEBP</span>
-                  </span>
-                )}
-              </button>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/png,image/jpeg,image/gif,image/webp"
-                className="hidden"
-                onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
-              />
-            </div>
-            <div className="grid flex-1 content-start gap-4 sm:grid-cols-2">
-              <Field label="Name" hint={`${name.length}/32`}>
-                <Input value={name} maxLength={32} onChange={(e) => setName(e.target.value)} placeholder="Moon Cat" />
-              </Field>
-              <Field label="Ticker" hint={`${symbol.length}/10`}>
-                <IconInput
-                  icon={<span className="text-sm font-semibold">$</span>}
-                  value={symbol}
-                  maxLength={10}
-                  onChange={(e) => setSymbol(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
-                  placeholder="MCAT"
-                />
-              </Field>
-              {uploadError && <p className="text-xs text-down sm:col-span-2">{uploadError}</p>}
-            </div>
-          </div>
-          {nest.data && settled && quote && (
-            <NestNotice
-              check={nest.data}
-              ticker={symbol || "TICKER"}
-              entryCost={native || paySol ? `≈ ${sol(units(entrySol, 9))}` : `${tokens(entryRaw, quote.decimals)} ${quote.symbol}`}
-            />
-          )}
-        </StepCard>
-
-        <StepCard n={2} title="Story & links" sub="Optional, but coins with a story and socials get found.">
-          <Field label="Description" hint={`${description.length}/280`}>
-            <textarea
-              value={description}
-              maxLength={280}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              placeholder="What is this coin about?"
-              className={textareaClass}
-            />
-          </Field>
-          <div className="mt-4 grid gap-4 sm:grid-cols-3">
-            <Field label="Website">
-              <IconInput icon={<Globe size={15} />} value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="example.com" />
-            </Field>
-            <Field label="X">
-              <IconInput icon={<XIcon size={13} />} value={twitter} onChange={(e) => setTwitter(e.target.value)} placeholder="@handle" />
-            </Field>
-            <Field label="Telegram">
-              <IconInput icon={<Send size={14} />} value={telegram} onChange={(e) => setTelegram(e.target.value)} placeholder="t.me/group" />
-            </Field>
-          </div>
-        </StepCard>
-
-        <StepCard
-          n={3}
-          title="Market"
-          sub={`Pick what your coin trades against: SOL, a stablecoin, a tokenized stock or any token by its address. Whatever the pair, the ${brand.landing} fund and OTC reserve always receive SOL.`}
-        >
-          {quotesLoading && <p className="mb-3 text-xs text-muted">Loading pairs…</p>}
-          {quotesError && <p className="mb-3 text-xs text-down">Couldn&apos;t load pairs from {brand.name}.</p>}
-          <QuotePicker quotes={quotes} value={quote} onChange={pickQuote} />
-          {custom && quote && (
-            <p className="mt-3 rounded-2xl border border-line bg-sunk px-4 py-3 text-xs leading-relaxed text-muted">
-              <span className="font-medium text-fg">Custom pair.</span> Your coin is priced in {quote.symbol}, so its market cap
-              moves with {quote.symbol}&apos;s price too.
-              {!quote.config && <> The first launch on this pair sets it up on Meteora: about 0.006 SOL rent and one extra signature.</>}
-            </p>
-          )}
-
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <div className="rounded-2xl bg-sunk px-4 py-3 shadow-[inset_0_0_0_1px_var(--line)]">
-              <div className="eyebrow text-[11px]">Starts at</div>
-              <div className="num font-display mt-1 text-xl font-bold">{usd(quote?.startMcapUsd ?? START_MCAP_USD)}</div>
-              <div className="text-[11px] text-faint">market cap</div>
-            </div>
-            <div className="rounded-2xl bg-sunk px-4 py-3 shadow-[inset_0_0_0_1px_var(--line)]">
-              <div className="eyebrow flex items-center gap-1.5 text-[11px]">
-                <GraduationCap size={12} /> Graduates at
-              </div>
-              <div className="num font-display mt-1 text-xl font-bold">{usd(quote?.graduationMcapUsd ?? GRADUATION_MCAP_USD)}</div>
-              <div className="text-[11px] text-faint">then trades on Meteora DAMM v2</div>
-            </div>
-          </div>
-          <p className="mt-2 text-[11px] leading-relaxed text-faint">
-            Same USD targets for every pair, converted into {quote?.symbol ?? "the quote"} at its live price when the pair&apos;s curve is
-            set up.
-          </p>
-
-          <div className="mt-6">
-            {!native && quote && (
-              <div className="mb-3 inline-flex rounded-full bg-sunk p-1 text-xs shadow-[inset_0_0_0_1px_var(--line)]" role="group" aria-label="Pay the first buy with">
-                {(["sol", "quote"] as const).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    aria-pressed={payWith === m}
-                    onClick={() => {
-                      setPayWith(m);
-                      setInitialBuy("");
-                    }}
-                    className={clsx(
-                      "font-display rounded-full px-3.5 py-1.5 font-semibold transition-colors",
-                      payWith === m ? "bg-elev-2 text-fg shadow-card" : "text-muted hover:text-fg",
-                    )}
+    <div className={clsx("mt-6 sm:mt-8", tx.state.status !== "idle" && "max-lg:pb-14")}>
+      <form noValidate aria-label="Coin details" onSubmit={(e) => e.preventDefault()}>
+        <Panel>
+          <PanelBody className="space-y-6">
+            <div>
+              <div className="flex items-start gap-4">
+                <ImageWell value={image} symbol={symbol} onChange={setImage} onBusy={setUploading} onError={setImageError} />
+                <div className="grid min-w-0 flex-1 grid-cols-1 gap-4 sm:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+                  <Field
+                    label="Name"
+                    hint={!nameError && nameBytes > NAME_MAX_BYTES - 6 ? `${nameBytes}/${NAME_MAX_BYTES}` : undefined}
+                    error={nameError}
                   >
-                    Pay with {m === "sol" ? "SOL" : quote.symbol}
-                  </button>
-                ))}
+                    <Input
+                      value={name}
+                      maxLength={64}
+                      autoComplete="off"
+                      invalid={!!nameError}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Orbit Dog"
+                    />
+                  </Field>
+                  <Field
+                    label="Ticker"
+                    hint={!tickerError && symbol.length > TICKER_MAX - 3 ? `${symbol.length}/${TICKER_MAX}` : undefined}
+                    error={tickerError}
+                  >
+                    <span className="relative block">
+                      <span aria-hidden className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-sm text-ink-3">
+                        $
+                      </span>
+                      <Input
+                        value={symbol}
+                        maxLength={16}
+                        autoComplete="off"
+                        autoCapitalize="characters"
+                        spellCheck={false}
+                        invalid={!!tickerError}
+                        onChange={(e) => setSymbol(e.target.value.toUpperCase().replace(/^\$+/, "").replace(/\s+/g, ""))}
+                        placeholder="ORBIT"
+                        className="pl-7"
+                      />
+                    </span>
+                  </Field>
+                </div>
               </div>
-            )}
+              {imageError && (
+                <p role="alert" className="mt-2 text-[13px] text-loss">
+                  {imageError}
+                </p>
+              )}
+              <div aria-live="polite">
+                {family && fleet.data && quote && (
+                  <div className="mt-4">
+                    <FleetNotice check={fleet.data} entryCost={entryCost} entryRent={`≈ ${sol(units(entryRent, 9))}`} />
+                  </div>
+                )}
+              </div>
+            </div>
+
             <Field
-              label="Your first buy (optional)"
+              label="Description (optional)"
+              hint={description.length > DESCRIPTION_MAX - 40 ? `${description.length}/${DESCRIPTION_MAX}` : undefined}
+            >
+              <Textarea
+                value={description}
+                maxLength={DESCRIPTION_MAX}
+                rows={2}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="One or two lines on what this coin is."
+                className="min-h-[4.75rem]"
+              />
+            </Field>
+
+            <Field as="div" label="Pair">
+              {quotesLoading ? (
+                <Skeleton className="h-14 rounded-md sm:h-11" />
+              ) : quotesError ? (
+                <Notice tone="loss">The pairs didn&apos;t load. Refresh the page to try again.</Notice>
+              ) : quotes.length === 0 ? (
+                <Notice>No pairs are available right now.</Notice>
+              ) : (
+                <PairPicker aria-label="Pair" quotes={quotes} value={quote} onChange={pickQuote} tradeFee={fee} />
+              )}
+            </Field>
+
+            <Field
+              as="div"
+              label="First buy (optional)"
               hint={
-                address && quote && (inSol ? solBalance : quoteBalance) !== undefined ? (
-                  <button type="button" onClick={maxBuy} className="num transition-colors hover:text-fg">
-                    Balance {inSol ? tokens(solBalance!, 9) : tokens(quoteBalance!, quote.decimals)} {inSol ? "SOL" : quote.symbol}
-                  </button>
-                ) : (
-                  "skips the anti-snipe fee"
-                )
+                balanceKnown && quote ? `Balance ${inSol ? tokens(solBalance!, 9) : quoteTokens(quoteBalance!, quote)} ${buyUnit}` : undefined
               }
             >
               <div className="relative">
                 <Input
+                  aria-label={`First buy amount in ${buyUnit || "the pair's token"}`}
                   inputMode="decimal"
+                  autoComplete="off"
+                  disabled={!quote}
                   value={initialBuy}
-                  onChange={(e) => setInitialBuy(e.target.value.replace(/[^\d.]/g, ""))}
-                  placeholder="0.0"
-                  className="num h-14 pr-28 text-lg"
+                  onChange={(e) => setInitialBuy(e.target.value.replace(",", ".").replace(/[^\d.]/g, ""))}
+                  placeholder="0.00"
+                  className="num pr-20"
                 />
-                <span className="absolute top-1/2 right-3 -translate-y-1/2">
-                  {quote && (inSol ? <QuoteChip symbol="SOL" logo={solQuote?.logo ?? ""} /> : <QuoteChip symbol={quote.symbol} logo={quote.logo} />)}
-                </span>
+                <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-ink-2">{buyUnit}</span>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {presets.map((p) => (
+                  <Button key={p} type="button" variant="secondary" size="sm" disabled={!quote} onClick={() => setInitialBuy(p)}>
+                    <span className="num">{p}</span>
+                  </Button>
+                ))}
+                {balanceKnown && (
+                  <Button type="button" variant="secondary" size="sm" onClick={maxBuy}>
+                    Max
+                  </Button>
+                )}
+                {quote && !native && (
+                  <label className="group ml-auto flex cursor-pointer items-center gap-2 py-1 text-[13px] text-ink-2">
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      className="sr-only"
+                      checked={payWith === "sol"}
+                      onChange={(e) => {
+                        setPayWith(e.target.checked ? "sol" : "quote");
+                        setInitialBuy("");
+                      }}
+                    />
+                    Pay in SOL
+                    <span
+                      aria-hidden
+                      className="flex h-5 w-9 items-center rounded-[999px] bg-rule-strong p-0.5 transition-colors group-has-[:checked]:bg-signal group-has-[:focus-visible]:outline-2 group-has-[:focus-visible]:outline-offset-2 group-has-[:focus-visible]:outline-signal"
+                    >
+                      <span className="size-4 rounded-[999px] bg-ink transition-transform group-has-[:checked]:translate-x-4 group-has-[:checked]:bg-ink-inverse" />
+                    </span>
+                  </label>
+                )}
+              </div>
+              <div aria-live="polite" className="text-[13px] leading-relaxed text-ink-2 empty:hidden">
+                {initialRaw > 0n && afterBuy.full ? (
+                  <p className="mt-2">That is more than the whole curve: about {dollars(CURVE_COST_USD)} buys all of it.</p>
+                ) : buyShare > 0 ? (
+                  <p className="mt-2">
+                    You get ≈ <span className="num text-ink">{num(buyShare * 1e9)}</span> coins (
+                    <span className="num">{pct(buyShare * 100, { digits: 2 })}</span> of supply).
+                  </p>
+                ) : null}
+                {swapLamports > 0n && quote && (
+                  <p className="mt-2">
+                    You&apos;ll sign twice: first a swap of your SOL into {quote.symbol}, then the launch.
+                  </p>
+                )}
               </div>
             </Field>
-            <p className="mt-2 text-[11px] leading-relaxed text-faint">
-              {paySol && initialRaw > 0n && estQuote > 0 ? (
-                <span className="num text-muted">
-                  ≈ {num(estQuote, 6)} {quote?.symbol} ({usd(initialUsd)}) ·{" "}
-                </span>
-              ) : initialRaw > 0n && initialUsd > 0 ? (
-                <span className="num text-muted">≈ {usd(initialUsd)} · </span>
-              ) : null}
-              {paySol
-                ? `Your SOL is swapped into ${quote?.symbol} through Jupiter right before the launch, then you buy first in the launch transaction itself, at the normal 3% with no anti-snipe surcharge.`
-                : "You buy first, in the launch transaction itself, at the normal 3% with no anti-snipe surcharge."}
-            </p>
-          </div>
-        </StepCard>
 
-        {/* sticky summary + CTA */}
-        <div className="glass ring-spectrum shadow-pop sticky bottom-4 z-20 rounded-[28px] p-4 sm:p-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <CoinAvatar src={image} symbol={symbol || "?"} seed={name + symbol} size={40} />
-              <div className="min-w-0 text-xs">
-                <div className="font-display truncate text-[15px] font-semibold">
-                  {name || "Your coin"} <span className="text-muted">${ticker}</span>
-                </div>
-                <div className="num mt-0.5 text-muted">
-                  Fee {sol(LAUNCH_FEE_SOL)}
-                  {solUsd > 0 && <> ({usd(LAUNCH_FEE_SOL * solUsd)})</>}
-                  {initialRaw > 0n && quote && (
-                    <>
-                      {" "}
-                      · first buy {initialBuy} {inSol ? "SOL" : quote.symbol}
-                      {paySol && <> → {quote.symbol}</>}
-                      {initialUsd > 0 && <> ({usd(initialUsd)})</>}
-                    </>
-                  )}
-                  {setupLamports > 0n && <> · pair setup ~{sol(units(setupLamports, 9))}</>}
-                  {entry && quote && (
-                    <span className="font-bold text-nest">
-                      {" "}
-                      · {brand.nest} entry {usd(entry.usd)}
-                      {!inSol && (
-                        <>
-                          {" "}
-                          ({tokens(entryRaw, quote.decimals)} {quote.symbol})
-                        </>
-                      )}
-                    </span>
-                  )}
-                  {(inSol && initialRaw > 0n) || setupLamports > 0n || entry ? <> · total {sol(units(totalLamports, 9))}</> : null}
-                </div>
+            <details className="group/more">
+              <summary className="flex list-none items-center justify-between gap-3 text-sm text-ink-2 transition-colors hover:text-ink [&::-webkit-details-marker]:hidden">
+                <span>
+                  More options <span className="text-ink-3">· website, X, Telegram</span>
+                </span>
+                <ChevronDown size={16} className="shrink-0 transition-transform group-open/more:rotate-180" aria-hidden />
+              </summary>
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <Field label="Website">
+                  <Input value={website} autoComplete="off" onChange={(e) => setWebsite(e.target.value)} placeholder="orbitdog.xyz" />
+                </Field>
+                <Field label="X">
+                  <Input value={twitter} autoComplete="off" onChange={(e) => setTwitter(e.target.value)} placeholder="@orbitdog" />
+                </Field>
+                <Field label="Telegram">
+                  <Input value={telegram} autoComplete="off" onChange={(e) => setTelegram(e.target.value)} placeholder="t.me/orbitdog" />
+                </Field>
               </div>
-            </div>
-            <div className="w-full sm:w-auto">
-              {!address ? (
-                <Button className="w-full sm:min-w-56" size="lg" onClick={openWallet}>
-                  Connect wallet
-                </Button>
-              ) : (
-                <Button className="w-full sm:min-w-56" size="lg" disabled={busy || errors.length > 0} onClick={submit}>
-                  {busy ? <Loader2 size={17} className="animate-spin" /> : <Rocket size={17} />}
-                  {busy ? "Launching…" : errors.length ? errors[0] : `Launch $${symbol || "coin"}`}
-                </Button>
-              )}
-            </div>
-          </div>
-          {address && signs.length > 1 && tx.state.status === "idle" && (
-            <p className="mt-3 text-[11px] text-faint">
-              Your wallet asks you to sign {signs.length} transactions: {signs.join(", then ")}.
-            </p>
-          )}
-          <TxStatus state={tx.state} className="mt-3" />
-        </div>
+            </details>
+          </PanelBody>
+        </Panel>
+      </form>
+
+      <p className="mt-5 text-sm leading-relaxed text-ink-2">
+        <span className="max-lg:hidden">
+          Total: <span className="num text-ink">{total}</span> ·{" "}
+        </span>
+        The {fee} fee on every trade goes to holders, none to you.
+      </p>
+
+      {/* wide screens: the button under the form */}
+      <div className="mt-4 space-y-3 max-lg:hidden">
+        {action("w-full")}
+        {hold && (
+          <p aria-live="polite" className="text-[13px] text-ink-2">
+            {hold}
+          </p>
+        )}
+        <TxStatus state={tx.state} />
       </div>
 
-      {/* ------------------------------------------------ live preview */}
-      <aside ref={setAside} style={{ top: asideTop }} className="space-y-5 lg:sticky">
-        <section>
-          <div className="mb-3 flex items-center justify-between">
-            <span className="eyebrow flex items-center gap-2">
-              <span className="live-dot" /> Live preview
-            </span>
-            <span className="text-[11px] text-faint">how it shows up in Trending</span>
-          </div>
-          <div className="ring-spectrum shadow-pop relative overflow-hidden rounded-[28px] p-5">
-            <span className="font-display absolute top-3 right-4 text-5xl leading-none font-semibold text-fg/[0.06]">1</span>
-            <div className="flex items-center gap-3">
-              <CoinAvatar src={image} symbol={symbol || "?"} seed={name + symbol} size={48} />
-              <div className="min-w-0">
-                <div className="font-display truncate text-lg font-semibold">${ticker}</div>
-                <div className="truncate text-xs text-muted">{name || "Your coin"}</div>
-              </div>
-            </div>
-            {description ? (
-              <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-muted">{description}</p>
-            ) : (
-              <p className="mt-3 text-xs text-faint">Your description shows here.</p>
+      {/* phones: the same button in a bar docked above the tab bar */}
+      <div role="region" aria-label="Launch" className="dock lg:hidden">
+        {tx.state.status !== "idle" && <TxStatus state={tx.state} className="mx-[var(--gutter)] mt-2" />}
+        <div className="flex h-[67px] items-center gap-3 px-[var(--gutter)]">
+          <p aria-live="polite" className="line-clamp-2 min-w-0 flex-1 text-[13px] leading-snug text-ink-2">
+            {hold || (
+              <>
+                Total <span className="num text-ink">{total}</span>
+              </>
             )}
-            <Sparkline data={[1, 1.02, 1.01, 1.08, 1.12, 1.1, 1.22, 1.31]} width={340} height={46} strokeWidth={2} className="mt-4 w-full" />
-            <div className="mt-3 flex items-end justify-between gap-2">
-              <div>
-                <div className="num font-display text-xl font-bold">{usd(START_MCAP_USD)}</div>
-                <div className="mt-1">{quote && <QuoteChip symbol={quote.symbol} logo={quote.logo} pair={ticker} />}</div>
-              </div>
-              <Badge tone="accent">New</Badge>
-            </div>
-            <div className="mt-4 border-t border-line pt-4">
-              <div className="mb-2 flex justify-between text-[11px] text-muted">
-                <span className="flex items-center gap-1.5">
-                  <Lock size={11} /> 1B supply on a Meteora curve
-                </span>
-                <span className="num">
-                  {usd(START_MCAP_USD)} → {usd(GRADUATION_MCAP_USD)}
-                </span>
-              </div>
-              <GraduationBar progress={0} graduated={false} />
-            </div>
-          </div>
-        </section>
-
-        <section className="surface rounded-[28px] p-5">
-          <h3 className="font-display text-[17px] font-semibold">Where this coin&apos;s fees go</h3>
-          <p className="mt-1 text-xs leading-relaxed text-muted">
-            3% of every buy and sell. Meteora keeps its protocol share; the rest becomes SOL, split in half for every coin. You
-            earn by holding, not by taxing.
           </p>
-          <FeeSplitBar legend={false} className="mt-4" />
-          <ul className="mt-4 space-y-3">
-            {buckets.map((b) => (
-              <li key={b.key} className="flex gap-3 text-xs">
-                <span className="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-[4px]" style={{ background: b.color }} />
-                <div className="min-w-0">
-                  <div className="font-display text-[13px] font-semibold">
-                    {b.label} <span className="num text-muted">· {b.bps / 100}%</span>
-                  </div>
-                  <div className="mt-0.5 leading-relaxed text-muted">{b.blurb}</div>
-                </div>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-4 border-t border-line pt-3 text-[11px] text-faint">
-            The launch fee is split the same way. A look-alike of another coin joins its {brand.nest} and feeds it instead.
-          </p>
-        </section>
-
-        <section className="surface rounded-[28px] p-5">
-          <div className="flex items-center gap-2">
-            <Zap size={16} className="text-down" />
-            <h3 className="font-display text-[17px] font-semibold">Anti-snipe window</h3>
-          </div>
-          <p className="mt-1 text-xs leading-relaxed text-muted">
-            For the first {SNIPE.seconds} seconds the pool&apos;s fee starts at 99% and decays to 3%, so bots that buy in the launch
-            block pay for it. Your own first buy, bundled into the launch, pays only 3%.
-          </p>
-          <div className="mt-5">
-            <AntiSnipeChart />
-          </div>
-        </section>
-      </aside>
+          {action("shrink-0 px-5")}
+        </div>
+      </div>
     </div>
   );
 }

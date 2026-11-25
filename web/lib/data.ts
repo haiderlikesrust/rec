@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { api, type CoinSort } from "@cook/shared";
+import { api, type CoinSort, type QuoteGroup } from "@gantry/shared";
 
 /** The backend API. Empty = same origin: Next proxies /api/* to the backend (next.config.ts). */
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -10,7 +10,11 @@ export const client = api(API_URL);
 const live = { refetchInterval: 10_000, retry: 1 } as const;
 
 export const useStats = () => useQuery({ queryKey: ["stats"], queryFn: client.stats, ...live });
-export const useQuotes = () => useQuery({ queryKey: ["quotes"], queryFn: client.quotes, staleTime: 60_000, retry: 1 });
+/** Every quote, or one group of them, or the ones matching a search. */
+export const useQuotes = (q: { group?: QuoteGroup; search?: string; available?: boolean; limit?: number } = {}) =>
+  useQuery({ queryKey: ["quotes", q], queryFn: () => client.quotes(q), staleTime: 60_000, retry: 1, placeholderData: (prev) => prev });
+/** The pair picker's tabs, with their counts. */
+export const useQuoteGroups = () => useQuery({ queryKey: ["quote-groups"], queryFn: client.quoteGroups, staleTime: 60_000, retry: 1 });
 export const useTrending = () => useQuery({ queryKey: ["trending"], queryFn: client.trending, ...live });
 export const useCoins = (q: { sort?: CoinSort; quote?: string; limit?: number; search?: string }) =>
   useQuery({ queryKey: ["coins", q], queryFn: () => client.coins(q), ...live, placeholderData: (prev) => prev });
@@ -39,19 +43,22 @@ export const useWalletSummary = (address?: string) =>
 /** Native SOL (lamports) and SPL balances by mint, from the chain or the demo ledger. */
 export const useBalances = (address?: string) =>
   useQuery({ queryKey: ["balances", address], queryFn: () => client.balances(address!), enabled: !!address, ...live });
-/** A coin's Nest: who leads, and what its copies sent it. */
-export const useBloodline = (address?: string) =>
-  useQuery({ queryKey: ["bloodline", address], queryFn: () => client.bloodline(address!), enabled: !!address, ...live });
-/** The Nest a launch with this ticker and name would join, and its entry on that pair. */
-export const useBloodlineCheck = (q: { symbol: string; name: string; quote?: string }) =>
+/** A coin's Fleet: who leads, and what its copies sent it. */
+export const useFleet = (address?: string) =>
+  useQuery({ queryKey: ["fleet", address], queryFn: () => client.fleet(address!), enabled: !!address, ...live });
+/** The Fleet a launch with this ticker and name would join, and its entry on that pair. */
+export const useFleetCheck = (q: { symbol: string; name: string; quote?: string }) =>
   useQuery({
-    queryKey: ["bloodline-check", q],
-    queryFn: () => client.bloodlineCheck({ symbol: q.symbol, name: q.name, quote: q.quote! }),
+    queryKey: ["fleet-check", q],
+    queryFn: () => client.fleetCheck({ symbol: q.symbol, name: q.name, quote: q.quote! }),
     enabled: !!q.quote && !!(q.symbol || q.name),
     refetchInterval: 30_000,
     retry: 1,
   });
 export const useProtection = () => useQuery({ queryKey: ["protection"], queryFn: client.protection, ...live });
+/** One paid loss cover, for its share page. */
+export const usePayout = (id?: string) =>
+  useQuery({ queryKey: ["payout", id], queryFn: () => client.payout(id!), enabled: !!id, staleTime: 30_000, retry: 1 });
 export const useOtc = () => useQuery({ queryKey: ["otc"], queryFn: client.otc, ...live });
 /** One coin's OTC limits, including this wallet's remaining daily allowance. */
 export const useOtcCoin = (coin?: string, wallet?: string) =>

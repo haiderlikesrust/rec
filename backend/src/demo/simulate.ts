@@ -1,4 +1,4 @@
-import { NATIVE_MINT, brand, type LaunchRequest } from "@cook/shared";
+import { NATIVE_MINT, brand, type LaunchRequest } from "@gantry/shared";
 import { config, log } from "../config";
 import { all, big, kvGet, kvSet, one, type CoinRow, type HolderRow } from "../db";
 import { processFees, runProtection } from "../jobs";
@@ -8,34 +8,35 @@ import { treasury } from "../services";
 import { DemoEngine, fakeKey } from "./engine";
 
 /**
- * Demo data: two days of history for a couple dozen coins across SOL, stablecoins and stock pairs, then a live
+ * Demo data: two days of history for a couple dozen coins on pairs from every group of the catalog (SOL and the
+ * stablecoins, other crypto, tokenized stocks, memecoins, and one whose quote charges a transfer fee), then a live
  * market that keeps trading, launching and paying out while the server runs. Every trade goes through the same
  * engine and ledger as a real one.
  */
 
-/** [name, ticker, quote symbol]; the first two run hot and graduate during the seed. */
+/** [name, ticker, quote: its ticker, with its group in front where the ticker alone isn't unique]; the first two run hot and graduate during the seed. */
 const COINS: [string, string, string][] = [
   ["Fishcake", "FISH", "SOL"],
-  ["Gigachad Index", "GIGA", "NVDAX"],
+  ["Gigachad Index", "GIGA", "USDC"],
   ["Moonpie", "MPIE", "SOL"],
   ["Cyber Shiba", "CSHIB", "USDC"],
-  ["Tendies", "TEND", "TSLAX"],
-  ["Paper Hands", "PAPER", "SOL"],
-  ["Diamond Dog", "DDOG", "SPYX"],
-  ["Claude Fan Club", "CFC", "ANTHROPIC"],
-  ["Orbital", "ORB", "SOL"],
-  ["Pixel Frog", "PFROG", "USDC"],
-  ["Chip Bros", "CHIPS", "NVDA"],
-  ["Apple Pie", "APIE", "AAPL"],
-  ["Sigma Grind", "SIGMA", "SOL"],
-  ["Turbo Snail", "TSNL", "USDT"],
-  ["Rocket Rat", "RRAT", "TSLA"],
-  ["Basket Case", "BSKT", "QQQX"],
-  ["Gold Rush", "RUSH", "GLDX"],
-  ["Night Owl", "OWL", "SOL"],
-  ["Meta Cat", "MCAT", "METAX"],
-  ["Soft Serve", "SOFT", "MSFT"],
-  ["Prompt Lord", "PRMPT", "OPENAI"],
+  ["Tendies", "TEND", "USD1"],
+  ["Paper Hands", "PAPER", "crypto:JUP"],
+  ["Diamond Dog", "DDOG", "USDT"],
+  ["Claude Fan Club", "CFC", "prestocks:ANTHROPIC"],
+  ["Orbital", "ORB", "sunrise:HYPE"],
+  ["Pixel Frog", "PFROG", "memes:Bonk"],
+  ["Chip Bros", "CHIPS", "NVDAx"],
+  ["Apple Pie", "APIE", "AAPLx"],
+  ["Sigma Grind", "SIGMA", "crypto:RAY"],
+  ["Turbo Snail", "TSNL", "sunrise:ETH"],
+  ["Rocket Rat", "RRAT", "SPCXx"],
+  ["Basket Case", "BSKT", "SPY"],
+  ["Gold Rush", "RUSH", "GLDx"],
+  ["Night Owl", "OWL", "memes:Fartcoin"],
+  ["Meta Cat", "MCAT", "backpack:META"],
+  ["Soft Serve", "SOFT", "SOL"],
+  ["Prompt Lord", "PRMPT", "tessera:tOpenAI"],
   ["Lazy Lion", "LION", "SOL"],
 ];
 
@@ -61,8 +62,14 @@ function traders(): string[] {
   return list;
 }
 
-const quoteMint = (symbol: string) =>
-  one<{ mint: string }>("SELECT mint FROM quote WHERE symbol = ? AND available = 1 ORDER BY rowid LIMIT 1", symbol)?.mint ?? NATIVE_MINT;
+/** The quote a demo coin names ("TICKER" or "group:TICKER"); SOL when the catalog has no such quote. */
+function quoteMint(name: string) {
+  const [group, symbol] = name.includes(":") ? (name.split(":") as [string, string]) : [null, name];
+  const row = group
+    ? one<{ mint: string }>("SELECT mint FROM quote WHERE symbol = ? AND grp = ? AND available = 1 ORDER BY rowid LIMIT 1", symbol, group)
+    : one<{ mint: string }>("SELECT mint FROM quote WHERE symbol = ? AND available = 1 ORDER BY rowid LIMIT 1", symbol);
+  return row?.mint ?? NATIVE_MINT;
+}
 
 function launchReq(wallet: string, name: string, symbol: string, quote: string, initialUsd: number): LaunchRequest {
   const q = quoteRow(quote)!;
@@ -70,7 +77,7 @@ function launchReq(wallet: string, name: string, symbol: string, quote: string, 
     wallet,
     name,
     symbol,
-    description: `${name} (${symbol}) is a demo coin paired with ${q.symbol}. Every trade pays 3%, and every fee ${brand.name} collects goes back to holders.`,
+    description: `${name} (${symbol}) is a simulated coin on the ${q.symbol} pair. It exists to show how trading fees fill the OTC reserve and the ${brand.shield}.`,
     image: "",
     website: "",
     twitter: "",
@@ -153,7 +160,7 @@ export function simulator(engine: DemoEngine) {
   const uri = `${config.publicUrl}/api/metadata/`;
   let n = 0;
   const names = ["Sunny", "Waffle", "Comet", "Pebble", "Mango", "Glitch", "Nova", "Bonk Jr", "Zappy", "Kiwi", "Rook", "Velvet"];
-  const quotes = ["SOL", "SOL", "SOL", "USDC", "NVDAX", "TSLAX", "AMD", "SPYX", "ANTHROPIC", "COINX"];
+  const quotes = ["SOL", "SOL", "SOL", "SOL", "USDC", "USDC", "USDT", "USD1", "TSLAx", "backpack:NVDA", "crypto:JUP", "sunrise:DOGE", "memes:$WIF", "prestocks:OPENAI"];
   return () => {
     const wallets = traders();
     const at = Math.floor(Date.now() / 1000);

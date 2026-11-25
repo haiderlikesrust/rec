@@ -1,0 +1,41 @@
+{
+  "name": "gantry-promo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone Remotion project for the Gantry promo film. Not part of the pnpm workspace.",
+  "scripts": {
+    "sync": "node scripts/sync-brand.mjs",
+    "sfx": "node scripts/make-sfx.mjs",
+    "studio": "node scripts/sync-brand.mjs && remotion studio src/index.ts",
+    "render": "node scripts/sync-brand.mjs && remotion render src/index.ts GantryPromo out/gantry-promo.mp4",
+    "poster": "node scripts/sync-brand.mjs && remotion still src/index.ts GantryPromo out/poster.png --frame=842",
+    "still": "remotion still src/index.ts GantryPromo",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@react-three/fiber": "9.8.2",
+    "@remotion/cli": "4.0.547",
+    "@remotion/google-fonts": "4.0.547",
+    "@remotion/media": "4.0.547",
+    "@remotion/noise": "4.0.547",
+    "@remotion/paths": "4.0.547",
+    "@remotion/three": "4.0.547",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "remotion": "4.0.547",
+    "three": "0.187.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "0.187.0",
+    "esbuild": "^0.25.0",
+    "typescript": "5.9.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

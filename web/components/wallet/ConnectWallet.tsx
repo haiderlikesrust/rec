@@ -2,50 +2,50 @@
 
 import { useWallet } from "@solana/wallet-adapter-react";
 import clsx from "clsx";
-import { Check, Copy, ExternalLink, LogOut, Wallet } from "lucide-react";
+import { Check, ChevronDown, Copy, ExternalLink, LogOut, WalletMinimal } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { explorerAddress } from "@/lib/explorer";
 import { short } from "@/lib/format";
+import { AddressGlyph } from "./AddressGlyph";
 import { useWalletModal } from "./WalletModal";
 
-const palette = ["#FF7A45", "#FFC94D", "#2BD99A", "#5B95FF", "#9B87FF"];
+const menuItem =
+  "focus-inset flex h-10 w-full items-center gap-2.5 rounded-md px-3 text-left text-sm text-ink-2 transition-colors hover:bg-white/6 hover:text-ink focus-visible:bg-white/6 focus-visible:text-ink";
 
-function Avatar({ seed, size = 22 }: { seed: string; size?: number }) {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
-  const a = palette[Math.abs(h) % palette.length];
-  const b = palette[Math.abs(h >> 3) % palette.length];
-  return <span className="shrink-0 rounded-full" style={{ width: size, height: size, background: `conic-gradient(from ${Math.abs(h) % 360}deg, ${a}, ${b}, ${a})` }} />;
-}
-
-/** "Connect" when no wallet is attached; the address with a small account menu when one is. */
+/**
+ * "Connect" when no wallet is attached; the address with a small account menu (dropping from its right edge) when
+ * one is. `block` makes it full width.
+ */
 export function ConnectWallet({ className, block }: { className?: string; block?: boolean }) {
   const { publicKey, wallet, disconnect, connecting } = useWallet();
   const { open } = useWalletModal();
   const [menu, setMenu] = useState(false);
   const [copied, setCopied] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menuId = useId();
 
   useEffect(() => {
     if (!menu) return;
     const onDown = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setMenu(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setMenu(false);
+      trigger.current?.focus();
+    };
     window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
   }, [menu]);
 
   if (!publicKey) {
     return (
-      <button
-        onClick={open}
-        disabled={connecting}
-        className={clsx(
-          "font-display inline-flex h-10 items-center justify-center gap-1.5 rounded-full bg-fg px-4 text-sm font-semibold text-bg transition-all hover:-translate-y-0.5 active:scale-[0.98] disabled:opacity-60",
-          block && "h-12 w-full text-[15px]",
-          className,
-        )}
-      >
-        <Wallet size={16} /> {connecting ? "Connecting…" : "Connect"}
+      <button onClick={open} disabled={connecting} className={clsx("btn btn-primary btn-md", block && "w-full", className)}>
+        {connecting ? "Connecting…" : "Connect"}
       </button>
     );
   }
@@ -62,51 +62,55 @@ export function ConnectWallet({ className, block }: { className?: string; block?
   return (
     <div ref={ref} className={clsx("relative", block && "w-full", className)}>
       <button
+        ref={trigger}
         onClick={() => setMenu((m) => !m)}
+        aria-haspopup="menu"
+        aria-expanded={menu}
+        aria-controls={menu ? menuId : undefined}
+        aria-label={`Wallet ${short(address)}: account menu`}
         className={clsx(
-          "surface inline-flex h-10 items-center gap-2 rounded-full pr-3.5 pl-1.5 text-sm font-bold transition-all hover:bg-elev-2",
-          block && "h-12 w-full justify-center",
+          "flex h-10 items-center gap-2 rounded-full bg-raise pr-3 pl-2 text-sm text-ink transition-colors hover:bg-[color-mix(in_srgb,#fff_8%,var(--raise))]",
+          block && "w-full",
         )}
       >
-        <Avatar seed={address} size={26} />
-        <span className="num">{short(address)}</span>
+        <AddressGlyph seed={address} size={24} />
+        <span className="font-mono text-[13px] tracking-[-0.02em]">{short(address)}</span>
+        {/* the smallest phones have no room for the arrow beside the logo and the address */}
+        <ChevronDown size={15} className={clsx("ml-auto text-ink-3 transition-transform max-[359px]:hidden", menu && "rotate-180")} aria-hidden />
       </button>
       {menu && (
-        <div className="surface absolute right-0 z-50 mt-2 w-60 overflow-hidden rounded-3xl p-1.5 shadow-pop animate-fade-up">
-          <div className="flex items-center gap-2.5 px-3 py-2.5">
-            <Avatar seed={address} size={28} />
+        <div
+          id={menuId}
+          role="menu"
+          aria-label="Wallet"
+          className="absolute top-full right-0 z-50 mt-2 w-64 animate-enter rounded-xl border border-rule bg-panel p-1.5 shadow-float"
+        >
+          <div className="flex items-center gap-3 px-3 pt-2.5 pb-3">
+            <AddressGlyph seed={address} size={32} />
             <div className="min-w-0">
-              <p className="num truncate text-sm font-medium">{short(address, 5)}</p>
-              <p className="text-[11px] text-faint">{wallet?.adapter.name}</p>
+              <p className="truncate font-mono text-[13px] tracking-[-0.02em] text-ink">{short(address, 5)}</p>
+              <p className="text-[13px] leading-snug text-ink-3">{wallet?.adapter.name}</p>
             </div>
           </div>
-          <div className="my-1 h-px bg-line" />
-          <button onClick={copy} className="flex w-full items-center gap-2.5 rounded-2xl px-3 py-2 text-sm font-semibold text-muted hover:bg-elev-2 hover:text-fg">
-            {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? "Copied" : "Copy address"}
+          <button role="menuitem" onClick={copy} className={menuItem}>
+            {copied ? <Check size={16} className="text-gain" aria-hidden /> : <Copy size={16} aria-hidden />}
+            {copied ? "Copied" : "Copy address"}
           </button>
-          <a
-            href={explorerAddress(address)}
-            target="_blank"
-            rel="noreferrer"
-            className="flex w-full items-center gap-2.5 rounded-2xl px-3 py-2 text-sm font-semibold text-muted hover:bg-elev-2 hover:text-fg"
-          >
-            <ExternalLink size={14} /> View on Solscan
+          <a role="menuitem" href={explorerAddress(address)} target="_blank" rel="noreferrer" className={menuItem}>
+            <ExternalLink size={16} aria-hidden /> View on Solscan
           </a>
-          <Link
-            href="/portfolio"
-            onClick={() => setMenu(false)}
-            className="flex w-full items-center gap-2.5 rounded-2xl px-3 py-2 text-sm font-semibold text-muted hover:bg-elev-2 hover:text-fg"
-          >
-            <Wallet size={14} /> Portfolio
+          <Link role="menuitem" href="/portfolio" onClick={() => setMenu(false)} className={menuItem}>
+            <WalletMinimal size={16} aria-hidden /> Portfolio
           </Link>
           <button
+            role="menuitem"
             onClick={() => {
               setMenu(false);
               disconnect().catch(() => undefined);
             }}
-            className="flex w-full items-center gap-2.5 rounded-2xl px-3 py-2 text-sm font-semibold text-down hover:bg-down-soft"
+            className={clsx(menuItem, "text-loss hover:bg-loss-tint hover:text-loss focus-visible:bg-loss-tint focus-visible:text-loss")}
           >
-            <LogOut size={14} /> Disconnect
+            <LogOut size={16} aria-hidden /> Disconnect
           </button>
         </div>
       )}

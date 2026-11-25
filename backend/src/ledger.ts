@@ -1,5 +1,6 @@
+import { COIN_DECIMALS, type LaunchCurve } from "./curve";
 import { big, joinFamily, one, run, tx, type CoinRow, type HolderRow } from "./db";
-import { solPerUnit, toUnits } from "./prices";
+import { solPerUnit, solUsd, toUnits } from "./prices";
 
 /**
  * Bookkeeping shared by the chain indexer and the demo simulator: every swap, burn and transfer of coins goes
@@ -10,7 +11,7 @@ import { solPerUnit, toUnits } from "./prices";
 export const SYSTEM = new Set<string>();
 
 export const getCoin = (mint: string) => one<CoinRow>("SELECT * FROM coin WHERE mint = ?", mint);
-export const coinByPool = (pool: string) => one<CoinRow>("SELECT * FROM coin WHERE pool = ? OR damm_pool = ?", pool, pool);
+export const coinByPool = (pool: string) => one<CoinRow>("SELECT * FROM coin WHERE pool = ? OR cpmm_pool = ?", pool, pool);
 
 function holder(coin: string, wallet: string): HolderRow {
   run("INSERT INTO holder (coin, wallet) VALUES (?, ?) ON CONFLICT DO NOTHING", coin, wallet);
@@ -20,7 +21,6 @@ function holder(coin: string, wallet: string): HolderRow {
 export type LaunchInput = {
   mint: string;
   pool: string;
-  config: string;
   quote: string;
   name: string;
   symbol: string;
@@ -32,23 +32,18 @@ export type LaunchInput = {
   uri: string;
   creator: string;
   createdAt: number;
-  /** curve in whole units (see curve.ts) */
-  sqrtStart: number;
-  sqrtMig: number;
-  liquidity: number;
-  threshold: bigint;
-  totalSupply: bigint;
+  /** the curve it launched on, raw units (see curve.ts) */
+  curve: LaunchCurve;
 };
 
 export function recordLaunch(l: LaunchInput) {
-  const price = l.sqrtStart * l.sqrtStart;
+  const price = (Number(l.curve.virtualQuote) / Number(l.curve.virtualBase)) * 10 ** (COIN_DECIMALS - quoteDecimals(l.quote));
   run(
-    `INSERT INTO coin (mint, pool, config, quote, name, symbol, image, description, website, twitter, telegram, uri, creator,
-       created_at, is_main, price, ath, sqrt_price, liquidity, sqrt_start, sqrt_mig, threshold, total_supply)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(mint) DO NOTHING`,
+    `INSERT INTO coin (mint, pool, quote, name, symbol, image, description, website, twitter, telegram, uri, creator,
+       created_at, price, ath, start_price, virtual_base, virtual_quote, curve_sell, threshold, total_supply)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(mint) DO NOTHING`,
     l.mint,
     l.pool,
-    l.config,
     l.quote,
     l.name,
     l.symbol,
@@ -60,15 +55,14 @@ export function recordLaunch(l: LaunchInput) {
     l.uri,
     l.creator,
     l.createdAt,
-    0,
     price,
     price,
-    l.sqrtStart,
-    l.liquidity,
-    l.sqrtStart,
-    l.sqrtMig,
-    l.threshold.toString(),
-    l.totalSupply.toString(),
+    price,
+    l.curve.virtualBase.toString(),
+    l.curve.virtualQuote.toString(),
+    l.curve.sell.toString(),
+    l.curve.raise.toString(),
+    l.curve.supply.toString(),
   );
   if (getCoin(l.mint)!.family === "") joinFamily(l.mint, l.symbol, l.name);
 }
@@ -81,16 +75,20 @@ export type TradeInput = {
   /** gross quote: what a buyer paid in, or what a sale produced before the fee */
   quoteAmount: bigint;
   tokenAmount: bigint;
-  /** the whole fee charged on this swap */
+  /** the whole fee charged on this swap, in the quote */
   tax: bigint;
-  /** Meteora's protocol share of the fee */
-  meteora: bigint;
-  /** fee accrued to the pool for the fee wallet to claim (partner trading fee / LP fee) */
+  /** Raydium's share of the fee */
+  protocol: bigint;
+  /** the platform fee, which sits in the platform's LaunchLab vault until the fee wallet claims it: the exact amount */
   claimable: bigint;
-  /** fee paid straight to the fee wallet as the referral rebate */
-  referral: bigint;
-  sqrtPrice: number;
-  quoteReserve?: bigint;
+  /** after graduation: an estimate of the quote the fee wallet will harvest from the pool for this swap */
+  harvestable: bigint;
+  /** quote per coin after the swap, in whole units */
+  price: number;
+  /** a curve swap: where the curve stands after it */
+  curve?: { sold: bigint; raised: bigint; complete: boolean };
+  /** a CPMM swap: the pool's reserves after it */
+  pool?: { base: bigint; quote: bigint };
   ts: number;
   tx: string;
   kind: "trade" | "otc";
@@ -101,7 +99,6 @@ export function recordTrade(t: TradeInput) {
     if (one("SELECT 1 FROM trade WHERE id = ?", t.id)) return false;
     const c = getCoin(t.coin);
     if (!c) return false;
-    const price = t.sqrtPrice * t.sqrtPrice;
     const qDec = quoteDecimals(c.quote);
     const solPer = solPerUnit(c.quote);
     const solValue = toUnits(t.quoteAmount, qDec) * solPer;
@@ -116,7 +113,7 @@ export function recordTrade(t: TradeInput) {
       t.quoteAmount.toString(),
       t.tokenAmount.toString(),
       t.tax.toString(),
-      price,
+      t.price,
       solValue,
       t.ts,
       t.tx,
@@ -131,35 +128,37 @@ export function recordTrade(t: TradeInput) {
       c.mint,
       minute,
       c.price,
-      Math.max(c.price, price),
-      Math.min(c.price, price),
-      price,
+      Math.max(c.price, t.price),
+      Math.min(c.price, t.price),
+      t.price,
       vol,
     );
 
     const isCreator = t.trader === c.creator;
-    const income = t.claimable + t.referral;
-    const graduated = c.graduated === 1 || (t.quoteReserve !== undefined && t.quoteReserve >= big(c.threshold));
+    const graduated = c.graduated === 1 || !!t.curve?.complete;
     run(
-      `UPDATE coin SET price = ?, ath = MAX(ath, ?), sqrt_price = ?, quote_reserve = ?, trades = trades + ?,
-         volume_quote = ?, volume_sol = volume_sol + ?, last_trade_at = ?, fees_quote = ?, fees_sol = fees_sol + ?,
-         meteora_quote = ?, meteora_sol = meteora_sol + ?, income_quote = ?, claimable_quote = ?,
-         creator_bought = ?, creator_sold = ?, graduated = ?, graduated_at = COALESCE(graduated_at, ?)
+      `UPDATE coin SET price = ?, ath = MAX(ath, ?), base_sold = ?, quote_reserve = ?, pool_base = ?, pool_quote = ?,
+         trades = trades + ?, volume_quote = ?, volume_sol = volume_sol + ?, last_trade_at = ?, fees_quote = ?,
+         fees_sol = fees_sol + ?, protocol_quote = ?, protocol_sol = protocol_sol + ?, income_quote = ?, claimable_quote = ?,
+         harvest_quote = ?, creator_bought = ?, creator_sold = ?, graduated = ?, graduated_at = COALESCE(graduated_at, ?)
        WHERE mint = ?`,
-      price,
-      price,
-      t.sqrtPrice,
-      (t.quoteReserve ?? big(c.quote_reserve)).toString(),
+      t.price,
+      t.price,
+      (t.curve?.sold ?? big(c.base_sold)).toString(),
+      (t.curve?.raised ?? big(c.quote_reserve)).toString(),
+      (t.pool?.base ?? big(c.pool_base)).toString(),
+      (t.pool?.quote ?? big(c.pool_quote)).toString(),
       t.kind === "trade" ? 1 : 0,
       (big(c.volume_quote) + t.quoteAmount).toString(),
       solValue,
       t.kind === "trade" ? t.ts : c.last_trade_at,
       (big(c.fees_quote) + t.tax).toString(),
       toUnits(t.tax, qDec) * solPer,
-      (big(c.meteora_quote) + t.meteora).toString(),
-      toUnits(t.meteora, qDec) * solPer,
-      (big(c.income_quote) + income).toString(),
+      (big(c.protocol_quote) + t.protocol).toString(),
+      toUnits(t.protocol, qDec) * solPer,
+      (big(c.income_quote) + t.claimable).toString(),
       (big(c.claimable_quote) + t.claimable).toString(),
+      (big(c.harvest_quote) + t.harvestable).toString(),
       (big(c.creator_bought) + (isCreator && t.isBuy ? t.tokenAmount : 0n)).toString(),
       (big(c.creator_sold) + (isCreator && !t.isBuy ? t.tokenAmount : 0n)).toString(),
       graduated ? 1 : 0,
@@ -197,13 +196,14 @@ export function recordTrade(t: TradeInput) {
     if (basisRemoved > proceeds) {
       const lossQuote = basisRemoved - proceeds;
       run(
-        "INSERT INTO loss (id, coin, wallet, ts, loss_quote, loss_sol, hold, tax_paid_sol) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO loss (id, coin, wallet, ts, loss_quote, loss_sol, sol_usd, hold, tax_paid_sol) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         t.id,
         c.mint,
         t.trader,
         t.ts,
         lossQuote.toString(),
         toUnits(lossQuote, qDec) * solPer,
+        solUsd(),
         h.first_buy_at > 0 ? t.ts - h.first_buy_at : 0,
         toUnits(taxPaid, qDec) * solPer,
       );
@@ -212,19 +212,18 @@ export function recordTrade(t: TradeInput) {
   });
 }
 
-type HolderPatch = Partial<{ balance: bigint; cost_basis: bigint; realized: bigint; tax_paid: bigint; first_buy_at: number; airdrops: bigint }>;
+type HolderPatch = Partial<{ balance: bigint; cost_basis: bigint; realized: bigint; tax_paid: bigint; first_buy_at: number }>;
 
 function setHolder(c: CoinRow, h: HolderRow, p: HolderPatch) {
   const before = big(h.balance);
   const next = { ...h, ...Object.fromEntries(Object.entries(p).map(([k, v]) => [k, typeof v === "bigint" ? v.toString() : v])) };
   run(
-    "UPDATE holder SET balance = ?, cost_basis = ?, realized = ?, tax_paid = ?, first_buy_at = ?, airdrops = ? WHERE coin = ? AND wallet = ?",
+    "UPDATE holder SET balance = ?, cost_basis = ?, realized = ?, tax_paid = ?, first_buy_at = ? WHERE coin = ? AND wallet = ?",
     next.balance,
     next.cost_basis,
     next.realized,
     next.tax_paid,
     next.first_buy_at,
-    next.airdrops,
     h.coin,
     h.wallet,
   );
@@ -255,15 +254,16 @@ export function recordTransfer(coinMint: string, wallet: string, delta: bigint) 
   });
 }
 
-/** Burned supply: coins sold to the OTC reserve, or an entry nobody could get. */
-export function recordBurn(coinMint: string, amount: bigint, source: "otc" | "entry") {
+/** Burned supply: coins sold to the OTC reserve, pool fees that came back in the coin, or an entry nobody could get. */
+export function recordBurn(coinMint: string, amount: bigint, source: "otc" | "fees" | "entry") {
   const c = getCoin(coinMint);
   if (!c) return;
   run(
-    "UPDATE coin SET total_supply = ?, burned = ?, otc_burned = ? WHERE mint = ?",
+    "UPDATE coin SET total_supply = ?, burned = ?, otc_burned = ?, fee_burned = ? WHERE mint = ?",
     (big(c.total_supply) - amount).toString(),
     (big(c.burned) + amount).toString(),
     (big(c.otc_burned) + (source === "otc" ? amount : 0n)).toString(),
+    (big(c.fee_burned) + (source === "fees" ? amount : 0n)).toString(),
     coinMint,
   );
 }

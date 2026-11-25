@@ -2,49 +2,64 @@
 
 import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
-import { ArrowDown, Loader2, Settings2, Zap } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { brand, buyTaxBpsAt, NATIVE_MINT, SNIPE, TAX_BPS, type Coin } from "@cook/shared";
+import { ArrowUpRight, Loader2, Settings, X } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useId, useState } from "react";
+import { brand, feeBreakdown, NATIVE_MINT, type Coin, type SwapSide } from "@gantry/shared";
 import { client, useBalances } from "@/lib/data";
-import { bps, formatRaw, num, pct, sig, toRaw, tokens, units, usd } from "@/lib/format";
+import { runtime } from "@/lib/explorer";
+import { bps, formatRaw, pct, sig, toRaw, tokens, units, usd } from "@/lib/format";
+import { isMainPair, transferFeeBps } from "@/lib/pairs";
+import { quoteTokens, rawToTyped, shownPrice, typedToRaw } from "@/lib/quoteUnits";
 import { errorMessage, useSolanaTx } from "@/lib/tx";
 import { useAddress } from "@/lib/wallet";
 import { CoinAvatar } from "@/components/CoinAvatar";
 import { QuoteLogo } from "@/components/QuoteChip";
-import { Button } from "@/components/ui";
 import { TxStatus } from "@/components/TxStatus";
+import { Button, Field, Input, Panel, PanelBody, Segmented } from "@/components/ui";
 import { useWalletModal } from "@/components/wallet/WalletModal";
+import { venueOf } from "./venue";
 
-const SOL_RESERVE = 20_000_000n; // 0.02 SOL kept back on "max" for fees and token-account rent
+const SOL_RESERVE = 20_000_000n; // 0.02 SOL stays in the wallet on "Max", for network fees and token-account rent
+const SLIPPAGE_STEPS = ["1", "3", "5", "10"] as const;
+/** A trade that moves the price by more than this gets a warning. */
+const HIGH_IMPACT = 0.05;
 
-function AssetPill({ symbol, image, seed, logo }: { symbol: string; image?: string; seed: string; logo?: string }) {
-  return (
-    <span className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-elev py-1 pr-3 pl-1 shadow-card">
-      {logo !== undefined ? <QuoteLogo symbol={symbol} logo={logo} size={26} /> : <CoinAvatar src={image} symbol={symbol} seed={seed} size={26} />}
-      <span className="text-sm font-semibold">{symbol}</span>
-    </span>
-  );
-}
+const sides: { value: SwapSide; label: string }[] = [
+  { value: "buy", label: "Buy" },
+  { value: "sell", label: "Sell" },
+];
 
-/** Ticks once a second while the launch anti-snipe fee is still decaying, so the fee row stays honest. */
-function useSnipeFee(createdAt: number) {
-  const [now, setNow] = useState(() => Date.now() / 1000);
-  const live = now - createdAt < SNIPE.seconds + 1;
-  useEffect(() => {
-    if (!live) return;
-    const t = setInterval(() => setNow(Date.now() / 1000), 500);
-    return () => clearInterval(t);
-  }, [live]);
-  return buyTaxBpsAt(Math.max(0, now - createdAt));
-}
+/** Where a wallet with none of a pair's token can swap SOL for it. */
+const jupiterSwap = (mint: string) => `https://jup.ag/swap?sell=${NATIVE_MINT}&buy=${mint}`;
 
-export function TradePanel({ coin, initialSide = "buy" }: { coin: Coin; initialSide?: "buy" | "sell" }) {
-  const [side, setSide] = useState<"buy" | "sell">(initialSide);
+/** A square icon button: the settings control and the sheet's close button. */
+const iconButton = "size-9 shrink-0 px-0 max-lg:size-11";
+
+/**
+ * The buy/sell box: side, amount, what you get, the fee, one button. It is a card in the right column on desktop and
+ * the content of the bottom sheet on phones (`onClose` adds the close button and drops the card).
+ *
+ * A coin is bought with its pair's token and sold for it: SOL, a stablecoin or a stock token. Amounts of that token
+ * are typed and shown the way a wallet counts them (lib/quoteUnits); what goes to the API is the raw amount.
+ */
+export function TradePanel({
+  coin,
+  initialSide = "buy",
+  className,
+  onClose,
+}: {
+  coin: Coin;
+  initialSide?: SwapSide;
+  className?: string;
+  onClose?: () => void;
+}) {
+  const [side, setSide] = useState<SwapSide>(initialSide);
   const [amount, setAmount] = useState("");
   const [slippage, setSlippage] = useState(5);
-  const [showSettings, setShowSettings] = useState(false);
+  const [tuning, setTuning] = useState(false);
   const [debounced, setDebounced] = useState("");
-  const settingsRef = useRef<HTMLDivElement>(null);
+  const tuneId = useId();
   const address = useAddress();
   const { open: openWallet } = useWalletModal();
   const tx = useSolanaTx();
@@ -53,11 +68,14 @@ export function TradePanel({ coin, initialSide = "buy" }: { coin: Coin; initialS
   const quote = coin.quote;
   const quoteIsSol = quote.address === NATIVE_MINT;
   const isBuy = side === "buy";
-  const inDecimals = isBuy ? quote.decimals : coin.decimals;
   const outDecimals = isBuy ? coin.decimals : quote.decimals;
+  // the side that is paid in is the pair's token on a buy and the coin on a sell; the other side is what comes out
+  const parseIn = (text: string) => (isBuy ? typedToRaw(text, quote) : toRaw(text, coin.decimals));
+  const fieldText = (raw: bigint) => (isBuy ? rawToTyped(raw, quote) : formatRaw(raw, coin.decimals));
+  const showIn = (raw: bigint) => (isBuy ? quoteTokens(raw, quote) : tokens(raw, coin.decimals));
+  const showOut = (raw: bigint) => (isBuy ? tokens(raw, coin.decimals) : quoteTokens(raw, quote));
   const inSymbol = isBuy ? quote.symbol : coin.symbol;
   const outSymbol = isBuy ? coin.symbol : quote.symbol;
-  const inUsd = isBuy ? quote.usdPerUnit : coin.priceUsd;
   const outUsd = isBuy ? coin.priceUsd : quote.usdPerUnit;
 
   useEffect(() => {
@@ -69,21 +87,12 @@ export function TradePanel({ coin, initialSide = "buy" }: { coin: Coin; initialS
     tx.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [side]);
-  useEffect(() => {
-    if (!showSettings) return;
-    const close = (e: MouseEvent) => {
-      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) setShowSettings(false);
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [showSettings]);
 
   const b = balances.data;
   const rawBalance = !b ? undefined : isBuy ? (quoteIsSol ? b.sol : b.tokens[quote.address] ?? "0") : b.tokens[coin.address] ?? "0";
   const balance = rawBalance !== undefined ? BigInt(rawBalance) : undefined;
 
-  const scheduleBps = useSnipeFee(coin.createdAt);
-  const amountRaw = toRaw(debounced, inDecimals);
+  const amountRaw = parseIn(debounced);
   const quoteQuery = useQuery({
     queryKey: ["swapQuote", coin.address, side, amountRaw.toString(), slippage, address],
     enabled: amountRaw > 0n,
@@ -95,24 +104,56 @@ export function TradePanel({ coin, initialSide = "buy" }: { coin: Coin; initialS
   const q = quoteQuery.data;
   const out = q ? BigInt(q.amountOut) : 0n;
   const minOut = q ? BigInt(q.minOut) : 0n;
-  const feeBps = q?.feeBps ?? scheduleBps;
-  const sniping = feeBps > TAX_BPS;
 
-  const inputRaw = toRaw(amount, inDecimals);
+  // the fee the quote was priced with; before there is a quote, the venue's standing rate
+  const feeBps = q?.feeBps ?? feeBreakdown(venueOf(coin), runtime.cluster).taxBps;
+
+  const inputRaw = parseIn(amount);
   const insufficient = balance !== undefined && inputRaw > balance;
+  // on a pair other than SOL and the main stablecoins, the box says in words what the coin trades against: the token,
+  // what kind it is and who issues it, and the fee that issuer takes on transfers when it takes one
+  const unusualPair = !isMainPair(quote);
+  const pairToken = !unusualPair
+    ? quote.symbol
+    : `${quote.symbol} (${quote.name})${
+        quote.category === "stock" ? `, a stock token${quote.issuer ? ` from ${quote.issuer}` : ""}` : quote.issuer ? `, a token issued by ${quote.issuer}` : ""
+      }`;
+  const transferFee = transferFeeBps(quote);
+  const transferNote = transferFee > 0 ? `Its issuer charges a ${bps(transferFee)} fee on every transfer, on top of the ${bps(feeBps)} trading fee.` : "";
+
+  // buying with a token the wallet has none of: say where to get it, not just that there isn't enough
+  const payToken = isBuy && !quoteIsSol;
+  const holdsNone = payToken && balance === 0n;
+  const getIt = (label: string) => (
+    <a href={jupiterSwap(quote.address)} target="_blank" rel="noreferrer" className="link whitespace-nowrap">
+      {label}
+      <ArrowUpRight size={13} aria-hidden className="ml-0.5 inline align-[-2px]" />
+      <span className="sr-only"> (opens in a new tab)</span>
+    </a>
+  );
 
   const setMax = () => {
     if (balance === undefined) return;
     const v = isBuy && quoteIsSol ? (balance > SOL_RESERVE ? balance - SOL_RESERVE : 0n) : balance;
-    setAmount(formatRaw(v, inDecimals));
+    setAmount(fieldText(v));
   };
 
-  const presets: { label: string; apply: () => void }[] = isBuy
-    ? quote.usdPerUnit > 0
-      ? [10, 50, 100, 500].map((d) => ({ label: `$${d}`, apply: () => setAmount(sig(d / quote.usdPerUnit, 4)) }))
-      : ["1", "5", "10"].map((p) => ({ label: `${p} ${quote.symbol}`, apply: () => setAmount(p) }))
+  const presets: { label: string; hint: string; needsBalance: boolean; apply: () => void }[] = isBuy
+    ? [
+        ...(quote.usdPerUnit > 0
+          ? [10, 50, 100].map((d) => ({
+              label: `$${d}`,
+              hint: `Spend $${d} of ${quote.symbol}`,
+              needsBalance: false,
+              apply: () => setAmount(sig(d / shownPrice(quote.usdPerUnit, quote), 4)),
+            }))
+          : ["1", "5", "10"].map((p) => ({ label: p, hint: `Spend ${p} ${quote.symbol}`, needsBalance: false, apply: () => setAmount(p) }))),
+        { label: "Max", hint: `Spend the whole ${quote.symbol} balance`, needsBalance: true, apply: setMax },
+      ]
     : [25, 50, 75, 100].map((p) => ({
-        label: `${p}%`,
+        label: p === 100 ? "All" : `${p}%`,
+        hint: `Sell ${p}% of the ${coin.symbol} balance`,
+        needsBalance: true,
         apply: () => balance !== undefined && setAmount(formatRaw((balance * BigInt(p)) / 100n, coin.decimals)),
       }));
 
@@ -124,199 +165,186 @@ export function TradePanel({ coin, initialSide = "buy" }: { coin: Coin; initialS
     if (r) setAmount("");
   }
 
-  const inAsset = isBuy
-    ? { symbol: quote.symbol, seed: quote.symbol, logo: quote.logo }
-    : { symbol: coin.symbol, image: coin.image, seed: coin.address };
-  const outAsset = isBuy
-    ? { symbol: coin.symbol, image: coin.image, seed: coin.address }
-    : { symbol: quote.symbol, seed: quote.symbol, logo: quote.logo };
-  const inValue = units(inputRaw, inDecimals) * inUsd;
+  const quoted = amountRaw > 0n && !!q && !quoteQuery.isError;
   const outValue = units(out, outDecimals) * outUsd;
 
-  return (
-    <section className="ring-spectrum shadow-pop relative rounded-[28px] p-4 sm:p-5">
-      <div className="flex items-center gap-2">
-        <div className="grid flex-1 grid-cols-2 rounded-full border border-line bg-sunk/80 p-1">
-          {(["buy", "sell"] as const).map((s) => (
-            <button
-              key={s}
-              onClick={() => setSide(s)}
-              className={clsx(
-                "rounded-full py-2 text-sm font-semibold capitalize transition-all duration-200",
-                side === s
-                  ? s === "buy"
-                    ? "bg-up-soft text-up shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--up)_35%,transparent)]"
-                    : "bg-down-soft text-down shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--down)_35%,transparent)]"
-                  : "text-muted hover:text-fg",
-              )}
+  const body = (
+    <PanelBody className="space-y-5">
+      <div className="flex items-center gap-1.5">
+        <Segmented block aria-label="Buy or sell" className="min-w-0 flex-1 max-lg:[&>button]:h-11" value={side} onChange={setSide} options={sides} />
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-expanded={tuning}
+          aria-controls={tuneId}
+          aria-label={`Trade settings. Slippage ${slippage}%`}
+          title={`Slippage ${slippage}%`}
+          onClick={() => setTuning((v) => !v)}
+          className={clsx(iconButton, tuning && "bg-raise text-ink")}
+        >
+          <Settings size={17} aria-hidden />
+        </Button>
+        {onClose && (
+          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close" className={iconButton}>
+            <X size={18} aria-hidden />
+          </Button>
+        )}
+      </div>
+
+      {tuning && (
+        <div id={tuneId} className="space-y-3 rounded-lg bg-raise p-4">
+          <Field as="div" label="Slippage">
+            <Segmented
+              block
+              size="sm"
+              aria-label="Slippage"
+              className="max-lg:[&>button]:h-10"
+              value={String(slippage) as (typeof SLIPPAGE_STEPS)[number]}
+              onChange={(v) => setSlippage(Number(v))}
+              options={SLIPPAGE_STEPS.map((s) => ({ value: s, label: `${s}%` }))}
+            />
+          </Field>
+          <p className="text-[13px] leading-relaxed text-ink-2">
+            If the price moves more than this before your trade lands, nothing is swapped.
+            {quoted && out > 0n && (
+              <>
+                {" "}
+                You get at least{" "}
+                <span className="num text-ink">
+                  {showOut(minOut)} {outSymbol}
+                </span>
+                .
+              </>
+            )}
+          </p>
+        </div>
+      )}
+
+      <Field
+        as="div"
+        label={isBuy ? "You pay" : "You sell"}
+        hint={address ? `Balance ${balance !== undefined ? showIn(balance) : "…"}` : undefined}
+        error={
+          insufficient && !holdsNone ? (
+            <>
+              That is more {inSymbol} than this wallet holds.{payToken && <> {getIt("Get more on Jupiter")}</>}
+            </>
+          ) : undefined
+        }
+      >
+        <div className="relative">
+          <Input
+            inputMode="decimal"
+            autoComplete="off"
+            placeholder="0.00"
+            value={amount}
+            invalid={insufficient && !holdsNone}
+            onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))}
+            aria-label={`Amount of ${inSymbol} to ${isBuy ? "spend" : "sell"}`}
+            className="num h-14 pr-28 text-xl font-medium"
+          />
+          <span className="pointer-events-none absolute inset-y-0 right-4 flex max-w-[45%] items-center gap-2">
+            {isBuy ? (
+              <QuoteLogo symbol={quote.symbol} logo={quote.logo} size={20} />
+            ) : (
+              <CoinAvatar src={coin.image} symbol={coin.symbol} seed={coin.address} size={20} />
+            )}
+            <span className="truncate text-sm font-medium text-ink">{inSymbol}</span>
+          </span>
+        </div>
+        <div role="group" aria-label="Quick amounts" className="mt-2.5 grid grid-cols-4 gap-2">
+          {presets.map((p) => (
+            <Button
+              key={p.label}
+              variant="secondary"
+              size="sm"
+              title={p.hint}
+              onClick={p.apply}
+              disabled={p.needsBalance && balance === undefined}
+              className="num px-0 max-lg:h-11"
             >
-              {s}
-            </button>
+              {p.label}
+            </Button>
           ))}
         </div>
-        <div ref={settingsRef} className="relative">
-          <button
-            aria-label="Slippage settings"
-            aria-expanded={showSettings}
-            onClick={() => setShowSettings((v) => !v)}
-            className={clsx(
-              "flex h-10 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors",
-              showSettings ? "border-line-strong bg-elev-2 text-fg" : "border-line text-muted hover:text-fg",
-            )}
-          >
-            <Settings2 size={14} />
-            <span className="num">{num(slippage)}%</span>
-          </button>
-          {showSettings && (
-            <div className="surface shadow-pop absolute top-12 right-0 z-20 w-60 rounded-2xl p-4">
-              <div className="text-xs font-medium">Max slippage</div>
-              <p className="mt-1 text-[11px] leading-relaxed text-faint">The trade fails if the price moves more than this before it lands.</p>
-              <div className="mt-3 grid grid-cols-4 gap-1.5">
-                {[1, 3, 5, 10].map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => {
-                      setSlippage(s);
-                      setShowSettings(false);
-                    }}
-                    className={clsx(
-                      "num rounded-xl py-1.5 text-xs transition-colors",
-                      slippage === s ? "bg-accent-soft text-accent shadow-[inset_0_0_0_1px_var(--accent)]" : "bg-sunk text-muted hover:text-fg",
-                    )}
-                  >
-                    {s}%
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+        {holdsNone ? (
+          <p role="note" className="mt-3 rounded-lg bg-white/5 px-3.5 py-3 text-[13px] leading-relaxed text-ink-2">
+            {coin.symbol} is bought with {pairToken}, and this wallet holds none. {transferNote} {getIt(`Get ${quote.symbol} on Jupiter`)}
+          </p>
+        ) : (
+          unusualPair && (
+            <p className="mt-3 text-[13px] leading-relaxed text-ink-3">
+              {isBuy ? "You pay in" : "You are paid in"} {pairToken}, not in SOL. {transferNote}
+            </p>
+          )
+        )}
+      </Field>
 
-      {/* pay */}
-      <div className="mt-4 rounded-2xl border border-line bg-sunk p-4 transition-all focus-within:border-accent focus-within:shadow-[0_0_0_4px_var(--accent-soft)]">
-        <div className="flex items-center justify-between text-xs text-muted">
-          <span>You pay</span>
-          {address && (
-            <button onClick={setMax} className="num inline-flex items-center gap-1.5 transition-colors hover:text-fg">
-              {balance !== undefined ? tokens(balance, inDecimals) : "…"}
-              <span className="rounded-full bg-accent-soft px-1.5 py-px text-[10px] font-semibold tracking-wide text-accent">MAX</span>
-            </button>
-          )}
-        </div>
-        <div className="mt-2 flex items-center gap-3">
-          <input
-            inputMode="decimal"
-            placeholder="0"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))}
-            className="num min-w-0 flex-1 bg-transparent text-[32px] leading-none font-bold outline-none placeholder:text-faint"
-            aria-label={`Amount of ${inSymbol}`}
-          />
-          <AssetPill {...inAsset} />
-        </div>
-        <div className="mt-2 flex items-center justify-between gap-2">
-          <div className="flex gap-1.5">
-            {presets.map((p) => (
-              <button
-                key={p.label}
-                onClick={p.apply}
-                className="num rounded-full border border-line bg-elev/60 px-2.5 py-1 text-[11px] text-muted transition-colors hover:border-line-strong hover:text-fg"
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-          <span className="num shrink-0 text-xs text-faint">{inputRaw > 0n && inUsd > 0 ? `≈ ${usd(inValue)}` : ""}</span>
-        </div>
-      </div>
-
-      <div className="relative z-10 -my-3 flex justify-center">
-        <button
-          onClick={() => setSide(isBuy ? "sell" : "buy")}
-          aria-label="Switch side"
-          className="flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-elev text-muted shadow-card transition-all hover:rotate-180 hover:text-fg"
-        >
-          <ArrowDown size={15} />
-        </button>
-      </div>
-
-      {/* receive */}
-      <div className="rounded-2xl border border-line bg-sunk/50 p-4">
-        <div className="flex items-center justify-between text-xs text-muted">
-          <span>You receive</span>
-          {quoteQuery.isFetching ? (
-            <Loader2 size={12} className="animate-spin text-faint" />
-          ) : (
-            <span className="num text-faint">{out > 0n && outUsd > 0 ? `≈ ${usd(outValue)}` : ""}</span>
-          )}
-        </div>
-        <div className="mt-2 flex items-center gap-3">
-          <div className="num min-w-0 flex-1 truncate text-[32px] leading-none font-bold">
-            {amountRaw > 0n ? (
-              quoteQuery.isError ? (
-                <span className="text-sm text-down">{errorMessage(quoteQuery.error)}</span>
-              ) : q ? (
-                tokens(out, outDecimals)
-              ) : (
-                <span className="text-faint">…</span>
-              )
+      <dl className="space-y-2.5 text-sm">
+        <div className="flex items-baseline justify-between gap-4">
+          <dt className="shrink-0 text-ink-2">You get ≈</dt>
+          <dd className="num min-w-0 text-right text-base font-medium text-ink">
+            {amountRaw === 0n ? (
+              <span className="text-ink-3">0 {outSymbol}</span>
+            ) : quoteQuery.isError ? (
+              <span role="alert" className="block text-[13px] leading-snug font-normal text-loss">
+                {errorMessage(quoteQuery.error)}
+              </span>
+            ) : q ? (
+              <>
+                {showOut(out)} {outSymbol}
+                {outUsd > 0 && <span className="ml-2 text-[13px] font-normal text-ink-3">{usd(outValue)}</span>}
+              </>
             ) : (
-              <span className="text-faint">0</span>
+              <Loader2 size={14} className="inline animate-spin text-ink-3" aria-label="Getting a price" />
             )}
-          </div>
-          <AssetPill {...outAsset} />
-        </div>
-      </div>
-
-      <dl className="mt-4 space-y-2 px-1 text-xs">
-        <div className="flex items-center justify-between">
-          <dt className="text-muted">Trade fee</dt>
-          <dd className={clsx("num inline-flex items-center gap-1.5", sniping && "rounded-full bg-down-soft px-2 py-0.5 font-medium text-down")}>
-            {sniping && <Zap size={11} />}
-            {bps(feeBps)}
-            {sniping && " · anti-snipe"}
           </dd>
         </div>
-        {q && q.priceImpact > 0.005 && (
-          <div className="flex items-center justify-between">
-            <dt className="text-muted">Price impact</dt>
-            <dd className={clsx("num", q.priceImpact > 0.05 && "text-down")}>{pct(q.priceImpact * 100, { digits: 2 })}</dd>
-          </div>
-        )}
-        <div className="flex items-center justify-between">
-          <dt className="text-muted">Minimum received</dt>
-          <dd className="num">{amountRaw > 0n && out > 0n ? `${tokens(minOut, outDecimals)} ${outSymbol}` : "—"}</dd>
-        </div>
-        <div className="flex items-center justify-between">
-          <dt className="text-muted">Max slippage</dt>
-          <dd className="num">{num(slippage)}%</dd>
+        <div className="flex items-baseline justify-between gap-4">
+          <dt className="text-ink-2">Fee</dt>
+          <dd className="num text-right text-ink-2">
+            {bps(feeBps)}
+            {quoted && BigInt(q.fee) > 0n && <span className="text-ink-3"> · {quoteTokens(q.fee, quote, quote.symbol)}</span>}
+          </dd>
         </div>
       </dl>
 
-      <div className="mt-4">
+      {quoted && q.priceImpact > HIGH_IMPACT && (
+        <p role="alert" className="text-[13px] leading-relaxed text-loss">
+          This trade moves the price by {pct(q.priceImpact * 100, { digits: 1 })}. A smaller amount gets a better price.
+        </p>
+      )}
+
+      <div className="space-y-3">
         {!address ? (
-          <Button className="h-14 w-full rounded-2xl text-base" size="lg" onClick={openWallet}>
+          <Button variant="primary" size="lg" block onClick={openWallet}>
             Connect wallet
           </Button>
         ) : (
-          <Button
-            className="h-14 w-full rounded-2xl text-base"
-            size="lg"
-            variant={isBuy ? "up" : "down"}
-            disabled={tx.busy || inputRaw === 0n || insufficient}
-            onClick={submit}
-          >
-            {tx.busy && <Loader2 size={16} className="animate-spin" />}
-            {insufficient ? `Not enough ${inSymbol}` : tx.busy ? "Working…" : `${isBuy ? "Buy" : "Sell"} $${coin.symbol}`}
+          <Button variant="primary" size="lg" block disabled={tx.busy || inputRaw === 0n || insufficient} onClick={submit}>
+            {tx.busy && <Loader2 size={16} className="animate-spin" aria-hidden />}
+            {holdsNone && inputRaw > 0n ? `No ${quote.symbol} to pay with` : insufficient ? `Not enough ${inSymbol}` : tx.busy ? "Sending…" : `${isBuy ? "Buy" : "Sell"} ${coin.symbol}`}
           </Button>
         )}
+        <TxStatus state={tx.state} />
+        <p className="text-xs leading-relaxed text-ink-3">
+          None of the fee goes to the creator: it funds the OTC reserve and {brand.shield}.{" "}
+          <Link href={`${brand.docsPath}#fees`} className="link whitespace-nowrap">
+            How fees work
+          </Link>
+        </p>
       </div>
-      <TxStatus state={tx.state} className="mt-3" />
-      <p className="mt-3 px-1 text-[11px] leading-relaxed text-faint">
-        3% of the {quote.symbol} side, after Meteora&apos;s protocol share, is split in half between the OTC reserve and the
-        {brand.landing} fund. None goes to the creator or the team.
-      </p>
+    </PanelBody>
+  );
+
+  const label = `Buy or sell ${coin.symbol}`;
+  return onClose ? (
+    <section aria-label={label} className={className}>
+      {body}
     </section>
+  ) : (
+    <Panel as="section" aria-label={label} className={className}>
+      {body}
+    </Panel>
   );
 }

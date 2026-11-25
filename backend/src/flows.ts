@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { otcPolicy, type OtcQuote, type OtcQuoteRequest } from "@cook/shared";
+import { otcPolicy, type OtcQuote, type OtcQuoteRequest } from "@gantry/shared";
 import { big, one, run, type OtcQuoteRow } from "./db";
 import { UserError, memoFor, type Engine } from "./engine";
 import { settleOtc } from "./jobs";

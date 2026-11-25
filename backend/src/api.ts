@@ -1,8 +1,9 @@
 import { Hono, type Context } from "hono";
+import { compress } from "hono/compress";
 import { cors } from "hono/cors";
 import {
-  BLOODLINE,
-  LAUNCH_FEE_SOL,
+  FLEET,
+  LAUNCH_RENT_SOL,
   NATIVE_MINT,
   brand,
   PROTECTION_PAYOUT_BPS,
@@ -14,7 +15,6 @@ import {
   type CoinSort,
   type LaunchRequest,
   type OtcQuoteRequest,
-  type PairSetupRequest,
   type PlatformStats,
   type Position,
   type ProtectionStatus,
@@ -22,16 +22,16 @@ import {
   type SwapRequest,
   type Trade,
   type WalletSummary,
-} from "@cook/shared";
+} from "@gantry/shared";
 import { config, log, roles } from "./config";
+import { SLIPPAGE } from "./chain/errors";
 import { lease } from "./lease";
 import { all, big, kvGet, kvSet, one, type CoinRow, type HolderRow, type QuoteRow, type TradeRow } from "./db";
 import { UserError, type Engine } from "./engine";
-import { bloodlineInfo, bloodlineTags, checkLaunch, tagOf } from "./bloodline";
-import { addCustomQuote, previewToken } from "./custom";
+import { fleetInfo, fleetTags, checkLaunch, tagOf } from "./fleet";
 import { otcConfirm, otcQuote } from "./flows";
 import { getCoin } from "./ledger";
-import { quoteRow, refreshQuotePrice, solUsd, toQuoteAsset, toUnits } from "./prices";
+import { listedQuotes, quoteGroupInfo, quoteRow, solUsd, toQuoteAsset, toUnits, unavailableReason } from "./prices";
 import {
   allCoins,
   coinCandles24h,
@@ -41,6 +41,7 @@ import {
   now,
   otcCoin,
   owedProtectionSol,
+  payoutById,
   quotesMap,
   shapeCoin,
   sortCoins,
@@ -53,6 +54,8 @@ import {
 export function createApi(engine: Engine) {
   const app = new Hono();
   app.use("*", cors());
+  // the list of quotes runs to hundreds of entries: text this repetitive shrinks to a fraction on the wire
+  app.use("/api/quotes", compress());
   app.onError((err, ctx) => {
     if (err instanceof UserError) return ctx.json({ error: err.message }, 400);
     log(`api ${ctx.req.method} ${ctx.req.path}: ${err.message}`);
@@ -67,27 +70,32 @@ export function createApi(engine: Engine) {
 
   // ---------------------------------------------------------------- reads
 
-  app.get("/api/quotes", (ctx) =>
-    // a quote needs a live USD price: it sets where the curve starts and graduates. Custom pairs are listed once a
-    // coin has launched on them; until then only the launcher who added one sees it.
-    ctx.json(
-      all<QuoteRow>(
-        "SELECT * FROM quote WHERE available = 1 AND usd > 0 AND (category != 'custom' OR mint IN (SELECT quote FROM coin)) ORDER BY rowid",
-      ).map(toQuoteAsset),
-    ),
-  );
-
-  app.get("/api/quotes/preview/:mint", async (ctx) => ctx.json(await previewToken(ctx.req.param("mint"))));
-
-  app.post("/api/quotes/custom", async (ctx) => {
-    const { mint } = await ctx.req.json<{ mint: string }>();
-    return ctx.json(toQuoteAsset(await addCustomQuote(engine, (mint ?? "").trim())));
+  /**
+   * Every quote LaunchLab has a config for, in the catalog's order. One that can't be launched on right now (no
+   * price, its mint's state, LaunchLab's floor, too thin a market) is listed with `available: false` and the reason.
+   * ?group= narrows to one of the picker's groups, ?search= to a ticker, name or mint, ?available=1 to the ones that
+   * can be launched on; ?limit= and ?offset= page through the result.
+   */
+  app.get("/api/quotes", (ctx) => {
+    const group = ctx.req.query("group");
+    const search = ctx.req.query("search")?.toLowerCase().trim();
+    let list = listedQuotes();
+    if (group && group !== "all") list = list.filter((q) => q.grp === group);
+    if (search) list = list.filter((q) => q.symbol.toLowerCase().includes(search) || q.name.toLowerCase().includes(search) || q.mint.toLowerCase() === search);
+    let out = list.map(toQuoteAsset);
+    if (ctx.req.query("available") === "1") out = out.filter((q) => q.available);
+    const offset = Math.max(0, Number(ctx.req.query("offset") ?? 0) || 0);
+    const limit = Number(ctx.req.query("limit") ?? 0) || out.length;
+    return ctx.json(out.slice(offset, offset + limit));
   });
+
+  /** The picker's tabs: the groups that have quotes, in their order, with how many each has and how many are open. */
+  app.get("/api/quotes/groups", (ctx) => ctx.json(quoteGroupInfo()));
 
   app.get("/api/stats", (ctx) => {
     const since = now() - 86_400;
-    const sums = one<{ fees: number; meteora: number; routed: number; coins: number }>(
-      `SELECT COALESCE(SUM(fees_sol), 0) AS fees, COALESCE(SUM(meteora_sol), 0) AS meteora, COALESCE(SUM(blood_sent_sol), 0) AS routed,
+    const sums = one<{ fees: number; protocol: number; routed: number; coins: number }>(
+      `SELECT COALESCE(SUM(fees_sol), 0) AS fees, COALESCE(SUM(protocol_sol), 0) AS protocol, COALESCE(SUM(fleet_sent_sol), 0) AS routed,
          COUNT(*) AS coins FROM coin`,
     )!;
     const vol = one<{ v: number }>("SELECT COALESCE(SUM(sol_value), 0) AS v FROM trade WHERE ts >= ? AND kind = 'trade'", since)!.v;
@@ -105,12 +113,12 @@ export function createApi(engine: Engine) {
       volume24hUsd: vol * sUsd,
       totalFeesSol: sums.fees,
       totalFeesUsd: sums.fees * sUsd,
-      meteoraFeesSol: sums.meteora,
+      protocolFeesSol: sums.protocol,
       otcReserveSol: treasury.otcSol,
       protectionFundSol: treasury.protectionSol,
       protectionPaidSol: toUnits(kvGet("protection_paid") ?? "0", 9),
       otcPaidSol: otcPaid,
-      nestRoutedSol: sums.routed,
+      fleetRoutedSol: sums.routed,
       treasury: roles.map((r) => ({
         role: r.role,
         label: r.label,
@@ -126,8 +134,9 @@ export function createApi(engine: Engine) {
     const quote = ctx.req.query("quote");
     const search = ctx.req.query("search")?.toLowerCase().trim();
     const limit = Math.min(Number(ctx.req.query("limit") ?? 100), 500);
-    let list = allCoins(bloodlineTags());
-    if (quote && quote !== "all") list = list.filter((c) => c.quote.address === quote || c.quote.category === quote);
+    let list = allCoins(fleetTags());
+    // one pair by its mint, or a group of pairs: a category ("stock") or a stock issuer ("xStocks")
+    if (quote && quote !== "all") list = list.filter((c) => c.quote.address === quote || c.quote.category === quote || c.quote.issuer === quote);
     if (search)
       list = list.filter(
         (c) => c.name.toLowerCase().includes(search) || c.symbol.toLowerCase().includes(search) || c.address.toLowerCase() === search,
@@ -137,7 +146,7 @@ export function createApi(engine: Engine) {
 
   app.get("/api/trending", (ctx) =>
     ctx.json(
-      allCoins(bloodlineTags())
+      allCoins(fleetTags())
         .filter((c) => c.volume24hUsd > 0)
         .sort((a, b) => b.volume24hUsd - a.volume24hUsd || b.trades24h - a.trades24h)
         .slice(0, 10),
@@ -155,10 +164,11 @@ export function createApi(engine: Engine) {
       buckets: {
         solToOtc: c.sol_to_otc,
         solToProtection: c.sol_to_protection,
-        meteoraQuote: c.meteora_quote,
-        pendingQuote: (big(c.income_quote) - big(c.split_quote)).toString(),
-        sentToLeaderSol: c.blood_sent_sol,
-        receivedFromCopiesSol: c.blood_received_sol,
+        protocolQuote: c.protocol_quote,
+        pendingQuote: (big(c.income_quote) - big(c.split_quote) + big(c.harvest_quote)).toString(),
+        feeBurned: c.fee_burned,
+        sentToLeaderSol: c.fleet_sent_sol,
+        receivedFromCopiesSol: c.fleet_received_sol,
       },
       otc: otcCoin(c),
       protection: coinProtection(c),
@@ -190,9 +200,8 @@ export function createApi(engine: Engine) {
     // ?trader= narrows the feed to one wallet ("my trades")
     const trader = ctx.req.query("trader");
     if (trader && !isSolanaAddress(trader)) throw new UserError("Invalid wallet address.");
-    // the old fee buybacks stay in the table but aren't shown
     const rows = all<TradeRow>(
-      `SELECT * FROM trade WHERE coin = ? AND kind != 'buyback' ${trader ? "AND trader = ?" : ""}
+      `SELECT * FROM trade WHERE coin = ? ${trader ? "AND trader = ?" : ""}
        ORDER BY ts DESC, rowid DESC LIMIT ?`,
       mint,
       ...(trader ? [trader] : []),
@@ -215,14 +224,14 @@ export function createApi(engine: Engine) {
 
   app.get("/api/coins/:address/holders", (ctx) => ctx.json(holdersOf(address(ctx, "address"))));
 
-  app.get("/api/coins/:address/bloodline", (ctx) => {
+  app.get("/api/coins/:address/fleet", (ctx) => {
     const c = getCoin(address(ctx, "address"));
     if (!c) return ctx.json({ error: "not found" }, 404);
-    return ctx.json(bloodlineInfo(c));
+    return ctx.json(fleetInfo(c));
   });
 
   /** The family a launch with this ticker and name would join, and the entry it pays on that pair. */
-  app.get("/api/bloodline/check", (ctx) => {
+  app.get("/api/fleet/check", (ctx) => {
     const symbol = (ctx.req.query("symbol") ?? "").trim().replace(/^\$/, "").toUpperCase();
     const name = (ctx.req.query("name") ?? "").trim();
     return ctx.json(checkLaunch(symbol, name, ctx.req.query("quote") ?? NATIVE_MINT));
@@ -230,7 +239,7 @@ export function createApi(engine: Engine) {
 
   app.get("/api/wallet/:address", (ctx) => {
     const wallet = address(ctx, "address");
-    const coins = new Map(allCoins(bloodlineTags(), false).map((c) => [c.address, c]));
+    const coins = new Map(allCoins(fleetTags(), false).map((c) => [c.address, c]));
     const positions: Position[] = all<HolderRow>("SELECT * FROM holder WHERE wallet = ? AND balance != '0'", wallet)
       .filter((h) => coins.has(h.coin))
       .map((h) => {
@@ -285,6 +294,12 @@ export function createApi(engine: Engine) {
       coins: all<CoinRow>("SELECT * FROM coin WHERE sol_to_protection > 0 ORDER BY sol_to_protection DESC").map(coinProtection),
     };
     return ctx.json(status);
+  });
+
+  /** One paid loss cover, for its share page. Covers that paid nothing have no page. */
+  app.get("/api/payouts/:id", (ctx) => {
+    const payout = payoutById(ctx.req.param("id"));
+    return payout ? ctx.json(payout) : ctx.json({ error: "not found" }, 404);
   });
 
   app.get("/api/activity", (ctx) => {
@@ -376,30 +391,23 @@ export function createApi(engine: Engine) {
     return ctx.json(await engine.swap(c, { ...req, slippageBps: Math.min(Math.max(Number(req.slippageBps) || 100, 10), 5000) }));
   });
 
-  /** The pair a launch request names, with a fresh price for custom pairs (they move fast and aren't polled). */
+  /**
+   * The pair a launch request names, when a coin can be launched on it right now (see unavailableReason), judged on
+   * a price and a route to SOL checked for this request.
+   */
   const launchQuote = async (mint: string) => {
-    let q = quoteRow(mint);
-    if (q?.category === "custom") {
-      await refreshQuotePrice(mint);
-      q = quoteRow(mint);
-    }
-    if (!q || !q.available) throw new UserError("That quote asset isn't available.");
-    if (!(q.usd > 0)) throw new UserError(`No live USD price for ${q.symbol} yet, so its curve can't be priced. Try another pair.`);
+    if (quoteRow(mint)?.available) await engine.checkQuote(mint);
+    const q = quoteRow(mint);
+    const why = q ? unavailableReason(q, undefined, undefined, true) : "That quote asset isn't available.";
+    if (!q || why) throw new UserError(q?.available ? `${why} Pick another pair.` : why!);
     return q;
   };
-
-  app.post("/api/tx/pair-setup", async (ctx) => {
-    const req = await ctx.req.json<PairSetupRequest>();
-    if (!isSolanaAddress(req.wallet)) throw new UserError("Connect a wallet first.");
-    const q = await launchQuote(req.quote);
-    return ctx.json(await engine.pairSetup(req.wallet, q.mint));
-  });
 
   app.post("/api/tx/sol-to-quote", async (ctx) => {
     const req = await ctx.req.json<SolToQuoteRequest>();
     if (!isSolanaAddress(req.wallet)) throw new UserError("Connect a wallet first.");
-    const q = quoteRow(req.quote);
-    if (!q || !q.available || q.mint === NATIVE_MINT) throw new UserError("That quote asset isn't available.");
+    const q = await launchQuote(req.quote);
+    if (q.mint === NATIVE_MINT) throw new UserError("That quote asset isn't available.");
     const lamports = big(req.lamports);
     if (lamports <= 0n) throw new UserError("Enter an amount.");
     return ctx.json(await engine.solToQuote(req.wallet, q.mint, lamports));
@@ -410,10 +418,11 @@ export function createApi(engine: Engine) {
     if (!isSolanaAddress(req.wallet)) throw new UserError("Connect a wallet first.");
     const name = (req.name ?? "").trim();
     const symbol = (req.symbol ?? "").trim().replace(/^\$/, "").toUpperCase();
-    if (!name || name.length > 32) throw new UserError("Name must be 1–32 characters.");
+    // the name goes into the coin's on-chain metadata, which holds 32 bytes of it
+    if (!name || Buffer.byteLength(name) > 32) throw new UserError("Name must be 1–32 characters.");
     if (!/^[A-Z0-9]{1,10}$/.test(symbol)) throw new UserError("Ticker must be 1–10 letters or digits.");
     await launchQuote(req.quote);
-    // a copy launched while its Nest has an alive leader pays the Nest entry (see bloodline.ts)
+    // a copy launched while its Fleet has an alive leader pays the Fleet entry (see fleet.ts)
     const check = checkLaunch(symbol, name, req.quote);
     let entry: { raw: bigint; to: string } | undefined;
     if (check.entry) {
@@ -421,7 +430,7 @@ export function createApi(engine: Engine) {
       const offered = big(req.entry);
       if (offered * 100n < need * 98n)
         throw new UserError(
-          `$${symbol} copies $${check.family!.og.symbol}, so it pays the $${BLOODLINE.entryUsd} ${brand.nest} entry. Refresh the form to see it, then launch again.`,
+          `$${symbol} copies $${check.family!.og.symbol}, so it pays the $${FLEET.entryUsd} ${brand.fleet} entry. Refresh the form to see it, then launch again.`,
         );
       // the figure the form showed, unless the price moved more than 10% since
       entry = { raw: offered * 10n > need * 11n ? need : offered, to: check.entry.to.address };
@@ -453,7 +462,7 @@ export function createApi(engine: Engine) {
     ctx.json({
       cluster: config.cluster,
       demo: engine.demo,
-      launchFeeSol: LAUNCH_FEE_SOL,
+      launchRentSol: LAUNCH_RENT_SOL,
       rpc: process.env.PUBLIC_RPC_URL || clusters[config.cluster].rpc,
     }),
   );
@@ -498,6 +507,6 @@ function friendly(e: Error) {
   const m = e.message ?? String(e);
   if (/insufficient (funds|lamports)|0x1\b/i.test(m)) return "Not enough balance for this transaction (including network fees).";
   if (/blockhash/i.test(m)) return "The network is busy. Try again.";
-  if (/slippage|0x1771|ExceededSlippage/i.test(m)) return "Price moved beyond your slippage setting.";
+  if (/slippage/i.test(m) || SLIPPAGE.test(m)) return "Price moved beyond your slippage setting.";
   return m.split("\n")[0]!.slice(0, 200);
 }

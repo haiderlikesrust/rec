@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
  * the top; a taller one scrolls with the page until its bottom is in view and sticks there, so every panel in it can
  * be reached without an inner scrollbar.
  */
-export function useStickyTop(el: HTMLElement | null, offset = 80, gap = 16) {
+export function useStickyTop(el: HTMLElement | null, offset = 88, gap = 16) {
   const [top, setTop] = useState(offset);
   useEffect(() => {
     if (!el) return;

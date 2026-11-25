@@ -1,4 +1,4 @@
-import { clusters, explorer, type Cluster } from "@cook/shared";
+import { clusters, explorer, type Cluster } from "@gantry/shared";
 
 /**
  * Cluster, demo flag and browser RPC. Build-time env gives the first render; the backend's /api/config replaces

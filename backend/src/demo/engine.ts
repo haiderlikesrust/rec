@@ -3,33 +3,29 @@ import { Keypair } from "@solana/web3.js";
 import bs58 from "bs58";
 import {
   ENTRY_RENT_LAMPORTS,
-  GRADUATION_MCAP_USD,
-  LAUNCH_FEE_SOL,
-  METEORA_PROTOCOL_SHARE_BPS,
-  METEORA_REFERRAL_SHARE_BPS,
+  LAUNCH_RENT_SOL,
   NATIVE_MINT,
-  START_MCAP_USD,
-  TAX_BPS,
-  buyTaxBpsAt,
+  feeBreakdown,
   type Balances,
   type LaunchRequest,
   type LaunchResponse,
-  type PairSetup,
   type SolToQuote,
   type SwapQuote,
   type SwapRequest,
   type SwapResponse,
   type SwapSide,
   type TxEnvelope,
-} from "@cook/shared";
+  type Venue,
+} from "@gantry/shared";
 import { storeMetadata } from "../api";
-import { recordEntry } from "../bloodline";
-import type { Role } from "../config";
-import { all, big, kvGet, kvSet, one, run, tx, type CoinRow, type OtcQuoteRow } from "../db";
+import { launchParams } from "../chain/params";
+import { recordEntry } from "../fleet";
+import { config, type Role } from "../config";
+import { all, big, one, run, tx, type CoinRow, type OtcQuoteRow } from "../db";
 import { UserError, type Engine } from "../engine";
-import { COIN_DECIMALS, SUPPLY_RAW, buy, curveFor, quoteReserve, sell, type CurveState } from "../curve";
+import { SUPPLY_RAW, cpmmBuy, cpmmFees, cpmmRates, cpmmSell, curveBuy, curveRates, curveReserves, curveSell, priceOf, type CurveState, type Reserves, afterTransferFee, beforeTransferFee } from "../curve";
 import { SYSTEM, getCoin, quoteDecimals, recordLaunch, recordTrade } from "../ledger";
-import { activeConfig, configCurve, currentTargets, quoteRow, solPerUnit, toUnits } from "../prices";
+import { quoteRow, solPerUnit, toUnits, quoteFee } from "../prices";
 import { now } from "../services";
 
 const SOL = "SOL";
@@ -42,18 +38,23 @@ export const fakeKey = () => Keypair.generate().publicKey.toBase58();
 
 type Fill = {
   side: SwapSide;
+  venue: Venue;
+  /** what leaves the wallet: quote, fees included, on a buy (less than was offered when it completes the curve); coins on a sell */
   amountIn: bigint;
+  /** what reaches the wallet */
   amountOut: bigint;
-  /** quote actually consumed by a buy (less than amountIn when it hits graduation) */
-  used: bigint;
+  /** the quote side of the swap as the trader saw it, before the launchpad's fee came off */
   gross: bigint;
+  /** what the quote's own transfer fee kept back (zero on most pairs) */
+  transferFee: bigint;
   tax: bigint;
-  meteora: bigint;
-  referral: bigint;
+  protocol: bigint;
   claimable: bigint;
-  feeBps: number;
-  next: number;
+  harvestable: bigint;
+  price: number;
   impact: number;
+  curve?: { sold: bigint; raised: bigint; complete: boolean };
+  pool?: Reserves;
 };
 
 /** Everything a real deployment does on Solana, simulated in the database. */
@@ -120,70 +121,82 @@ export class DemoEngine implements Engine {
     return { sol: this.bal(owner, NATIVE_MINT).toString(), tokens };
   }
 
-  // ---------------------------------------------------------------- the curve
+  // ---------------------------------------------------------------- the two pools
 
-  private state(c: CoinRow): CurveState {
-    return { sqrtPrice: c.sqrt_price, liquidity: c.liquidity, sqrtStart: c.sqrt_start, sqrtMig: c.sqrt_mig };
+  private curve(c: CoinRow): CurveState {
+    return { virtualBase: big(c.virtual_base), virtualQuote: big(c.virtual_quote), sold: big(c.base_sold), raised: big(c.quote_reserve), sell: big(c.curve_sell) };
   }
 
-  fill(c: CoinRow, side: SwapSide, amount: bigint, at: number, opts: { referral: boolean; firstBuy?: boolean }): Fill {
+  /**
+   * What a swap does: on the coin's curve until it has sold out, in its CPMM pool after. `amount` is what the trader
+   * sends. On a quote with a transfer fee the pool trades on what arrives of a buyer's quote, and a seller keeps
+   * what's left of the pool's payout, as on the chain.
+   */
+  fill(c: CoinRow, side: SwapSide, amount: bigint): Fill {
     const qDec = quoteDecimals(c.quote);
-    const feeBps = opts.firstBuy ? TAX_BPS : buyTaxBpsAt(at - c.created_at);
-    const s = this.state(c);
-    const capped = c.graduated !== 1;
-    const p0 = s.sqrtPrice * s.sqrtPrice;
-    let gross: bigint, tax: bigint, out: bigint, used: bigint, next: number;
-    if (side === "buy") {
-      tax = (amount * BigInt(feeBps)) / 10_000n;
-      const r = buy(s, toUnits(amount - tax, qDec), capped);
-      used = BigInt(Math.floor(r.used * 10 ** qDec));
-      // at graduation the unused input is refunded, and so is its share of the fee
-      if (used < amount - tax) tax = (used * BigInt(feeBps)) / BigInt(10_000 - feeBps);
-      gross = used + tax;
-      out = BigInt(Math.floor(r.out * 10 ** COIN_DECIMALS));
-      next = r.next;
-    } else {
-      const r = sell(s, toUnits(amount, COIN_DECIMALS));
-      gross = BigInt(Math.floor(r.out * 10 ** qDec));
-      tax = (gross * BigInt(feeBps)) / 10_000n;
-      out = gross - tax;
-      used = amount;
-      next = r.next;
+    const impact = (after: number) => (c.price > 0 ? Math.abs(after - c.price) / c.price : 0);
+    const tf = quoteFee(c.quote);
+    const landed = side === "buy" ? afterTransferFee(amount, tf) : amount;
+    if (c.graduated === 1) {
+      const rates = cpmmRates(config.cluster);
+      const f = side === "buy" ? cpmmBuy({ base: big(c.pool_base), quote: big(c.pool_quote) }, landed, rates) : cpmmSell({ base: big(c.pool_base), quote: big(c.pool_quote) }, amount, rates);
+      // a sale's trade fee is charged in the coin: it is valued in the quote at this fill's price
+      const tradeFee = side === "buy" ? f.tradeFee : (f.tradeFee * f.quoteGross) / (amount || 1n);
+      const price = priceOf(f.pool, qDec);
+      const out = side === "buy" ? f.amountOut : afterTransferFee(f.amountOut, tf);
+      const kept = side === "buy" ? amount - landed : f.amountOut - out;
+      return {
+        side,
+        venue: "cpmm",
+        amountIn: amount,
+        amountOut: out,
+        gross: side === "buy" ? f.quoteGross + kept : f.quoteGross - kept,
+        transferFee: kept,
+        ...cpmmFees(tradeFee, f.creatorFee, rates),
+        claimable: 0n,
+        price,
+        impact: impact(price),
+        pool: f.pool,
+      };
     }
-    const protocol = (tax * BigInt(METEORA_PROTOCOL_SHARE_BPS)) / 10_000n;
-    const referral = opts.referral ? (protocol * BigInt(METEORA_REFERRAL_SHARE_BPS)) / 10_000n : 0n;
+    const s = this.curve(c);
+    if (side === "sell" && amount > s.sold) throw new UserError("That's more than the curve has sold.");
+    const f = side === "buy" ? curveBuy(s, landed, curveRates) : curveSell(s, amount, curveRates);
+    const price = priceOf(curveReserves({ ...s, sold: f.sold, raised: f.raised }), qDec);
+    // a buy that completes the curve takes only what the last coins cost, and the transfer fee to get it there
+    const sent = side === "buy" ? (f.amountIn < landed ? beforeTransferFee(f.amountIn, tf) : amount) : amount;
+    const out = side === "buy" ? f.amountOut : afterTransferFee(f.amountOut, tf);
+    const kept = side === "buy" ? sent - f.amountIn : f.amountOut - out;
     return {
       side,
-      amountIn: amount,
+      venue: "curve",
+      amountIn: sent,
       amountOut: out,
-      used,
-      gross,
-      tax,
-      meteora: protocol - referral,
-      referral,
-      claimable: tax - protocol,
-      feeBps,
-      next,
-      impact: Math.abs(next * next - p0) / p0,
+      gross: side === "buy" ? sent : out + f.fee,
+      transferFee: kept,
+      tax: f.fee,
+      protocol: f.protocolFee,
+      // the platform fee reaches the platform's vault less the quote's transfer fee
+      claimable: afterTransferFee(f.platformFee, tf),
+      harvestable: 0n,
+      price,
+      impact: impact(price),
+      curve: { sold: f.sold, raised: f.raised, complete: f.complete },
     };
   }
 
   /** Executes a swap for `trader` and books it like the indexer would. */
-  trade(c: CoinRow, trader: string, side: SwapSide, amount: bigint, at: number, firstBuy = false) {
+  trade(c: CoinRow, trader: string, side: SwapSide, amount: bigint, at: number) {
     return tx(() => {
-      const f = this.fill(c, side, amount, at, { referral: true, firstBuy });
+      const f = this.fill(c, side, amount);
       if (f.amountOut <= 0n) throw new UserError("Amount too small.");
-      const qDec = quoteDecimals(c.quote);
       if (side === "buy") {
-        this.add(trader, c.quote, -f.gross, quoteRow(c.quote)?.symbol ?? "quote");
+        this.add(trader, c.quote, -f.amountIn, quoteRow(c.quote)?.symbol ?? "quote");
         this.add(trader, c.mint, f.amountOut);
       } else {
         this.add(trader, c.mint, -f.amountIn, c.symbol);
         this.add(trader, c.quote, f.amountOut);
       }
-      if (f.referral > 0n) this.add(this.wallets.fees, c.quote, f.referral);
-      const s = { ...this.state(c), sqrtPrice: f.next };
-      const reserve = BigInt(Math.floor(quoteReserve(s) * 10 ** qDec));
       const sig = fakeSig();
       recordTrade({
         id: `${sig}:0`,
@@ -193,82 +206,75 @@ export class DemoEngine implements Engine {
         quoteAmount: f.gross,
         tokenAmount: side === "buy" ? f.amountOut : f.amountIn,
         tax: f.tax,
-        meteora: f.meteora,
+        protocol: f.protocol,
         claimable: f.claimable,
-        referral: f.referral,
-        sqrtPrice: f.next,
-        quoteReserve: c.graduated === 1 ? undefined : reserve,
+        harvestable: f.harvestable,
+        price: f.price,
+        curve: f.curve,
+        pool: f.pool,
         ts: at,
         tx: sig,
         kind: "trade",
       });
-      const after = getCoin(c.mint)!;
-      if (after.graduated === 1 && !after.damm_pool) run("UPDATE coin SET damm_pool = ? WHERE mint = ?", fakeKey(), c.mint);
+      if (f.curve?.complete) this.migrate(getCoin(c.mint)!);
       return { fill: f, sig };
     });
   }
 
-  private toQuote(c: CoinRow, f: Fill, slippageBps: number): SwapQuote {
+  /**
+   * What Raydium's crank does seconds after a curve sells out: the coins the curve didn't sell and all it raised open
+   * a CPMM pool at the price the curve ended on, with its LP locked for the fee wallet.
+   */
+  private migrate(c: CoinRow) {
+    if (c.cpmm_pool) return;
+    run(
+      "UPDATE coin SET cpmm_pool = ?, fee_key = ?, pool_base = ?, pool_quote = ? WHERE mint = ?",
+      fakeKey(),
+      fakeKey(),
+      (SUPPLY_RAW - big(c.curve_sell)).toString(),
+      c.quote_reserve,
+      c.mint,
+    );
+  }
+
+  private toQuote(f: Fill, slippageBps: number): SwapQuote {
     return {
       side: f.side,
-      amountIn: (f.side === "buy" ? f.gross : f.amountIn).toString(),
+      amountIn: f.amountIn.toString(),
       amountOut: f.amountOut.toString(),
       minOut: ((f.amountOut * BigInt(10_000 - slippageBps)) / 10_000n).toString(),
       fee: f.tax.toString(),
-      feeBps: f.feeBps,
+      transferFee: f.transferFee.toString(),
+      feeBps: f.gross > 0n ? Number((f.tax * 10_000n) / f.gross) : 0,
       priceImpact: f.impact,
       venue: "demo",
     };
   }
 
   async swapQuote(c: CoinRow, side: SwapSide, amount: bigint, slippageBps: number): Promise<SwapQuote> {
-    return this.toQuote(c, this.fill(c, side, amount, this.at(), { referral: true }), slippageBps);
+    return this.toQuote(this.fill(c, side, amount), slippageBps);
   }
 
   async swap(c: CoinRow, req: SwapRequest): Promise<SwapResponse> {
     const { fill, sig } = this.trade(c, req.wallet, req.side, big(req.amount), this.at());
-    return { tx: null, demo: true, signature: sig, quote: this.toQuote(c, fill, req.slippageBps) };
+    return { tx: null, demo: true, signature: sig, quote: this.toQuote(fill, req.slippageBps) };
   }
 
-  /** The config new demo coins on a quote launch from, re-priced like the real one when the quote's USD moves. */
-  configFor(quoteMint: string) {
-    const q = quoteRow(quoteMint)!;
-    const cfg = activeConfig(quoteMint);
-    if (cfg && currentTargets(cfg) && Math.abs(q.usd - cfg.quote_usd) / cfg.quote_usd < 0.15) return cfg;
-    const curve = curveFor(START_MCAP_USD / q.usd, GRADUATION_MCAP_USD / q.usd);
-    const address = fakeKey();
-    run("UPDATE config SET active = 0 WHERE quote = ?", quoteMint);
-    run(
-      "INSERT INTO config (address, quote, quote_usd, threshold, created_at, start_mcap_usd, grad_mcap_usd) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      address,
-      quoteMint,
-      q.usd,
-      BigInt(Math.floor(curve.threshold * 10 ** q.decimals)).toString(),
-      this.at(),
-      START_MCAP_USD,
-      GRADUATION_MCAP_USD,
-    );
-    return activeConfig(quoteMint)!;
-  }
-
-  /** Creates a coin like initialize_virtual_pool would, plus the creator's bundled first buy. */
+  /** Creates a coin and its curve like LaunchLab's initialize would, plus the creator's bundled first buy. */
   createCoin(req: LaunchRequest, uriBase: string, at: number, entry?: { raw: bigint; to: string }) {
     const q = quoteRow(req.quote);
-    if (!q) throw new UserError("Unknown quote asset.");
-    const cfg = this.configFor(req.quote);
-    const curve = configCurve(cfg);
+    if (!q || !q.available) throw new UserError("That quote asset isn't available.");
+    // priced at the quote's live USD, and held to LaunchLab's floor on the raise like a real launch
+    const curve = launchParams(q, { minRaise: big(q.min_raise), minSellRate: 0n, minMigrateRate: 0n, minSupply: 0n, migrateFee: 0n });
     const mint = fakeKey();
     const pool = fakeKey();
     return tx(() => {
-      // launch fee: Meteora keeps 10%, the rest is split with the coin's fees once it is recorded below
-      const fee = BigInt(Math.round(LAUNCH_FEE_SOL * 1e9));
-      this.add(req.wallet, NATIVE_MINT, -fee, "SOL for the launch fee");
-      this.add(this.wallets.fees, NATIVE_MINT, (fee * 9n) / 10n);
+      // LaunchLab charges nothing to create a pool: the launcher pays rent for the coin's accounts
+      this.add(req.wallet, NATIVE_MINT, -lamportsOf(LAUNCH_RENT_SOL), "SOL for the coin's accounts");
       storeMetadata(mint, req);
       recordLaunch({
         mint,
         pool,
-        config: cfg.address,
         quote: req.quote,
         name: req.name,
         symbol: req.symbol,
@@ -280,24 +286,19 @@ export class DemoEngine implements Engine {
         uri: `${uriBase}${mint}.json`,
         creator: req.wallet,
         createdAt: at,
-        sqrtStart: curve.sqrtStart,
-        sqrtMig: curve.sqrtMig,
-        liquidity: curve.liquidity,
-        threshold: big(cfg.threshold),
-        totalSupply: SUPPLY_RAW,
+        curve,
       });
-      run("UPDATE coin SET pending_sol = pending_sol + ? WHERE mint = ?", Number((fee * 9n) / 10n) / 1e9, mint);
       if (entry) {
-        // a copy's Nest entry: the first buy, for the fee wallet, plus rent for the accounts it's sent to
+        // a copy's Fleet entry: the first buy, for the fee wallet, plus rent for the accounts it's sent to
         this.add(req.wallet, req.quote, -entry.raw, q.symbol);
         this.add(this.wallets.fees, req.quote, entry.raw);
-        this.add(req.wallet, NATIVE_MINT, -BigInt(ENTRY_RENT_LAMPORTS), "SOL for the Nest entry");
+        this.add(req.wallet, NATIVE_MINT, -BigInt(ENTRY_RENT_LAMPORTS), "SOL for the Fleet entry");
         this.add(this.wallets.fees, NATIVE_MINT, BigInt(ENTRY_RENT_LAMPORTS));
-        const { fill } = this.trade(getCoin(mint)!, this.wallets.fees, "buy", entry.raw, at, true);
+        const { fill } = this.trade(getCoin(mint)!, this.wallets.fees, "buy", entry.raw, at);
         recordEntry(mint, fill.amountOut, entry.raw, entry.to, true, at);
       }
       const initial = big(req.initialBuy);
-      if (initial > 0n) this.trade(getCoin(mint)!, req.wallet, "buy", initial, at, true);
+      if (initial > 0n) this.trade(getCoin(mint)!, req.wallet, "buy", initial, at);
       return { mint, pool };
     });
   }
@@ -307,15 +308,13 @@ export class DemoEngine implements Engine {
     return { tx: null, demo: true, signature: fakeSig(), mint, pool };
   }
 
-  async pairSetup(_wallet: string, quote: string): Promise<PairSetup> {
-    return { tx: null, demo: true, signature: fakeSig(), config: this.configFor(quote).address, rentLamports: "0" };
-  }
+  async checkQuote() {}
 
-  // swaps at the live USD prices, with no fee or slippage
+  // swaps at the live USD prices, with no fee or slippage but the quote's own transfer fee
   async solToQuote(wallet: string, quote: string, lamports: bigint): Promise<SolToQuote> {
     const q = quoteRow(quote);
     if (!q || q.usd <= 0) throw new UserError("No live price for that token yet.");
-    const out = BigInt(Math.floor((toUnits(lamports, 9) / solPerUnit(quote)) * 10 ** q.decimals));
+    const out = afterTransferFee(BigInt(Math.floor((toUnits(lamports, 9) / solPerUnit(quote)) * 10 ** q.decimals)), quoteFee(quote));
     tx(() => {
       this.add(wallet, NATIVE_MINT, -lamports, "SOL");
       this.add(wallet, quote, out);
@@ -324,12 +323,7 @@ export class DemoEngine implements Engine {
     return { tx: null, demo: true, signature: fakeSig(), quote, lamports: lamports.toString(), outAmount: amount, minOut: amount };
   }
 
-  // no chain to read: the custom pair takes Jupiter's decimals
-  async checkQuoteMint() {
-    return null;
-  }
-
-  // ---------------------------------------------------------------- OTC and claims settle instantly
+  // ---------------------------------------------------------------- OTC settles instantly
 
   async otcTx(q: OtcQuoteRow, c: CoinRow): Promise<TxEnvelope> {
     if (q.side !== "sell") throw new UserError("The OTC reserve only buys coins.");
@@ -350,17 +344,33 @@ export class DemoEngine implements Engine {
 
   async ingest() {}
 
-  // demo transfers are settled the moment they're made, so none can land unrecorded
-  async recentMemos() {
-    return [];
-  }
-
   // ---------------------------------------------------------------- treasury
 
   async claimFees(c: CoinRow) {
-    const amount = big(c.claimable_quote);
+    // out of the platform's vault, less the quote's transfer fee
+    const amount = afterTransferFee(big(c.claimable_quote), quoteFee(c.quote));
     if (amount > 0n) this.add(this.wallets.fees, c.quote, amount);
     return amount;
+  }
+
+  /**
+   * Pays out what the pool's swaps set aside for the fee wallet. The LP fees leave the pool as LP tokens would: equal
+   * value from both sides, so the price doesn't move. Their quote and the creator fee go to the fee wallet; their
+   * coins are burned.
+   */
+  async harvestFees(c: CoinRow) {
+    const quote = big(c.harvest_quote);
+    if (!c.cpmm_pool || quote <= 0n) return { quote: 0n, burned: 0n, sig: "" };
+    const share = feeBreakdown("cpmm", config.cluster);
+    const lpQuote = (quote * BigInt(Math.round(share.burnedBps * 1000))) / BigInt(Math.round(share.bucketsBps * 1000));
+    const burned = (lpQuote * big(c.pool_base)) / big(c.pool_quote);
+    // what the pool pays out reaches the fee wallet less the quote's transfer fee
+    const got = afterTransferFee(quote, quoteFee(c.quote));
+    tx(() => {
+      run("UPDATE coin SET pool_base = ?, pool_quote = ? WHERE mint = ?", (big(c.pool_base) - burned).toString(), (big(c.pool_quote) - lpQuote).toString(), c.mint);
+      this.add(this.wallets.fees, c.quote, got);
+    });
+    return { quote: got, burned, sig: fakeSig() };
   }
 
   async burnHeld(from: Role, c: CoinRow, amount: bigint) {
@@ -375,8 +385,8 @@ export class DemoEngine implements Engine {
     if (fromMint === toMint || raw === 0n) return { out: raw, sig: "" };
     const from = quoteRow(fromMint)!;
     const to = quoteRow(toMint)!;
-    // aggregator route at a 0.3% all-in cost
-    const value = toUnits(raw, from.decimals) * solPerUnit(fromMint) * 0.997;
+    // aggregator route at a 0.3% all-in cost, on what arrives of a token with a transfer fee
+    const value = toUnits(afterTransferFee(raw, quoteFee(fromMint)), from.decimals) * solPerUnit(fromMint) * 0.997;
     const out = BigInt(Math.floor((value / solPerUnit(toMint)) * 10 ** to.decimals));
     this.add(this.wallets.fees, fromMint, -raw, `${from.symbol} in the fee wallet`);
     this.add(this.wallets.fees, toMint, out);

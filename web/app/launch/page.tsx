@@ -1,17 +1,18 @@
 import type { Metadata } from "next";
-import { GRADUATION_MCAP_USD, START_MCAP_USD } from "@cook/shared";
+import { GRADUATION_MCAP_USD, LAUNCH_RENT_SOL, START_MCAP_USD } from "@gantry/shared";
 import { LaunchForm } from "@/components/launch/LaunchForm";
 import { PageHeader } from "@/components/ui";
 
-export const metadata: Metadata = { title: "Launch a coin" };
+export const metadata: Metadata = { title: "Launch" };
+
+const dollars = (usd: number) => `$${usd.toLocaleString("en-US")}`;
 
 export default function LaunchPage() {
   return (
-    <div className="space-y-10">
+    <div className="mx-auto w-full max-w-[640px]">
       <PageHeader
-        eyebrow="Launch"
         title="Launch a coin"
-        sub={`0.01 SOL and one transaction: a fixed 1B supply on its own Meteora pool, paired with SOL, a stablecoin, any of 120+ tokenized stocks or any token you paste in. Starts at a $${START_MCAP_USD / 1000}k market cap, graduates at $${GRADUATION_MCAP_USD / 1000}k. No creator tax.`}
+        sub={`Your coin starts at a ${dollars(START_MCAP_USD)} market cap and graduates to a Raydium pool at ${dollars(GRADUATION_MCAP_USD)}. Launching costs about ${LAUNCH_RENT_SOL} SOL.`}
       />
       <LaunchForm />
     </div>

@@ -1,369 +1,793 @@
 @import "tailwindcss";
 
-@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
-
 /*
- * Cushion design system: "night & ember", dark only.
- * A deep navy base (never black) with a slow aurora behind everything, rounded Fredoka display type over Nunito,
- * soft-shadowed panels with barely-there edges, pill buttons. The warm ember → gold gradient is the brand and the
- * main action; mint means up and protection pays, sky is the OTC reserve, gold is the Nest (copies feeding their
- * original), rose means down.
+ * Design system: minimalist, soft, dark. The spec is DESIGN.md.
+ *
+ * A calm charcoal base, a few softly filled cards, generous space and round shapes. Things are separated by space,
+ * not lines. One typeface (Figtree) does everything; DM Mono is only for wallet and contract addresses. The accent
+ * (signal, a soft lavender) is used sparingly: links, focus rings, active states and small highlights.
  */
+
+/* ------------------------------------------------------------------ tokens */
+
 :root {
-  --bg: #0b1124;
-  --bg-elev: #121a33;
-  --bg-elev-2: #19233f;
-  --bg-sunk: #0e1630;
-  --fg: #eef2ff;
-  --muted: #a0abcb;
-  --faint: #6f7ca6;
-  --line: rgba(148, 166, 230, 0.09);
-  --line-strong: rgba(148, 166, 230, 0.2);
-  --accent: #ff7a45;
-  --accent-2: #ffb547;
-  --accent-fg: #1a0d06;
-  --accent-soft: rgba(255, 122, 69, 0.14);
-  --up: #2bd99a;
-  --up-soft: rgba(43, 217, 154, 0.13);
-  --down: #ff5c7c;
-  --down-soft: rgba(255, 92, 124, 0.13);
-  --sky: #5b95ff;
-  --sky-soft: rgba(91, 149, 255, 0.14);
-  --violet: #9b87ff;
-  --violet-soft: rgba(155, 135, 255, 0.14);
-  /* the two fee buckets */
-  --b-protection: #2bd99a;
-  --b-otc: #5b95ff;
-  /* the Nest: copies of a coin and what they send it */
-  --nest: #ffc94d;
-  --nest-soft: rgba(255, 201, 77, 0.12);
-  --sh-card: 0 1px 0 rgba(255, 255, 255, 0.035) inset, 0 1px 2px rgba(0, 0, 0, 0.3), 0 14px 34px -14px rgba(0, 0, 0, 0.6);
-  --sh-pop: 0 2px 4px rgba(0, 0, 0, 0.35), 0 26px 50px -18px rgba(0, 0, 0, 0.75);
-  --grad: linear-gradient(120deg, var(--accent), var(--accent-2));
+  /* surfaces: the page, a card one step up, and the fill of inner blocks, inputs and hover states */
+  --surface: #0e0f12;
+  --panel: #15161a;
+  --raise: #1c1d22;
+
+  /* lines, all barely there: a row divider, a slightly firmer divider, the outline of a control */
+  --rule: rgb(255 255 255 / 0.07);
+  --rule-strong: rgb(255 255 255 / 0.12);
+  --edge: rgb(255 255 255 / 0.18);
+
+  /* text: primary, secondary, tertiary, and the dark text that sits on light or coloured fills */
+  --ink: #edeef0;
+  --ink-2: #a1a4ad;
+  --ink-3: #858892;
+  --ink-inverse: #0e0f12;
+
+  /* the accent: links, focus, active states, small highlights */
+  --signal: #a7a9ff;
+  --signal-tint: color-mix(in srgb, var(--signal) 12%, transparent);
+
+  /* meaning */
+  --gain: #5dd39e;
+  --gain-tint: color-mix(in srgb, var(--gain) 12%, transparent);
+  --loss: #f2777a;
+  --loss-tint: color-mix(in srgb, var(--loss) 12%, transparent);
+  --shield: #6fd3e0;
+  --shield-tint: color-mix(in srgb, var(--shield) 12%, transparent);
+  --desk: #b7a6ff;
+  --desk-tint: color-mix(in srgb, var(--desk) 12%, transparent);
+  --fleet: #e7c27d;
+  --fleet-tint: color-mix(in srgb, var(--fleet) 12%, transparent);
+
+  /* shape: small media and menu rows, controls, inner blocks, cards, dialogs and sheets */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 14px;
+  --r-xl: 20px;
+  --r-2xl: 28px;
+
+  /* the one shadow: soft, wide and low, only under things that float (menus, dialogs, sheets) */
+  --float-shadow: 0 24px 64px -16px rgb(0 0 0 / 0.6), 0 2px 8px rgb(0 0 0 / 0.2);
+
+  /* the padding of a card, shared by its header, its body and the first and last cells of a table inside it */
+  --card-pad: 20px;
+
+  /*
+   * shell metrics. The navbar sticks to the top. Under 1024px it carries only the logo and the wallet, and the nav
+   * moves to a tab bar fixed to the bottom. Pages read --chrome-top / --chrome-bottom instead of hard-coding offsets.
+   */
+  --bar-h: 60px;
+  --tabbar-h: calc(64px + env(safe-area-inset-bottom, 0px));
+  --chrome-top: var(--bar-h);
+  --chrome-bottom: var(--tabbar-h);
+  --dock-h: 0px;
+  --gutter: 16px;
+  --content-max: 1200px;
+  --page-pt: 28px;
+
   color-scheme: dark;
 }
 
-@theme inline {
-  --color-bg: var(--bg);
-  --color-elev: var(--bg-elev);
-  --color-elev-2: var(--bg-elev-2);
-  --color-sunk: var(--bg-sunk);
-  --color-fg: var(--fg);
-  --color-muted: var(--muted);
-  --color-faint: var(--faint);
-  --color-line: var(--line);
-  --color-line-strong: var(--line-strong);
-  --color-accent: var(--accent);
-  --color-accent-2: var(--accent-2);
-  --color-accent-fg: var(--accent-fg);
-  --color-accent-soft: var(--accent-soft);
-  --color-up: var(--up);
-  --color-up-soft: var(--up-soft);
-  --color-down: var(--down);
-  --color-down-soft: var(--down-soft);
-  --color-sky: var(--sky);
-  --color-sky-soft: var(--sky-soft);
-  --color-violet: var(--violet);
-  --color-violet-soft: var(--violet-soft);
-  --color-b-protection: var(--b-protection);
-  --color-b-otc: var(--b-otc);
-  --color-nest: var(--nest);
-  --color-nest-soft: var(--nest-soft);
-  --font-sans: var(--font-nunito), ui-rounded, ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
-  --shadow-card: var(--sh-card);
-  --shadow-pop: var(--sh-pop);
-  --animate-marquee: marquee 60s linear infinite;
-  --animate-float: float 6s ease-in-out infinite;
-  --animate-spin-slow: spin 40s linear infinite;
-  --animate-fade-up: fade-up 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+@media (min-width: 360px) {
+  :root {
+    --gutter: 20px;
+  }
+}
+@media (min-width: 640px) {
+  :root {
+    --gutter: 24px;
+    --card-pad: 24px;
+    --page-pt: 40px;
+  }
+}
+@media (min-width: 1024px) {
+  :root {
+    --bar-h: 68px;
+    --tabbar-h: 0px;
+    --chrome-bottom: 0px;
+    --gutter: 32px;
+    --page-pt: 56px;
+  }
 }
 
-@keyframes marquee {
-  from {
-    transform: translateX(0);
+/* a page with its own bar docked above the tab bar (.dock) adds this class to <html> while it is mounted */
+@media (max-width: 1023px) {
+  html.has-dock {
+    --dock-h: 68px;
   }
+}
+
+/* Only the system's own vocabulary exists: no stock palette, one radius scale, one shadow. */
+@theme {
+  --color-*: initial;
+  --radius-*: initial;
+  --shadow-*: initial;
+  --inset-shadow-*: initial;
+  --drop-shadow-*: initial;
+  --text-shadow-*: initial;
+  --blur-*: initial;
+  --animate-*: initial;
+  --font-serif: initial;
+}
+
+@theme inline {
+  --color-black: #000;
+  --color-white: #fff;
+
+  --color-surface: var(--surface);
+  --color-panel: var(--panel);
+  --color-raise: var(--raise);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-edge: var(--edge);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-inverse: var(--ink-inverse);
+  --color-signal: var(--signal);
+  --color-signal-tint: var(--signal-tint);
+  --color-gain: var(--gain);
+  --color-gain-tint: var(--gain-tint);
+  --color-loss: var(--loss);
+  --color-loss-tint: var(--loss-tint);
+  --color-shield: var(--shield);
+  --color-shield-tint: var(--shield-tint);
+  --color-desk: var(--desk);
+  --color-desk-tint: var(--desk-tint);
+  --color-fleet: var(--fleet);
+  --color-fleet-tint: var(--fleet-tint);
+
+  --font-sans: var(--font-figtree), ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --font-mono: var(--font-dm-mono), ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-xl);
+  --radius-2xl: var(--r-2xl);
+
+  --shadow-float: var(--float-shadow);
+
+  --blur-md: 16px;
+
+  --animate-spin: spin 0.9s linear infinite;
+  --animate-pulse: pulse 1.8s ease-in-out infinite;
+  --animate-fade: fade 200ms ease-out both;
+  --animate-enter: enter 200ms ease-out both;
+  --animate-sheet: sheet 240ms ease-out both;
+
+  /* motion is gentle: short fades that ease out */
+  --default-transition-duration: 180ms;
+  --default-transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@keyframes spin {
   to {
-    transform: translateX(-50%);
+    transform: rotate(360deg);
   }
 }
-@keyframes float {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
+@keyframes pulse {
   50% {
-    transform: translateY(-10px);
+    opacity: 0.45;
   }
 }
-@keyframes fade-up {
+@keyframes fade {
   from {
     opacity: 0;
-    transform: translateY(16px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
   }
 }
-@keyframes shimmer {
+@keyframes enter {
   from {
-    background-position: -200% 0;
-  }
-  to {
-    background-position: 200% 0;
+    opacity: 0;
+    transform: translateY(6px);
   }
 }
-@keyframes pulse-dot {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--up) 55%, transparent);
-  }
-  70% {
-    box-shadow: 0 0 0 6px transparent;
-  }
-}
-@keyframes drift {
-  to {
-    transform: translate(6vmax, 4vmax) scale(1.12);
-  }
-}
-@keyframes squish {
-  0%,
-  100% {
-    transform: scale(1, 1);
-  }
-  40% {
-    transform: scale(1.06, 0.92);
-  }
-  70% {
-    transform: scale(0.97, 1.04);
+@keyframes sheet {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
   }
 }
 
-html,
-body {
-  background: var(--bg);
-  color: var(--fg);
-}
+/* ------------------------------------------------------------------ base */
 
-/* the token page's phone Buy/Sell bar (MobileTradeBar) is fixed to the bottom: keep content clear of it */
-@media (max-width: 1023px) {
-  html.has-trade-bar body {
-    padding-bottom: calc(76px + env(safe-area-inset-bottom));
+@layer base {
+  html {
+    background: var(--surface);
+    color: var(--ink);
+    scrollbar-width: thin;
+    scrollbar-color: var(--rule-strong) transparent;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--signal) 36%, transparent);
+    color: var(--ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--signal);
+    outline-offset: 2px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--rule-strong);
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--edge);
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary {
+    cursor: pointer;
+  }
+
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
   }
 }
 
-body {
+/* ------------------------------------------------------------------ type roles */
+
+/* A title set by hand: the body face, tightened. Add a size and a weight (600 for titles). */
+@utility font-display {
   font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
+  letter-spacing: -0.02em;
 }
 
-/* the aurora: three soft blobs drifting behind everything */
-.aurora {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  overflow: hidden;
-  pointer-events: none;
-}
-.aurora i {
-  position: absolute;
-  width: 46vmax;
-  height: 46vmax;
-  border-radius: 50%;
-  filter: blur(90px);
-  opacity: 0.2;
-  animation: drift 26s ease-in-out infinite alternate;
-}
-.aurora i:nth-child(1) {
-  background: #2e4bb8;
-  top: -18vmax;
-  left: -10vmax;
-}
-.aurora i:nth-child(2) {
-  background: #8a3a2a;
-  top: 10vmax;
-  right: -16vmax;
-  animation-delay: -8s;
-}
-.aurora i:nth-child(3) {
-  background: #4b3c8f;
-  bottom: -22vmax;
-  left: 25vmax;
-  animation-delay: -16s;
+@layer components {
+  /* page title (h1) */
+  .display-1 {
+    font-weight: 600;
+    font-size: clamp(1.75rem, 1.45rem + 1.3vw, 2.5rem);
+    line-height: 1.12;
+    letter-spacing: -0.028em;
+    text-wrap: balance;
+  }
+  /* section title (h2) */
+  .display-2 {
+    font-weight: 600;
+    font-size: clamp(1.125rem, 1.05rem + 0.35vw, 1.3125rem);
+    line-height: 1.25;
+    letter-spacing: -0.018em;
+    text-wrap: balance;
+  }
+  /* card or block title (h3) */
+  .display-3 {
+    font-weight: 600;
+    font-size: 1rem;
+    line-height: 1.35;
+    letter-spacing: -0.01em;
+  }
+
+  /* every number and amount: the body face with figures of equal width, so columns line up */
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* a small quiet line above a title */
+  .eyebrow {
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    font-weight: 500;
+    color: var(--ink-2);
+  }
+
+  /* the small caption of a stat, a field, a table column */
+  .label {
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    font-weight: 500;
+    color: var(--ink-3);
+  }
+
+  .link {
+    color: var(--signal);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--signal) 40%, transparent);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+    transition: text-decoration-color 180ms ease-out;
+  }
+  .link:hover {
+    text-decoration-color: var(--signal);
+  }
 }
 
-.font-display {
-  font-family: var(--font-fredoka), var(--font-nunito), ui-rounded, system-ui, sans-serif;
-  letter-spacing: -0.01em;
+/* ------------------------------------------------------------------ structure */
+
+@layer components {
+  /* the shell's column wrapper: a single very soft glow sits behind the top of every page */
+  .shell {
+    --glow: color-mix(in srgb, var(--signal) 9%, transparent);
+    background-image: radial-gradient(ellipse 130% 100% at 50% 0%, var(--glow), transparent 72%);
+    background-repeat: no-repeat;
+    background-size: 100% 420px;
+  }
+  @media (min-width: 640px) {
+    .shell {
+      background-image: radial-gradient(ellipse 58% 100% at 50% 0%, var(--glow), transparent 72%);
+      background-size: 100% 520px;
+    }
+  }
+
+  /* a translucent, blurred bar: the navbar once the page has scrolled, the tab bar, a page's dock */
+  .glass {
+    background: color-mix(in srgb, var(--surface) 86%, transparent);
+    -webkit-backdrop-filter: blur(20px) saturate(1.3);
+    backdrop-filter: blur(20px) saturate(1.3);
+  }
+
+  /* the navbar is clear at the top of a page and turns to glass, with a faint line under it, once content passes below */
+  .navbar {
+    transition:
+      background-color 200ms ease-out,
+      box-shadow 200ms ease-out;
+  }
+  .navbar.glass {
+    box-shadow: 0 1px 0 var(--rule);
+  }
+
+  /* a card: a soft, slightly lighter fill with a barely visible edge. Cards are separated by space */
+  .panel {
+    min-width: 0;
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-xl);
+  }
+  /* what touches the top or bottom of a card follows its corners (a table's scroller, a tinted footer) */
+  .panel > :first-child {
+    border-top-left-radius: calc(var(--r-xl) - 1px);
+    border-top-right-radius: calc(var(--r-xl) - 1px);
+  }
+  .panel > :last-child {
+    border-bottom-left-radius: calc(var(--r-xl) - 1px);
+    border-bottom-right-radius: calc(var(--r-xl) - 1px);
+  }
+  /* a card inside a card is an inner block: one more step up, a smaller radius, no edge */
+  .panel .panel {
+    background: var(--raise);
+    border-color: transparent;
+    border-radius: var(--r-lg);
+  }
+  .panel .panel > :first-child {
+    border-top-left-radius: var(--r-lg);
+    border-top-right-radius: var(--r-lg);
+  }
+  .panel .panel > :last-child {
+    border-bottom-left-radius: var(--r-lg);
+    border-bottom-right-radius: var(--r-lg);
+  }
+  .panel-interactive {
+    transition:
+      background-color 180ms ease-out,
+      transform 180ms ease-out;
+  }
+  .panel-interactive:hover {
+    background: var(--raise);
+    transform: translateY(-2px);
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: calc(32px + var(--card-pad));
+    padding: var(--card-pad) var(--card-pad) 0;
+  }
+  .panel-body {
+    padding: var(--card-pad);
+  }
+  .panel-header + .panel-body {
+    padding-top: 16px;
+  }
+  .panel-header + :not(.panel-body) {
+    margin-top: 12px;
+  }
+
+  /* a grid of separate cards. Every child becomes a card; give the columns as utilities */
+  .panel-grid {
+    display: grid;
+    gap: 12px;
+  }
+  @media (min-width: 640px) {
+    .panel-grid {
+      gap: 16px;
+    }
+  }
+  .panel-grid > * {
+    min-width: 0;
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-xl);
+  }
+  /* inside a card the grid only lays things out: no boxes inside boxes */
+  .panel .panel-grid > :not(.panel) {
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+  }
+
+  /* the row of tabs at the top of a card */
+  .panel > .tabs-row {
+    padding: 12px var(--card-pad) 0 calc(var(--card-pad) - 14px);
+  }
+  .tabs-row + * {
+    margin-top: 8px;
+  }
+
+  /* a page's own bar pinned to the bottom of a phone screen, above the tab bar (pair with html.has-dock). Same fill as .glass */
+  .dock {
+    position: fixed;
+    inset-inline: 0;
+    bottom: var(--chrome-bottom);
+    z-index: 35;
+    background: color-mix(in srgb, var(--surface) 86%, transparent);
+    -webkit-backdrop-filter: blur(20px) saturate(1.3);
+    backdrop-filter: blur(20px) saturate(1.3);
+    border-top: 1px solid var(--rule);
+  }
+
+  .skip-link {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 100;
+    transform: translateY(-200%);
+    background: var(--ink);
+    color: var(--ink-inverse);
+    padding: 10px 16px;
+    border-radius: var(--r-md);
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+  .skip-link:focus {
+    transform: none;
+  }
 }
 
-/* every number, amount and address: the body face with even-width figures */
-.num {
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: "tnum";
-  letter-spacing: -0.005em;
+/* ------------------------------------------------------------------ controls */
+
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 0;
+    border-radius: var(--r-md);
+    font-family: var(--font-sans);
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    transition:
+      background-color 180ms ease-out,
+      color 180ms ease-out,
+      opacity 180ms ease-out,
+      transform 180ms ease-out;
+  }
+  .btn:not(:disabled, [aria-disabled="true"]):active {
+    transform: scale(0.98);
+  }
+  .btn:disabled,
+  .btn[aria-disabled="true"] {
+    background: var(--raise);
+    color: var(--ink-3);
+    cursor: not-allowed;
+  }
+
+  .btn-sm {
+    height: 32px;
+    padding-inline: 12px;
+    border-radius: 10px;
+    font-size: 0.8125rem;
+  }
+  .btn-md {
+    height: 40px;
+    padding-inline: 16px;
+    font-size: 0.875rem;
+  }
+  .btn-lg {
+    height: 48px;
+    padding-inline: 22px;
+    font-size: 0.9375rem;
+  }
+
+  /* the primary action: near-white, dark text. `solid` is the same block under its older name */
+  .btn-primary,
+  .btn-solid {
+    background: var(--ink);
+    color: var(--ink-inverse);
+  }
+  :is(.btn-primary, .btn-solid):not(:disabled, [aria-disabled="true"]):hover {
+    background: #fff;
+  }
+
+  /* buy and sell: soft fills */
+  .btn-gain {
+    background: var(--gain);
+    color: var(--ink-inverse);
+  }
+  .btn-gain:not(:disabled, [aria-disabled="true"]):hover {
+    background: color-mix(in srgb, #fff 16%, var(--gain));
+  }
+  .btn-loss {
+    background: var(--loss);
+    color: var(--ink-inverse);
+  }
+  .btn-loss:not(:disabled, [aria-disabled="true"]):hover {
+    background: color-mix(in srgb, #fff 16%, var(--loss));
+  }
+
+  /* every other action: a quiet filled block */
+  .btn-secondary {
+    background: var(--raise);
+    color: var(--ink);
+  }
+  .btn-secondary:not(:disabled, [aria-disabled="true"]):hover {
+    background: color-mix(in srgb, #fff 8%, var(--raise));
+  }
+
+  /* text only */
+  .btn-ghost {
+    background: transparent;
+    color: var(--ink-2);
+  }
+  .btn-ghost:not(:disabled, [aria-disabled="true"]):hover {
+    background: var(--rule);
+    color: var(--ink);
+  }
+  .btn-ghost:disabled,
+  .btn-ghost[aria-disabled="true"] {
+    background: transparent;
+  }
+
+  /* text inputs: a soft filled field */
+  .input {
+    display: block;
+    width: 100%;
+    height: 44px;
+    padding-inline: 14px;
+    background: var(--raise);
+    border: 1px solid var(--edge);
+    border-radius: var(--r-md);
+    color: var(--ink);
+    /* 16px on phones so focusing a field does not zoom the page */
+    font-size: 1rem;
+    outline: none;
+    transition:
+      border-color 180ms ease-out,
+      box-shadow 180ms ease-out,
+      background-color 180ms ease-out;
+  }
+  @media (min-width: 640px) {
+    .input {
+      font-size: 0.9375rem;
+    }
+  }
+  textarea.input {
+    height: auto;
+    min-height: 104px;
+    padding-block: 12px;
+    line-height: 1.55;
+    resize: vertical;
+  }
+  .input::placeholder {
+    color: var(--ink-3);
+  }
+  .input:hover {
+    border-color: rgb(255 255 255 / 0.28);
+  }
+  .input:focus-visible {
+    border-color: var(--signal);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--signal) 28%, transparent);
+  }
+  .input[aria-invalid="true"] {
+    border-color: var(--loss);
+  }
+  .input[aria-invalid="true"]:focus-visible {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--loss) 28%, transparent);
+  }
+  .input:disabled {
+    border-color: var(--rule);
+    color: var(--ink-3);
+    cursor: not-allowed;
+  }
 }
 
-.eyebrow {
-  font-family: var(--font-fredoka), var(--font-nunito), ui-rounded, system-ui, sans-serif;
-  font-weight: 600;
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
+/* ------------------------------------------------------------------ data tables */
+
+@layer components {
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+  .data-table th {
+    height: 44px;
+    padding-inline: 12px;
+    border-bottom: 1px solid var(--rule);
+    text-align: left;
+    white-space: nowrap;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--ink-3);
+  }
+  .data-table td {
+    height: 56px;
+    padding-inline: 12px;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  .data-table.is-dense td {
+    height: 44px;
+  }
+  .data-table :is(th, td):first-child {
+    padding-left: var(--card-pad);
+  }
+  .data-table :is(th, td):last-child {
+    padding-right: var(--card-pad);
+  }
+  .data-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .data-table tbody tr {
+    transition: background-color 180ms ease-out;
+  }
+  .data-table tbody tr:hover {
+    background: rgb(255 255 255 / 0.03);
+  }
+  .data-table :is(th, td).is-num {
+    text-align: right;
+  }
+  /* a sortable numeric head keeps its label on the column's right edge: the arrow goes on the left */
+  .data-table th.is-num > button {
+    flex-direction: row-reverse;
+  }
+  .data-table td.is-num {
+    font-variant-numeric: tabular-nums;
+  }
+  .data-table :is(th, td).is-center {
+    text-align: center;
+  }
 }
 
-/* the brand gradient: ember → gold */
-.spectrum {
-  background-image: var(--grad);
-}
-.text-spectrum {
-  background-image: linear-gradient(100deg, var(--accent), var(--accent-2) 70%, var(--nest));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+/* ------------------------------------------------------------------ long-form (docs) */
+
+@layer components {
+  .longform {
+    max-width: 68ch;
+    font-size: 1rem;
+    line-height: 1.7;
+    color: var(--ink-2);
+  }
+  .longform h2 {
+    margin-top: 3.5rem;
+    margin-bottom: 0.75rem;
+    scroll-margin-top: calc(var(--chrome-top) + 1.5rem);
+    color: var(--ink);
+    font-weight: 600;
+    font-size: 1.375rem;
+    line-height: 1.25;
+    letter-spacing: -0.02em;
+  }
+  .longform h3 {
+    margin-top: 2rem;
+    margin-bottom: 0.5rem;
+    scroll-margin-top: calc(var(--chrome-top) + 1.5rem);
+    color: var(--ink);
+    font-weight: 600;
+    font-size: 1.0625rem;
+    line-height: 1.35;
+    letter-spacing: -0.01em;
+  }
+  .longform p {
+    margin-top: 0.9rem;
+  }
+  .longform strong {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .longform ul,
+  .longform ol {
+    margin-top: 0.75rem;
+    padding-left: 1.25rem;
+  }
+  .longform ul {
+    list-style: disc;
+  }
+  .longform ol {
+    list-style: decimal;
+  }
+  .longform li::marker {
+    color: var(--ink-3);
+  }
+  .longform li + li {
+    margin-top: 0.4rem;
+  }
+  .longform a {
+    color: var(--signal);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--signal) 40%, transparent);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+  .longform a:hover {
+    text-decoration-color: var(--signal);
+  }
+  .longform code {
+    padding: 0.15em 0.4em;
+    background: var(--raise);
+    border-radius: 6px;
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+  }
 }
 
-/* surfaces */
-.surface {
-  background: var(--bg-elev);
-  border: 1px solid var(--line);
-  box-shadow: var(--sh-card);
-}
-.surface-hover {
-  transition:
-    border-color 0.3s,
-    transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
-    box-shadow 0.35s,
-    background-color 0.2s;
-}
-.surface-hover:hover {
-  border-color: var(--line-strong);
-  transform: translateY(-4px);
-  box-shadow: var(--sh-pop);
-}
-/* a warm gradient edge, for one featured element per view */
-.ring-spectrum {
-  border: 1px solid transparent;
-  background:
-    linear-gradient(var(--bg-elev), var(--bg-elev)) padding-box,
-    linear-gradient(
-        135deg,
-        color-mix(in srgb, var(--accent) 75%, transparent),
-        color-mix(in srgb, var(--accent-2) 30%, transparent) 35%,
-        var(--line) 60%,
-        color-mix(in srgb, var(--violet) 40%, transparent)
-      )
-      border-box;
-}
-.glass {
-  background: color-mix(in srgb, var(--bg) 78%, transparent);
-  /* standard property last: the CSS optimizer keeps only the final one of the pair */
-  -webkit-backdrop-filter: blur(18px) saturate(1.4);
-  backdrop-filter: blur(18px) saturate(1.4);
+/* ------------------------------------------------------------------ utilities */
+
+/* let a block run edge to edge of the content column (a table or a strip of cards on a phone) */
+@utility bleed-x {
+  margin-inline: calc(var(--gutter) * -1);
 }
 
-/* the main action: a warm gradient with a light sweep on hover */
-.btn-primary {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  background: var(--grad);
-  color: var(--accent-fg);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.3) inset,
-    0 10px 26px -10px color-mix(in srgb, var(--accent) 85%, transparent);
-}
-.btn-primary::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.45) 50%, transparent 70%);
-  transform: translateX(-120%);
-  transition: transform 0.7s ease;
-}
-.btn-primary:hover::after {
-  transform: translateX(120%);
-}
-.btn-primary:hover {
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.3) inset,
-    0 14px 32px -10px color-mix(in srgb, var(--accent) 95%, transparent);
+/* let a block run the full width of the window, past the content column (a hero) */
+@utility bleed-screen {
+  width: 100vw;
+  max-width: none;
+  margin-inline: calc(50% - 50vw);
 }
 
-.shimmer {
-  background: linear-gradient(90deg, var(--bg-sunk) 25%, var(--bg-elev-2) 50%, var(--bg-sunk) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.6s linear infinite;
+/* stick directly under the navbar (table heads, sub-navigation) */
+@utility top-chrome {
+  top: var(--chrome-top);
 }
 
-.live-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--up);
-  animation: pulse-dot 2s ease-out infinite;
+/* keep the focus ring inside an element whose edges are clipped (menu rows, table cells) */
+@utility focus-inset {
+  &:focus-visible {
+    outline-offset: -2px;
+  }
 }
 
-.squish {
-  animation: squish 3.2s ease-in-out infinite;
-  transform-origin: 50% 100%;
-}
-
-.mask-fade-x {
-  mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
-}
-
-::selection {
-  background: var(--accent);
-  color: var(--accent-fg);
-}
-
-:focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--sky) 55%, transparent);
-  outline-offset: 3px;
-}
-
-input[type="number"]::-webkit-inner-spin-button,
-input[type="number"]::-webkit-outer-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-input[type="number"] {
-  -moz-appearance: textfield;
-}
-
-.scroll-x {
-  overflow-x: auto;
-  scrollbar-width: thin;
-}
-
-/* a slim scrollbar that stays visible, so a row that overflows reads as scrollable */
-.thin-scrollbar {
-  scrollbar-width: thin;
-  scrollbar-color: var(--line-strong) transparent;
-}
-.thin-scrollbar::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-.thin-scrollbar::-webkit-scrollbar-thumb {
-  background: var(--line-strong);
-  border-radius: 999px;
-}
-.thin-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.no-scrollbar {
+@utility no-scrollbar {
   scrollbar-width: none;
-}
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -373,50 +797,10 @@ input[type="number"] {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
-}
-
-/* long-form docs */
-.prose-docs h2 {
-  font-family: var(--font-fredoka), var(--font-nunito), ui-rounded, system-ui, sans-serif;
-  font-size: 1.85rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  margin-top: 4.5rem;
-  margin-bottom: 1rem;
-  scroll-margin-top: 6rem;
-}
-.prose-docs h3 {
-  font-family: var(--font-fredoka), var(--font-nunito), ui-rounded, system-ui, sans-serif;
-  font-size: 1.1rem;
-  font-weight: 600;
-  margin-top: 2rem;
-  margin-bottom: 0.5rem;
-  scroll-margin-top: 6rem;
-}
-.prose-docs p,
-.prose-docs li {
-  color: var(--muted);
-  line-height: 1.75;
-}
-.prose-docs p {
-  margin-top: 0.85rem;
-}
-.prose-docs strong {
-  color: var(--fg);
-  font-weight: 700;
-}
-.prose-docs ul {
-  list-style: disc;
-  padding-left: 1.25rem;
-  margin-top: 0.75rem;
-}
-.prose-docs li + li {
-  margin-top: 0.4rem;
-}
-.prose-docs a {
-  color: var(--accent-2);
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--accent-2) 40%, transparent);
-  text-underline-offset: 3px;
+  .panel-interactive:hover,
+  .btn:active {
+    transform: none !important;
+  }
 }

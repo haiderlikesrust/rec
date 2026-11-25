@@ -5,18 +5,19 @@ import {
   otcActivityBps,
   otcPolicy,
   otcSellLimitSol,
-  type BloodlineTag,
+  type FleetTag,
   type Coin,
   type CoinProtection,
   type CoinSort,
   type CoveredLoss,
   type Holder,
   type OtcCoin,
-} from "@cook/shared";
+  type Payout,
+} from "@gantry/shared";
 import { config } from "./config";
-import { all, big, claimByCoin, one, type ClaimRow, type CoinRow, type HolderRow, type LossRow, type PayoutRow, type QuoteRow } from "./db";
+import { all, big, one, type CoinRow, type HolderRow, type LossRow, type PayoutRow, type QuoteRow } from "./db";
 import { SYSTEM, quoteDecimals } from "./ledger";
-import { solPerUnit, solUsd, toQuoteAsset, toUnits } from "./prices";
+import { quoteRow, solPerUnit, toQuoteAsset, toUnits } from "./prices";
 
 export const now = () => Math.floor(Date.now() / 1000);
 
@@ -29,7 +30,7 @@ export function quotesMap() {
 
 type CandleRow = { coin: string; t: number; o: number; h: number; l: number; c: number; v: number };
 
-export function shapeCoin(c: CoinRow, q: QuoteRow, candles24h: CandleRow[], trades24h = 0, bloodline: BloodlineTag | null = null): Coin {
+export function shapeCoin(c: CoinRow, q: QuoteRow, candles24h: CandleRow[], trades24h = 0, fleet: FleetTag | null = null): Coin {
   const qa = toQuoteAsset(q);
   const supply = toUnits(c.total_supply, c.decimals);
   const t0 = now() - 86_400;
@@ -52,10 +53,11 @@ export function shapeCoin(c: CoinRow, q: QuoteRow, candles24h: CandleRow[], trad
   const inPool = toUnits(c.quote_reserve, q.decimals);
   const usd = q.usd;
   const feesQuote = toUnits(c.fees_quote, q.decimals);
+  const potSol = coinPotSol(c);
   return {
     address: c.mint,
     pool: c.pool,
-    dammPool: c.damm_pool,
+    cpmmPool: c.cpmm_pool,
     name: c.name,
     symbol: c.symbol,
     image: c.image,
@@ -82,6 +84,9 @@ export function shapeCoin(c: CoinRow, q: QuoteRow, candles24h: CandleRow[], trad
     feesSol: feesQuote * qa.solPerUnit,
     feesUsd: feesQuote * usd,
     feesQuote: c.fees_quote,
+    protectionPotSol: potSol,
+    // the pot is SOL in the protection wallet: valued at SOL's price, not the coin's quote's
+    protectionPotUsd: qa.solPerUnit > 0 ? (potSol * usd) / qa.solPerUnit : 0,
     quoteInPool: inPool,
     graduationThreshold: threshold,
     graduationProgress: c.graduated ? 1 : threshold > 0 ? Math.min(1, inPool / threshold) : 0,
@@ -89,15 +94,15 @@ export function shapeCoin(c: CoinRow, q: QuoteRow, candles24h: CandleRow[], trad
     holders: c.holders,
     burned: c.burned,
     spark,
-    bloodline,
+    fleet,
   };
 }
 
 /**
- * Every coin, with its Bloodline tag from `tags`. Copies that skipped their Bloodline entry are left out unless
+ * Every coin, with its Fleet tag from `tags`. Copies that skipped their Fleet entry are left out unless
  * `listedOnly` is false.
  */
-export function allCoins(tags: Map<string, BloodlineTag> = new Map(), listedOnly = true): Coin[] {
+export function allCoins(tags: Map<string, FleetTag> = new Map(), listedOnly = true): Coin[] {
   const since = now() - 86_400;
   const rows = all<CoinRow>("SELECT * FROM coin");
   const quotes = quotesMap();
@@ -132,6 +137,9 @@ export function sortCoins(list: Coin[], sort: CoinSort) {
       return list.filter((c) => !c.graduated).sort((a, b) => b.graduationProgress - a.graduationProgress);
     case "graduated":
       return list.filter((c) => c.graduated).sort((a, b) => b.marketCapUsd - a.marketCapUsd);
+    case "protected":
+      // the most cover first; a coin with nothing left in its pot covers nothing and isn't on this list
+      return list.filter((c) => c.protectionPotSol > 0).sort((a, b) => b.protectionPotSol - a.protectionPotSol || b.marketCapUsd - a.marketCapUsd);
     default:
       return list.sort((a, b) => b.marketCapUsd - a.marketCapUsd);
   }
@@ -215,7 +223,32 @@ export function coveredLosses(where: string, params: SQLInputValue[], limit = 50
   }));
 }
 
-/** A wallet's covered losses, the ones still waiting, and anything it claimed back when protection paid in rounds. */
+/** One loss cover that paid something, by its id (the id of the sale that realized the loss). */
+export function payoutById(id: string): Payout | null {
+  const p = one<PayoutRow>("SELECT * FROM protection_payout WHERE id = ? AND amount_sol > 0", id);
+  if (!p) return null;
+  const c = one<CoinRow>("SELECT * FROM coin WHERE mint = ?", p.coin);
+  const status = payoutStatus(p.tx);
+  return {
+    id: p.id,
+    coin: { address: p.coin, symbol: c?.symbol ?? "?", name: c?.name ?? "", image: c?.image ?? "" },
+    wallet: p.wallet,
+    t: p.ts,
+    lossSol: p.loss_sol,
+    lossUsd: p.loss_sol * p.sol_usd,
+    payoutSol: p.amount_sol,
+    payoutUsd: p.amount_sol * p.sol_usd,
+    coverageBps: p.loss_sol > 0 ? Math.round((p.amount_sol / p.loss_sol) * 10_000) : 0,
+    tierBps: p.tier_bps,
+    limit: p.limit_by as Payout["limit"],
+    holdSeconds: p.hold,
+    status: status as Payout["status"],
+    tx: status === "sent" ? p.tx : null,
+    paidAt: status === "sent" ? p.sent_at : null,
+  };
+}
+
+/** A wallet's covered losses and the ones still waiting. */
 export function walletProtection(wallet: string) {
   const losses = coveredLosses("p.wallet = ?", [wallet], 200);
   for (const l of all<LossRow>("SELECT * FROM loss WHERE wallet = ? AND processed = 0", wallet)) {
@@ -236,25 +269,6 @@ export function walletProtection(wallet: string) {
       tx: null,
     });
   }
-  for (const c of all<ClaimRow>("SELECT * FROM protection_claim WHERE wallet = ? AND status = 'claimed'", wallet)) {
-    const items = JSON.parse(c.breakdown) as { coin: string; symbol: string; lossSol: number; coverageBps: number; holdSeconds: number }[];
-    const amounts = new Map(claimByCoin(c.amount, c.breakdown));
-    for (const b of items)
-      losses.push({
-        id: `claim:${c.id}:${b.coin}`,
-        wallet,
-        coin: b.coin,
-        symbol: b.symbol,
-        t: c.claimed_at ?? 0,
-        lossSol: b.lossSol,
-        holdSeconds: b.holdSeconds,
-        tierBps: b.coverageBps,
-        amountSol: amounts.get(b.coin) ?? 0,
-        limit: "round",
-        status: "sent",
-        tx: c.signature,
-      });
-  }
   losses.sort((a, b) => b.t - a.t);
   const sum = (s: CoveredLoss["status"][]) => losses.filter((l) => s.includes(l.status)).reduce((t, l) => t + l.amountSol, 0);
   return { receivedSol: sum(["sent"]), owedSol: sum(["owed", "sending"]), losses };
@@ -272,7 +286,7 @@ export function twap(c: CoinRow, seconds: number, at = now()): number | null {
     from,
   );
   const rows = all<{ price: number; ts: number }>("SELECT price, ts FROM trade WHERE coin = ? AND ts >= ? ORDER BY ts, rowid", c.mint, from);
-  let price = before?.price ?? c.sqrt_start * c.sqrt_start;
+  let price = before?.price ?? c.start_price;
   let t = from;
   let acc = 0;
   for (const r of rows) {
@@ -287,9 +301,10 @@ export function twap(c: CoinRow, seconds: number, at = now()): number | null {
 export function otcCoin(c: CoinRow, at = now()): OtcCoin {
   const solPer = solPerUnit(c.quote);
   const activityBps = otcActivityBps(c.otc_last_contribution, at);
-  const spot = c.price * solPer;
   const avg = twap(c, otcPolicy.twapSeconds, at);
   const spread = otcPolicy.spreadBps / 10_000;
+  // what a seller gets per coin, in the coin's quote: the lower of spot and the TWAP, less the spread
+  const bid = avg === null ? 0 : Math.min(c.price, avg) * (1 - spread);
   const outstanding =
     one<{ s: number }>("SELECT COALESCE(SUM(sol_gross), 0) AS s FROM otc_quote WHERE coin = ? AND side = 'sell' AND status = 'issued'", c.mint)
       ?.s ?? 0;
@@ -304,7 +319,9 @@ export function otcCoin(c: CoinRow, at = now()): OtcCoin {
     sellLimitSol: Math.max(0, otcSellLimitSol(c.otc_credit, activityBps, treasury.otcSol) - outstanding),
     burned: c.otc_burned,
     lastContribution: c.otc_last_contribution,
-    sellPriceSol: avg === null ? 0 : Math.min(spot, avg * solPer) * (1 - spread),
+    sellPriceSol: bid * solPer,
+    sellPrice: bid,
+    sellPriceUsd: bid * (quoteRow(c.quote)?.usd ?? 0),
     twapReady: avg !== null,
   };
 }

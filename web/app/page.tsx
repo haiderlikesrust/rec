@@ -1,21 +1,14 @@
-import { CoinExplorer } from "@/components/home/CoinExplorer";
-import { FeeBuckets } from "@/components/home/FeeBuckets";
-import { Hero } from "@/components/home/Hero";
-import { LaunchCta } from "@/components/home/LaunchCta";
-import { LiveTicker } from "@/components/home/LiveTicker";
-import { Trending } from "@/components/home/Trending";
+import { CoinList } from "@/components/home/CoinList";
+import { Explainers } from "@/components/home/Explainers";
+import { Intro } from "@/components/home/Intro";
 
+/** The front door: what this is and the way to launch, the idea in three cards, then the coins. */
 export default function Home() {
   return (
-    <div className="space-y-20 sm:space-y-28">
-      <div className="space-y-10">
-        <Hero />
-        <LiveTicker />
-      </div>
-      <Trending />
-      <CoinExplorer />
-      <FeeBuckets />
-      <LaunchCta />
+    <div className="space-y-10 sm:space-y-12 lg:space-y-16">
+      <Intro />
+      <Explainers />
+      <CoinList />
     </div>
   );
 }

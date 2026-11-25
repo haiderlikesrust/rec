@@ -1,12 +1,12 @@
 {
-  "name": "cook",
+  "name": "gantry",
   "private": true,
   "packageManager": "pnpm@10.11.0",
   "scripts": {
-    "dev:backend": "pnpm --filter @cook/backend dev",
-    "dev:web": "pnpm --filter @cook/web dev",
-    "demo": "pnpm --filter @cook/backend demo",
-    "test": "pnpm --filter @cook/backend test",
+    "dev:backend": "pnpm --filter @gantry/backend dev",
+    "dev:web": "pnpm --filter @gantry/web dev",
+    "demo": "pnpm --filter @gantry/backend demo",
+    "test": "pnpm --filter @gantry/backend test",
     "typecheck": "pnpm -r typecheck"
   },
   "pnpm": {

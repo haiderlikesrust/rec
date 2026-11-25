@@ -1,82 +1,96 @@
 "use client";
 
-import { X } from "lucide-react";
-import { useEffect, useState } from "react";
-import type { Coin } from "@cook/shared";
-import { CoinAvatar } from "@/components/CoinAvatar";
-import { Change } from "@/components/ui";
-import { TinyPrice } from "./TinyPrice";
+import { useEffect, useRef, useState } from "react";
+import type { Coin, SwapSide } from "@gantry/shared";
+import { Button } from "@/components/ui";
+import { useWalletModal } from "@/components/wallet/WalletModal";
 import { TradePanel } from "./TradePanel";
 
+const focusable = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 /**
- * Phones and tablets: the trade panel would sit far below the chart, so a bar pinned to the bottom of the screen
- * opens it as a sheet instead. Desktop keeps the sticky side panel.
+ * Under 1024px the buy/sell box leaves the page: this bar docks above the shell's tab bar with a Buy and a Sell
+ * button, and either one raises the box as a sheet. From 1024px the box lives in the right column.
  */
 export function MobileTradeBar({ coin }: { coin: Coin }) {
-  const [side, setSide] = useState<"buy" | "sell" | null>(null);
-
-  // keep the page's last lines (and the footer) clear of the bar
+  const [side, setSide] = useState<SwapSide | null>(null);
+  const sheet = useRef<HTMLDivElement>(null);
+  const { visible: walletOpen } = useWalletModal();
+  const walletOnTop = useRef(walletOpen);
   useEffect(() => {
-    document.documentElement.classList.add("has-trade-bar");
-    return () => document.documentElement.classList.remove("has-trade-bar");
+    walletOnTop.current = walletOpen;
+  }, [walletOpen]);
+
+  // the shell pads the page by the dock's height while this class is on <html>
+  useEffect(() => {
+    document.documentElement.classList.add("has-dock");
+    return () => document.documentElement.classList.remove("has-dock");
   }, []);
 
+  // the sheet is a modal: focus goes in and stays in, Escape closes it, the page behind holds still, focus returns
+  const open = side !== null;
   useEffect(() => {
-    if (!side) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setSide(null);
+    if (!open) return;
+    const before = document.activeElement as HTMLElement | null;
+    const stops = () => Array.from(sheet.current?.querySelectorAll<HTMLElement>(focusable) ?? []).filter((el) => el.tabIndex >= 0);
+    sheet.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (walletOnTop.current) return; // the wallet dialog is above the sheet and handles its own keys
+      if (e.key === "Escape") return setSide(null);
+      if (e.key !== "Tab") return;
+      const list = stops();
+      if (!list.length) return;
+      const first = list[0]!;
+      const last = list[list.length - 1]!;
+      const at = document.activeElement;
+      if (e.shiftKey && (at === first || at === sheet.current)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && at === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    // the sheet only exists under 1024px: let go of the page if the window grows past it
+    const wide = window.matchMedia("(min-width: 1024px)");
+    const onWide = () => wide.matches && setSide(null);
     window.addEventListener("keydown", onKey);
+    wide.addEventListener("change", onWide);
     const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       window.removeEventListener("keydown", onKey);
+      wide.removeEventListener("change", onWide);
       document.body.style.overflow = overflow;
+      before?.focus?.();
     };
-  }, [side]);
+  }, [open]);
 
   return (
     <>
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-bg/85 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-xl lg:hidden">
-        <div className="mx-auto flex max-w-2xl items-center gap-3">
-          <CoinAvatar src={coin.image} symbol={coin.symbol} seed={coin.address} size={36} />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold">${coin.symbol}</div>
-            <div className="num flex items-center gap-1.5 text-xs text-muted">
-              <span>
-                $<TinyPrice value={coin.priceUsd} />
-              </span>
-              <Change value={coin.change24h} />
-            </div>
-          </div>
-          <button
-            onClick={() => setSide("sell")}
-            className="h-11 rounded-xl border border-line-strong bg-elev px-5 text-sm font-semibold text-down transition-transform active:scale-[0.97]"
-          >
+      <section aria-label={`Buy or sell ${coin.symbol}`} className="dock lg:hidden">
+        <div className="mx-auto flex h-[67px] max-w-[var(--content-max)] items-center gap-3 px-[var(--gutter)]">
+          <Button variant="secondary" size="lg" className="min-w-0 flex-1" aria-haspopup="dialog" onClick={() => setSide("sell")}>
             Sell
-          </button>
-          <button
-            onClick={() => setSide("buy")}
-            className="h-11 rounded-xl bg-up px-6 text-sm font-semibold text-[#04130d] shadow-[0_8px_24px_-10px_var(--up)] transition-transform active:scale-[0.97]"
-          >
+          </Button>
+          <Button variant="primary" size="lg" className="min-w-0 flex-1" aria-haspopup="dialog" onClick={() => setSide("buy")}>
             Buy
-          </button>
+          </Button>
         </div>
-      </div>
+      </section>
 
       {side && (
-        <div className="fixed inset-0 z-50 flex items-end lg:hidden" role="dialog" aria-modal aria-label={`${side === "buy" ? "Buy" : "Sell"} ${coin.symbol}`}>
-          <button aria-label="Close" onClick={() => setSide(null)} className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
-          <div className="relative max-h-[90dvh] w-full overflow-y-auto rounded-t-[26px] bg-bg px-3 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))] animate-fade-up">
-            <div className="relative mb-1 flex h-8 items-center justify-center">
-              <span className="h-1 w-10 rounded-full bg-line-strong" aria-hidden />
-              <button
-                onClick={() => setSide(null)}
-                aria-label="Close"
-                className="absolute top-1/2 right-1 -translate-y-1/2 rounded-lg p-1.5 text-muted transition-colors hover:bg-sunk hover:text-fg"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <TradePanel key={side} coin={coin} initialSide={side} />
+        <div className="fixed inset-0 z-[60] flex items-end lg:hidden">
+          <div aria-hidden onClick={() => setSide(null)} className="animate-fade absolute inset-0 bg-black/60" />
+          <div
+            ref={sheet}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Buy or sell ${coin.symbol}`}
+            tabIndex={-1}
+            className="animate-sheet relative max-h-[92dvh] w-full overflow-y-auto rounded-t-2xl bg-panel pb-[env(safe-area-inset-bottom)] shadow-float outline-none"
+          >
+            <TradePanel key={side} coin={coin} initialSide={side} onClose={() => setSide(null)} />
           </div>
         </div>
       )}

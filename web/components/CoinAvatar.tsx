@@ -4,7 +4,11 @@ import clsx from "clsx";
 import { useState } from "react";
 import { imageUrl } from "@/lib/images";
 
-const palette = ["#7C6CFF", "#12B5A0", "#F29D0C", "#E8455F", "#3A86FF", "#0FA97C", "#E25FB8", "#9B6CFF"];
+/*
+ * Soft fills for coins without an image. They only tell one monogram from another: they are deliberately muted so
+ * they never read as one of the meaning colours.
+ */
+const fills = ["#2b3a45", "#35402f", "#453c2c", "#2e3550", "#45303c", "#3a3552", "#46382c", "#2c4239"];
 
 function hash(s: string) {
   let h = 0;
@@ -12,6 +16,7 @@ function hash(s: string) {
   return Math.abs(h);
 }
 
+/** A coin's image in a circle, or a soft monogram when it has none or it fails to load. */
 export function CoinAvatar({
   src,
   symbol,
@@ -31,21 +36,15 @@ export function CoinAvatar({
   if (url && !failed) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={url}
-        alt={symbol}
-        style={style}
-        onError={() => setFailed(true)}
-        className={clsx("shrink-0 rounded-full bg-sunk object-cover shadow-[0_0_0_1px_var(--line-strong),0_6px_16px_-8px_rgba(0,0,0,0.5)]", className)}
-      />
+      <img src={url} alt={symbol} style={style} onError={() => setFailed(true)} className={clsx("shrink-0 rounded-full bg-raise object-cover", className)} />
     );
   }
-  const color = palette[hash(seed ?? symbol) % palette.length];
   return (
     <div
+      role="img"
       aria-label={symbol}
-      style={{ ...style, background: `linear-gradient(135deg, ${color}, color-mix(in srgb, ${color} 55%, #000))`, fontSize: Math.max(10, size * 0.36) }}
-      className={clsx("flex shrink-0 items-center justify-center rounded-full font-semibold text-white", className)}
+      style={{ ...style, background: fills[hash(seed ?? symbol) % fills.length], fontSize: Math.max(10, Math.round(size * 0.36)) }}
+      className={clsx("flex shrink-0 items-center justify-center rounded-full leading-none font-semibold text-ink", className)}
     >
       {(symbol || "?").replace(/^\$/, "").slice(0, 2).toUpperCase()}
     </div>

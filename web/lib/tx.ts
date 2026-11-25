@@ -4,7 +4,7 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { VersionedTransaction, type Connection, type TokenBalance } from "@solana/web3.js";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
-import type { TxEnvelope } from "@cook/shared";
+import type { TxEnvelope } from "@gantry/shared";
 import { client } from "./data";
 
 export type TxState = { status: "idle" | "pending" | "success" | "error"; message?: string; signature?: string };
@@ -18,11 +18,11 @@ export function errorMessage(e: unknown): string {
   const msg = err.message ?? err.error?.message ?? String(e);
   // wallets answer 4100 when the site's connection went stale (account switched, wallet locked or reset)
   if (/not been authorized|unauthorized|\b4100\b/i.test(msg))
-    return "Your wallet isn't connected to this site anymore, or switched accounts. Disconnect, connect again and retry.";
-  if (/reject|denied|declined|cancel/i.test(msg)) return "Transaction rejected in wallet.";
-  if (/block height exceeded|blockhash not found|expired/i.test(msg)) return "The transaction expired before it confirmed. Try again.";
-  if (/insufficient (funds|lamports)|0x1\b/i.test(msg)) return "Not enough balance to cover this and the network fee.";
-  if (/Failed to fetch|NetworkError/i.test(msg)) return "Can't reach the server right now. Try again in a moment.";
+    return "The wallet dropped its link to this site or changed account. Reconnect it, then send again.";
+  if (/reject|denied|declined|cancel/i.test(msg)) return "You declined the request in your wallet.";
+  if (/block height exceeded|blockhash not found|expired/i.test(msg)) return "The network didn't confirm this in time and it lapsed. Send it again.";
+  if (/insufficient (funds|lamports)|0x1\b/i.test(msg)) return "The wallet is short of what this costs plus the network fee.";
+  if (/Failed to fetch|NetworkError/i.test(msg)) return "No answer from the server. Give it a moment and retry.";
   return msg.split("\n")[0].slice(0, 180);
 }
 
@@ -62,20 +62,20 @@ export function useSolanaTx() {
       after?: (signature: string, res: T) => Promise<unknown>,
     ): Promise<{ res: T; signature: string } | null> => {
       if (!publicKey) {
-        setState({ status: "error", message: "Connect a wallet first." });
+        setState({ status: "error", message: "Connect a wallet to continue." });
         return null;
       }
       setState({ status: "pending", message: `${label}: preparing…` });
       try {
         const res = await build();
         if (res.demo || !res.tx) {
-          // demo mode, or nothing left to do (a pair that is already set up)
+          // demo mode: the backend already applied the action, so there is nothing to sign
           const signature = res.signature ?? "demo";
           setState({ status: "success", message: res.demo ? `${label}: done (demo, nothing sent on-chain)` : `${label}: done` });
           queryClient.invalidateQueries();
           return { res, signature };
         }
-        if (!signTransaction) throw new Error("This wallet can't sign transactions.");
+        if (!signTransaction) throw new Error("This wallet has no way to sign a transaction.");
 
         setState({ status: "pending", message: `${label}: confirm in your wallet…` });
         const tx = VersionedTransaction.deserialize(fromBase64(res.tx));
@@ -89,7 +89,7 @@ export function useSolanaTx() {
               "confirmed",
             )
           : await connection.confirmTransaction(signature, "confirmed");
-        if (confirmation.value.err) throw new Error("The transaction failed on-chain.");
+        if (confirmation.value.err) throw new Error("The network rejected the transaction.");
 
         await client.ingest(signature).catch(() => undefined);
         if (after) await after(signature, res);

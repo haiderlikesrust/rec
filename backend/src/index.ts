@@ -1,9 +1,9 @@
 import { serve } from "@hono/node-server";
 import { config, loadWallets, log } from "./config";
 import { createApi } from "./api";
-import { db, run } from "./db";
+import { db } from "./db";
 import type { Engine, Job } from "./engine";
-import { runEntries } from "./bloodline";
+import { runEntries } from "./fleet";
 import { processFees, runProtection, sweep } from "./jobs";
 import { lease, releaseLease, renewLease } from "./lease";
 import { SYSTEM } from "./ledger";
@@ -14,9 +14,8 @@ const keys = loadWallets();
 for (const k of Object.values(keys)) SYSTEM.add(k.publicKey.toBase58());
 
 syncQuotes();
-await refreshPrices();
-// the platform token is read from MAIN_TOKEN_MINT whenever a coin is shaped (services.ts); the old flag isn't used
-run("UPDATE coin SET is_main = 0 WHERE is_main = 1");
+// every quote once, so none starts on the catalog's reference price; after that they take turns (see prices.ts)
+await refreshPrices(true);
 
 let engine: Engine;
 /** Runs once, the first time this server becomes the leader. */
@@ -79,8 +78,8 @@ for (const job of [
   { name: "prices", ms: 60_000, run: refreshPrices },
   // fees are split continuously: this loops every few seconds
   { name: "fees", ms: config.feesEveryMs, run: () => processFees(engine) },
-  // copies' Nest entries, airdropped to their leaders' holders
-  { name: "nest", ms: config.entriesEveryMs, run: () => runEntries(engine) },
+  // copies' Fleet entries, airdropped to their leaders' holders
+  { name: "fleet", ms: config.entriesEveryMs, run: () => runEntries(engine) },
   { name: "protection", ms: config.protectionEveryMs, run: () => runProtection(engine) },
   { name: "sweep", ms: 15_000, run: () => sweep(engine) },
   ...engine.jobs(),

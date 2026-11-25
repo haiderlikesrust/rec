@@ -6,10 +6,21 @@ export const LAMPORTS_PER_SOL = 1_000_000_000;
 /** Wrapped SOL. SOL-quoted coins use it as their quote mint. */
 export const NATIVE_MINT = "So11111111111111111111111111111111111111112";
 
-/** Meteora Dynamic Bonding Curve: every launch is a DBC pool until it graduates. */
-export const DBC_PROGRAM_ID = "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN";
-/** Meteora DAMM v2: where a pool migrates to when its curve completes. */
-export const DAMM_V2_PROGRAM_ID = "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG";
+/** Raydium LaunchLab: every launch is a bonding-curve pool here until it graduates. */
+export const LAUNCHLAB_PROGRAM_ID: Record<Cluster, string> = {
+  "mainnet-beta": "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj",
+  devnet: "DRay6fNdQ5J82H7xV6uq2aV3mNrUZ1J4PgSKsWgptcm6",
+};
+/** Raydium CPMM: the constant-product pool a curve's liquidity moves to when it completes. */
+export const CPMM_PROGRAM_ID: Record<Cluster, string> = {
+  "mainnet-beta": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+  devnet: "DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb",
+};
+/** Raydium's LP lock ("Burn & Earn"): holds a graduated pool's LP for good; its Fee Key NFT collects the LP's fees. */
+export const LP_LOCK_PROGRAM_ID: Record<Cluster, string> = {
+  "mainnet-beta": "LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE",
+  devnet: "DRay25Usp3YJAi7beckgpGUC7mGJ2cR1AVPxhYfwVCUX",
+};
 
 export const clusters: Record<Cluster, { label: string; rpc: string }> = {
   "mainnet-beta": { label: "Solana", rpc: "https://api.mainnet-beta.solana.com" },

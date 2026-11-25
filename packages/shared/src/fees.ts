@@ -1,23 +1,70 @@
 import { brand } from "./brand";
+import type { Cluster } from "./solana";
 
 /**
  * Fee policy, shared by the backend (fee router, protection payouts), the API and the UI.
  *
- * Every pool is a Meteora DBC pool configured with a 3% fee taken on the quote side of every buy and sell
- * (CollectFeeMode.QuoteToken), 0% to the creator. Meteora keeps its protocol share of that fee; the rest is claimed
- * by the backend's fee wallet, converted to SOL and split in half: the OTC reserve and the protection fund (Soft Landing on the site). Graduated
- * pools (DAMM v2) keep the same 3%.
+ * Until it graduates a coin trades on a Raydium LaunchLab bonding curve, where every buy and sell pays 3% on the
+ * quote side: Raydium's protocol fee plus the platform fee that makes up the rest, and 0% to the creator. The platform
+ * fee collects in a vault only the backend's fee wallet can claim; it is converted to SOL and split in half: the OTC
+ * reserve and the protection fund (Heat Shield on the site).
+ *
+ * After graduation it trades in a Raydium CPMM pool whose whole LP is locked for the fee wallet. The fee there is
+ * the pool tier's (see CPMM_TIER): most of it stays in the pool as LP fees, which the fee wallet harvests half in
+ * the quote (split like the rest) and half in the coin itself (burned), and a small quote-only creator fee goes to
+ * the fee wallet directly.
  */
 export const TAX_BPS = 300;
-/** Meteora's protocol share of every trading fee, on DBC and on DAMM v2. */
-export const METEORA_PROTOCOL_SHARE_BPS = 2000;
-/** Share of Meteora's protocol fee rebated to the referral account. Swaps built by the backend name the fee wallet. */
-export const METEORA_REFERRAL_SHARE_BPS = 2000;
-/** Share of the 3% that reaches the buckets: 80%, or 84% when the swap carried the fee wallet's referral account. */
-export const communityShareBps = (withReferral = false) =>
-  10_000 - METEORA_PROTOCOL_SHARE_BPS + (withReferral ? (METEORA_PROTOCOL_SHARE_BPS * METEORA_REFERRAL_SHARE_BPS) / 10_000 : 0);
-/** One-off fee, in SOL, paid to the DBC config when a coin launches. Meteora keeps 10%; the rest is split like a fee. */
-export const LAUNCH_FEE_SOL = 0.01;
+/** Raydium's protocol fee on every LaunchLab trade (the global config's trade_fee_rate; the backend reads it live). */
+export const RAYDIUM_CURVE_FEE_BPS = 25;
+/** The fee set on the LaunchLab platform config: what is left of the 3%. */
+export const PLATFORM_FEE_BPS = TAX_BPS - RAYDIUM_CURVE_FEE_BPS;
+/** LaunchLab's ceiling on a platform's fee. */
+export const RAYDIUM_PLATFORM_FEE_CAP_BPS = 500;
+
+export type Venue = "curve" | "cpmm";
+
+/**
+ * The CPMM fee tier graduated pools trade on: of the tiers Raydium has, the one whose total fee is closest to 3%.
+ * A tier charges a trade fee (shared by the pool's LPs, Raydium and its treasury) plus a separate creator fee, which
+ * these pools are set to pay in the quote token only and which goes to the fee wallet as their creator of record.
+ * Devnet has fewer tiers, so the closest one there is not the same.
+ */
+export const CPMM_TIER: Record<Cluster, { index: number; config: string; tradeFeeBps: number; creatorFeeBps: number }> = {
+  "mainnet-beta": { index: 7, config: "ESLj2Rzmvn3RhDo4Z18hY1wYmGyC9xM4ZtRXhvoFkDAi", tradeFeeBps: 250, creatorFeeBps: 5 },
+  devnet: { index: 4, config: "5Gt9qrPJ6FVe9VHtwF2W2JrFR6p9jmx4DxBkgfPdaApk", tradeFeeBps: 400, creatorFeeBps: 25 },
+};
+/** Raydium's cut of every CPMM trade fee: 12% to the protocol and 4% to its treasury. The other 84% stays with the LPs. */
+export const RAYDIUM_CPMM_PROTOCOL_SHARE_BPS = 1200;
+export const RAYDIUM_CPMM_FUND_SHARE_BPS = 400;
+/** Raydium's cut of the CPMM creator fee, taken when the fee is collected. */
+export const RAYDIUM_CREATOR_FEE_SHARE_BPS = 500;
+
+/**
+ * Where a trade's fee goes, in bps of the trade (not whole numbers after graduation): the whole fee, Raydium's cut,
+ * what reaches the two buckets in the quote, and what comes back in the coin and is burned.
+ */
+export function feeBreakdown(venue: Venue, cluster: Cluster = "mainnet-beta") {
+  if (venue === "curve") return { taxBps: TAX_BPS, raydiumBps: RAYDIUM_CURVE_FEE_BPS, bucketsBps: PLATFORM_FEE_BPS, burnedBps: 0 };
+  const tier = CPMM_TIER[cluster];
+  const lp = (tier.tradeFeeBps * (10_000 - RAYDIUM_CPMM_PROTOCOL_SHARE_BPS - RAYDIUM_CPMM_FUND_SHARE_BPS)) / 10_000;
+  const creator = (tier.creatorFeeBps * (10_000 - RAYDIUM_CREATOR_FEE_SHARE_BPS)) / 10_000;
+  const taxBps = tier.tradeFeeBps + tier.creatorFeeBps;
+  // LP fees are harvested as LP tokens, which pay out both sides of the pool in equal value
+  return { taxBps, raydiumBps: taxBps - lp - creator, bucketsBps: lp / 2 + creator, burnedBps: lp / 2 };
+}
+
+/** Share of a trade's fee that reaches the buckets, in bps of the fee: about 91.7% on the curve, 43% after graduation. */
+export const communityShareBps = (venue: Venue = "curve", cluster: Cluster = "mainnet-beta") => {
+  const f = feeBreakdown(venue, cluster);
+  return (f.bucketsBps / f.taxBps) * 10_000;
+};
+
+/**
+ * LaunchLab charges nothing to create a pool. A launch pays Solana rent for the coin's accounts (mint, pool, two
+ * vaults and its Metaplex metadata, whose program keeps 0.01 SOL): about this much, measured on a mainnet launch.
+ */
+export const LAUNCH_RENT_SOL = 0.021;
 
 export type BucketKey = "otcReserve" | "protection";
 
@@ -32,8 +79,8 @@ export const buckets: {
   {
     key: "protection",
     bps: 5000,
-    label: brand.landing,
-    short: brand.landing,
+    label: brand.shield,
+    short: brand.shield,
     paidIn: "SOL",
     blurb: "Covers realized losses: up to 70%, by hold time and by how much the coin paid into the fund.",
   },
@@ -59,22 +106,8 @@ export function splitRaw(amount: bigint): Record<BucketKey, bigint> {
   return { otcReserve, protection: amount - otcReserve };
 }
 
-/** Volume needed to generate `fees` at the 3% tax. */
+/** Volume needed to generate `fees` at the curve's 3%. */
 export const volumeForFees = (fees: number) => fees / (TAX_BPS / 10_000);
-
-/**
- * Anti-snipe: the DBC fee scheduler starts at 99% and decays exponentially to 3% over the first 6 seconds, on both
- * sides. The creator's first buy, bundled into the launch transaction, skips it.
- */
-export const SNIPE = { startBps: 9900, endBps: TAX_BPS, periods: 6, seconds: 6 } as const;
-
-/** Fee in bps at `secondsSinceLaunch`, mirroring the pool's fee scheduler. */
-export function buyTaxBpsAt(secondsSinceLaunch: number) {
-  if (secondsSinceLaunch >= SNIPE.seconds) return TAX_BPS;
-  const period = Math.max(0, Math.floor(secondsSinceLaunch / (SNIPE.seconds / SNIPE.periods)));
-  const decay = (SNIPE.endBps / SNIPE.startBps) ** (period / SNIPE.periods);
-  return Math.max(TAX_BPS, Math.round(SNIPE.startBps * decay));
-}
 
 // ---------------------------------------------------------------- OTC reserve policy
 //
@@ -110,7 +143,6 @@ export function otcActivityBps(lastContribution: number, now: number) {
 /** Current SOL sell capacity for a coin. */
 export const otcSellLimitSol = (creditSol: number, activityBps: number, reserveSol: number) =>
   Math.min((creditSol * activityBps) / 10_000, (reserveSol * otcPolicy.maxShareOfReserveBps) / 10_000);
-
 
 // ---------------------------------------------------------------- protection policy
 //

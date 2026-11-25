@@ -2,8 +2,8 @@ import { VersionedTransaction, type PublicKey } from "@solana/web3.js";
 import { config } from "../config";
 
 /**
- * Jupiter swap API: the fee wallet converts quote assets (USDC, xStocks, Backpack stocks, ...) to SOL and back,
- * and launchers paying a first buy in SOL swap into the pair's quote. Set JUPITER_API / JUPITER_API_KEY for a paid tier; the default is the keyless lite host.
+ * Jupiter swap API: the fee wallet converts the stablecoin quotes to SOL, and launchers paying a first buy in SOL
+ * swap into the pair's quote. Set JUPITER_API / JUPITER_API_KEY for a paid tier; the default is the keyless lite host.
  */
 const headers = (): Record<string, string> => ({
   "content-type": "application/json",

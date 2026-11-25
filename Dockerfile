@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# One container: the Next.js site and the backend (API, indexer, fee router, Nest entries). Next proxies /api/* to the
+# One container: the Next.js site and the backend (API, indexer, fee router, Fleet entries). Next proxies /api/* to the
 # backend on 127.0.0.1:42069. Dokploy runs it as a Swarm service and updates it start-first, so the new version
 # takes over before the old one stops (docs/DOKPLOY.md).
 FROM node:22-bookworm-slim AS base
@@ -23,7 +23,7 @@ COPY . .
 ARG DEPLOYMENT_ID
 # Same-origin API: the browser calls /api/*, which Next proxies to the backend.
 ENV NEXT_TELEMETRY_DISABLED=1 NEXT_PUBLIC_API_URL=
-RUN NEXT_DEPLOYMENT_ID="${DEPLOYMENT_ID:-$(date +%s)}" pnpm --filter @cook/web build \
+RUN NEXT_DEPLOYMENT_ID="${DEPLOYMENT_ID:-$(date +%s)}" pnpm --filter @gantry/web build \
  && rm -rf web/.next/cache \
  && mv web/.next/static web/static-build
 

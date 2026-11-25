@@ -1,149 +1,224 @@
-# Deploy Cushion on Dokploy (zero-downtime updates)
+# Running Gantry on Dokploy
 
-Cushion ships as one Docker image (the [`Dockerfile`](../Dockerfile) at the repo root). Inside it, two processes run
-side by side:
+This guide puts Gantry on a Dokploy server behind `gantry.fast`, and sets it up so that a new version replaces the
+old one without the site going down.
 
-- the **Next.js site**, on port 7310 (set `PORT` to change it);
-- the **backend**: API, chain indexer, fee router (OTC and protection splits), Nest entries, protection payouts and the
-  demo market.
+## What gets deployed
 
-Next proxies `/api/*` to the backend, so everything is served on one domain. The backend keeps its state in SQLite
-on a Docker volume.
+A single container, built from the [`Dockerfile`](../Dockerfile) at the repository root. Its entrypoint
+([`deploy/start.mjs`](../deploy/start.mjs)) runs two processes and stops both if either one exits:
 
-| Dokploy service | What it is | Holds |
+| Process | Listens on | Does |
 |---|---|---|
-| **Application** `recur` | This repository, built from the `Dockerfile` and run as a Docker Swarm service. Traefik sends `recur.lol` to it on port 7310. | The bucket wallet keys, at runtime only |
-| Volume `recur-data` → `/app/data` | SQLite database, demo wallets, uploaded coin images | Coins, trades, holders, ledger, OTC quotes, claims |
-| Volume `recur-static` → `/app/web/.next/static` | Scripts and styles of current and earlier builds | Nothing sensitive |
+| Next.js site | `PORT`, 7310 by default | Serves the pages and forwards every `/api/*` request to the backend, so the browser only ever talks to one origin. |
+| Backend | port 42069, not routed from outside: the site reaches it on 127.0.0.1 | REST API, chain indexer, fee router, OTC, Fleet entries, Heat Shield payouts, and the simulated market in demo mode. |
 
-## Why an Application, not Compose
+State lives in two volumes:
 
-A Dokploy **Docker Compose** service stops the old container before starting the new one, so the site goes down
-for the restart.
+| Volume | Mounted at | Contents | Lose it and |
+|---|---|---|---|
+| `gantry-data` | `/app/data` | The SQLite database (`demo.db`, `devnet.db` or `mainnet-beta.db`), demo wallet files, uploaded coin images | you lose the platform's books. Required. |
+| `gantry-static` | `/app/web/.next/static` | Hashed scripts, styles and fonts of this build and of earlier ones | pages opened before an update can fail to load their scripts until reloaded. |
 
-A Dokploy **Application** runs as a Swarm service. Swarm can start the new version first and stop the old one only
-once the new one is healthy. The settings below turn that on.
+The wallet keys are not in the image or on a volume in a real deployment: they are environment variables read when
+the backend starts.
 
-### What happens on an update
+## Why an Application and not a Compose service
 
-1. **Build.** Dokploy builds the new image while the old version keeps serving. If the build fails, nothing changes.
-2. **Standby.** The new container starts and opens the same SQLite file, then serves the site and API right away.
-   Background work (indexing, fee splits, Nest entries, protection payouts) runs on exactly one server, the
-   holder of a lease in the database. The old one still holds it, so the new one waits as a **standby**. Its health
-   check counts that as healthy.
-3. **Hand-over.**
-   - Swarm stops the old container.
-   - The old backend stops starting new work and lets its running job finish (8 seconds at most, usually well
-     under 1).
-   - It releases the lease, and the standby takes it within 2 seconds.
-   - Next finishes open requests.
-   - If the old container ever dies without handing over, the lease lapses after 15 seconds and the standby takes
-     over anyway.
-4. **Open pages keep working.** Their scripts stay downloadable from the shared static volume, and on the next
-   click they reload into the new version, because every build has its own deployment ID.
-5. **Rollback.** If the new version doesn't become healthy within a minute, Swarm puts the previous one back.
+Dokploy can run a repository two ways. A **Docker Compose** service is updated by stopping the old container and
+then starting the new one, which leaves a gap. An **Application** is a Docker Swarm service, and Swarm can do it the
+other way round: start the new container, wait until it is healthy, then stop the old one. Everything below depends
+on that order, so create an Application.
 
-Money stays safe across the hand-over:
-- The fee router books a batch before moving it, so a split is never paid twice.
-- OTC trades and protection claims are single transactions co-signed by the user. Their state lives in the
-  database, and the new server settles anything still in flight.
-- Nest entry airdrops not yet sent stay owed and go out on the next pass.
+## Set it up
 
-## Set up
+### 1. Create the Application
 
-1. **Application.**
-   - In your Dokploy project, choose **Create Service → Application** and name it `recur`.
-   - In **General**, set the provider to GitHub (`haiderlikesrust/rec`, branch `master`). A Git URL with a deploy key
-     also works.
-   - Set **Build Type** to **Dockerfile**, **Dockerfile Path** to `Dockerfile` and **Docker Context Path** to `.`.
-   - Optional: under **Build-time Arguments**, add `DEPLOYMENT_ID=$COMMIT` (or any value that changes per deploy).
-     The build time is used otherwise.
-2. **Environment.**
-   - Paste [`deploy/dokploy.env.example`](../deploy/dokploy.env.example) and set `PUBLIC_URL`.
-   - For the first deploy keep `DEMO=1`. That gives a public demo with a simulated market and a burner wallet.
-   - Wallet keys are runtime variables, read when the server starts. Never put them in **Build-time Arguments**.
-3. **Volumes.** In **Advanced → Volumes**, add two **Volume Mounts**:
-   - `recur-data` at `/app/data`. **Required.** Without it, every update starts from an empty database (and, in demo
-     mode, new demo wallets).
-   - `recur-static` at `/app/web/.next/static`. Each new container adds its build's files there, next to earlier
-     builds'. Files no build has used for 30 days are removed.
-4. **Domain.**
-   - In **Domains**, add `recur.lol` with path `/`, container port **7310** (or your `PORT`), and HTTPS with Let's Encrypt. Point the
-     domain's DNS at the server.
-   - For `www.recur.lol`, add it the same way, then add a "www to non-www" redirect under **Advanced → Redirects**.
-5. **Zero-downtime settings.** In **Advanced → Cluster Settings**:
-   - **Replicas:** `1`. Background work only ever runs on one server; extra replicas would only sit on standby, and
-     they'd need a shared volume across nodes.
-   - **Swarm Settings → Update Config:**
-     ```json
-     { "Parallelism": 1, "Delay": 0, "FailureAction": "rollback", "Monitor": 60000000000, "MaxFailureRatio": 0, "Order": "start-first" }
-     ```
-   - **Swarm Settings → Rollback Config:**
-     ```json
-     { "Parallelism": 1, "Delay": 0, "FailureAction": "pause", "Monitor": 60000000000, "MaxFailureRatio": 0, "Order": "start-first" }
-     ```
-   - **Health Check:** the same check that is built into the image. Paste it anyway, so an update never starts
-     without one:
-     ```json
-     { "Test": ["CMD", "node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 7310) + '/api/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"], "Interval": 5000000000, "Timeout": 3000000000, "StartPeriod": 60000000000, "Retries": 3 }
-     ```
-   - **Stop Grace Period** (if your Dokploy version shows it): `15000000000` (15 s). The hand-over needs up to ~10 s.
-   - Durations in these fields are in nanoseconds (5000000000 = 5 s).
-6. **Deploy.** Click **Deploy** and follow the build log. Then open `https://recur.lol/api/health`. It should show
-   `"ok": true`, `"state": "leader"` and `"mode": "demo"`.
-7. **Optional:** turn on **Autodeploy** so every push to `master` deploys the same way.
+In your Dokploy project choose **Create Service → Application** and call it `gantry`.
 
-## Check an update yourself
+Under **General**:
 
-Leave this running while you click **Deploy**. It should print only `200`s:
+- **Provider:** GitHub, repository `your-org/gantry`, branch `master`. A plain Git URL with a deploy key works too.
+- **Build Type:** Dockerfile. **Dockerfile Path:** `Dockerfile`. **Docker Context Path:** `.`
+- **Build-time Arguments** (optional): `DEPLOYMENT_ID=$COMMIT`, or anything else that changes with each deploy.
+  Without it the image uses its build time. This id is what makes a browser on the previous version reload
+  instead of mixing old and new code.
 
-```bash
-while true; do curl -s -o /dev/null -w '%{http_code} %{time_total}s\n' https://recur.lol/api/stats; sleep 0.5; done
+### 2. Environment
+
+Paste [`deploy/dokploy.env.example`](../deploy/dokploy.env.example) into the **Environment** tab.
+
+| Variable | For the first deploy | Notes |
+|---|---|---|
+| `DEMO` | `1` | Simulated market and a burner wallet; no keys or RPC needed. Empty switches to a real cluster. |
+| `CLUSTER` | `mainnet-beta` | `devnet` or `mainnet-beta`. Ignored while `DEMO=1`. |
+| `PORT` | `7310` | The site's port inside the container. Must match the domain's container port. |
+| `PUBLIC_URL` | `https://gantry.fast` | The exact public origin, no trailing slash. Token metadata URIs are built from it. |
+| `RPC_URL` | empty | The backend's RPC. Use a paid endpoint in real mode: holder reconciliation needs `getProgramAccounts`. |
+| `PUBLIC_RPC_URL` | empty | The RPC browsers use to send transactions. Give it a key restricted to your domain. |
+| `FEE_WALLET`, `OTC_WALLET`, `PROTECTION_WALLET` | empty | Secret keys, base58 or a JSON byte array in quotes. Leave empty in demo mode. |
+| `LOOKUP_TABLE` | empty | The address lookup table launches use. Fill it in once the backend has created one (see below). |
+| `MAIN_TOKEN_MINT` | empty | Mint of the platform token to feature. No fees go to it. |
+| `JUPITER_API_KEY` | empty | Only for Jupiter's paid host. |
+| `PINATA_JWT` | empty | Pin coin images and metadata to IPFS instead of keeping them on the data volume. |
+| `FEE_MIN_USD`, `FEES_EVERY_MS`, `ENTRIES_EVERY_MS`, `PRIORITY_MICROLAMPORTS` | defaults | Fee-router tuning. |
+
+Keys belong in **Environment** only. Never put them in **Build-time Arguments**: those end up in image layers.
+
+### 3. Volumes
+
+Under **Advanced → Volumes** add two **Volume Mounts**:
+
+- `gantry-data` at `/app/data`
+- `gantry-static` at `/app/web/.next/static`
+
+On every start the container copies its own build's static files into the second volume, next to those of earlier
+builds, and removes files that no build has shipped for 30 days.
+
+### 4. Domain
+
+Under **Domains** add `gantry.fast`, path `/`, container port **7310** (or whatever you set `PORT` to), HTTPS with
+Let's Encrypt. Point the domain's DNS at the server first so the certificate can be issued.
+
+To serve `www.gantry.fast` as well, add it the same way and create a "www to non-www" redirect under
+**Advanced → Redirects**.
+
+### 5. Start-first updates
+
+Under **Advanced → Cluster Settings**:
+
+- **Replicas:** `1`. Background work runs on exactly one server at a time. A second replica would only stand by, and
+  would need the data volume shared across nodes.
+
+- **Swarm Settings → Update Config**
+
+  ```json
+  { "Parallelism": 1, "Delay": 0, "FailureAction": "rollback", "Monitor": 60000000000, "MaxFailureRatio": 0, "Order": "start-first" }
+  ```
+
+- **Swarm Settings → Rollback Config**
+
+  ```json
+  { "Parallelism": 1, "Delay": 0, "FailureAction": "pause", "Monitor": 60000000000, "MaxFailureRatio": 0, "Order": "start-first" }
+  ```
+
+- **Health Check.** The image already carries this check. Set it here as well, so an update can never begin
+  without one:
+
+  ```json
+  { "Test": ["CMD", "node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 7310) + '/api/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"], "Interval": 5000000000, "Timeout": 3000000000, "StartPeriod": 60000000000, "Retries": 3 }
+  ```
+
+- **Stop Grace Period**, if your Dokploy version exposes it: `15000000000`. The old container needs up to about ten
+  seconds to hand over, and the entrypoint gives up after twelve.
+
+These fields take durations in nanoseconds: `5000000000` is five seconds.
+
+### 6. Deploy
+
+Press **Deploy** and watch the build log. When it finishes, open `https://gantry.fast/api/health`. A healthy first
+deploy answers:
+
+```json
+{ "ok": true, "state": "leader", "mode": "demo" }
 ```
 
-The new container's log shows `standby: another server holds the lease`, then `leader: took over background work`.
-The old one logs `SIGTERM: handing over`.
+Turn on **Autodeploy** if you want every push to `master` to go out the same way.
 
-## Go live on Solana
+## What happens during an update
 
-1. Set `DEMO=` (empty), `CLUSTER=devnet` first, `RPC_URL` and `PUBLIC_RPC_URL`.
-2. Generate the three wallets offline, for example with `solana-keygen new`. Paste their secret keys as `FEE_WALLET`,
-   `OTC_WALLET` and `PROTECTION_WALLET`, then fund the fee wallet with ~0.5 SOL. Redeploy.
-3. Do a full cycle on devnet: launch, trade, wait for a split, sell at a loss and watch the payout, OTC sell, and
-   launch a look-alike copy to see its Nest entry airdropped. Compare the wallets on Solscan with `/api/stats`.
-4. Switch `CLUSTER=mainnet-beta` with fresh wallets and redeploy.
+| Step | Old container | New container |
+|---|---|---|
+| Build | Serving. A failed build changes nothing. | Not started. |
+| Start | Serving, and still holds the background-work lease. | Opens the same SQLite file and serves the site and the API at once. Its health check passes in the `standby` state. |
+| Hand-over | Receives SIGTERM. Starts no new jobs, lets the running one finish (8 seconds at most), releases the lease, finishes open requests, exits. | Takes the lease within about 2 seconds and becomes `leader`. |
+| If the old one crashes instead | Gone without releasing anything. | The lease expires after 15 seconds and the standby takes over anyway. |
+| If the new one never gets healthy | Kept running. | Swarm rolls back after the one-minute monitor window. |
 
-## Back up the database
+Pages that were open before the update keep working: their scripts are still on the static volume, and on the next
+navigation they reload into the new version.
 
-SQLite lives on the `recur-data` volume. From the application's **Terminal** in Dokploy:
+Money is safe across the hand-over because every step is recorded before it is carried out:
+
+- The fee router books a batch as split before it moves anything, so a batch is never paid twice. Anything that did
+  not get sent goes back in the queue.
+- An OTC sale is one transaction signed by the seller and the reserve. Its quote is in the database, and the new
+  server settles any sale that confirmed while the old one was shutting down.
+- Heat Shield payouts and Fleet entry airdrops are marked as sending before the transfer. What was owed and not yet
+  sent stays owed and goes out on a later pass. A batch that was cut off in the middle of a transfer stays marked as
+  sending for you to check, rather than being sent a second time.
+
+You can watch it happen. Leave this running while you press **Deploy**; it should print nothing but `200`:
+
+```bash
+while true; do curl -s -o /dev/null -w '%{http_code} %{time_total}s\n' https://gantry.fast/api/stats; sleep 0.5; done
+```
+
+In the logs, the new container prints `standby: another server holds the lease` followed by
+`leader: took over background work`, and the old one prints `SIGTERM: handing over`.
+
+## From demo to a real cluster
+
+Do this on devnet first, then repeat it for mainnet with new wallets.
+
+1. **Keys.** Generate three keypairs offline, for instance with `solana-keygen new`, and paste their secret keys
+   into `FEE_WALLET`, `OTC_WALLET` and `PROTECTION_WALLET`. Fund the fee wallet with SOL: it pays the rent of the
+   platform's Raydium accounts and all network fees, and the backend logs a warning below 0.05 SOL.
+2. **Environment.** Set `DEMO=` (empty), `CLUSTER=devnet`, `RPC_URL` and `PUBLIC_RPC_URL`, then redeploy.
+   `/api/health` now reports `"mode": "devnet"`.
+3. **Platform config.** The fee wallet needs a Raydium LaunchLab platform config and an address lookup table. The
+   first launch creates both on demand. To create them ahead of time, open the application's **Terminal** and run
+   the setup script the same way the entrypoint runs the backend:
+
+   ```sh
+   cd /app/backend && node --import tsx src/scripts/platform.ts
+   ```
+
+   The script prints the lookup table's address; when a launch creates the table instead, the address is in the
+   application log. Copy it into `LOOKUP_TABLE` so a new data volume would keep using the same table.
+4. **Rehearse.** Launch a coin, trade it both ways, wait for a fee split, sell at a loss and watch the payout, sell
+   into the OTC reserve, take a coin through graduation, and launch a look-alike to see its Fleet entry airdropped.
+   Check the three wallets on Solscan against `/api/stats`. On devnet use the SOL pair: Jupiter does not route
+   devnet tokens, so fees taken in devnet USDC cannot be converted.
+5. **Mainnet.** Set `CLUSTER=mainnet-beta`, swap in fresh wallets and a mainnet RPC, clear `LOOKUP_TABLE` (tables
+   are per cluster) and redeploy. Each cluster has its own database file, so devnet data is left untouched.
+
+## Backups
+
+Everything worth keeping is the SQLite file on `gantry-data`. From the application's **Terminal**:
 
 ```sh
 node -e "const {DatabaseSync}=require('node:sqlite');new DatabaseSync('/app/data/mainnet-beta.db').exec(\"VACUUM INTO '/app/data/backup.db'\")"
 ```
 
-Copy `backup.db` off the server (or schedule a volume backup in Dokploy). In real mode, the chain is the source of
-truth for trades. A lost database can be re-indexed from the configs' signatures, but the owed Nest entries and open
-claims live only here.
+That writes a consistent copy while the server keeps running. Move `backup.db` off the machine, or schedule a
+volume backup in Dokploy.
 
-## Rules that keep updates seamless
+Restore from a backup; do not start a live deployment on an empty database. The chain holds every trade, but the
+database is the only record of which fees have already been split, which losses have been paid, which Fleet entries
+are owed and which OTC quotes are open. An indexer starting from nothing would see old fees and old losses as new.
 
-- **Schema changes must be additive.** Add tables and columns, and don't rename or drop them in the same release.
-  During a hand-over, and after a rollback, the other version runs against the new schema.
-- **Keep one replica.**
-- **Changing settings needs a redeploy.** Settings are read when the server starts, and the redeploy goes through
-  the same hand-over.
-- **Never point another app at `recur-data` or `recur-static`.**
+## Rules for seamless updates
 
-## Local check of the image
+- **Only add to the schema.** During a hand-over two versions use the same database, and after a rollback the old
+  version runs against the new schema. Add tables and columns; do not rename or drop them in the same release.
+- **Stay at one replica.**
+- **Settings change on redeploy.** Environment variables are read at startup. A redeploy goes through the same
+  hand-over, so it is safe at any time.
+- **Keep the two volumes private to this application.**
 
-With Docker running:
+## Try the image locally
 
 ```sh
-docker build -t recur .
-docker volume create recur-data
-docker run --rm -p 7310:7310 -v recur-data:/app/data -e DEMO=1 -e PUBLIC_URL=http://localhost:7310 recur
+docker build -t gantry .
+docker volume create gantry-data
+docker run --rm -p 7310:7310 -v gantry-data:/app/data -e DEMO=1 -e PUBLIC_URL=http://localhost:7310 gantry
 ```
 
-Reference: [Dokploy zero downtime](https://docs.dokploy.com/docs/core/applications/zero-downtime),
-[Dokploy advanced settings](https://docs.dokploy.com/docs/core/applications/advanced),
-[Next.js self-hosting](https://nextjs.org/docs/app/guides/self-hosting).
+Then open `http://localhost:7310`.
+
+## Further reading
+
+- [Dokploy: zero-downtime deployments](https://docs.dokploy.com/docs/core/applications/zero-downtime)
+- [Dokploy: advanced application settings](https://docs.dokploy.com/docs/core/applications/advanced)
+- [Next.js: self-hosting](https://nextjs.org/docs/app/guides/self-hosting)

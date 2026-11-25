@@ -1,55 +1,86 @@
 "use client";
 
+import clsx from "clsx";
 import {
+  AreaSeries,
   CandlestickSeries,
   ColorType,
   CrosshairMode,
   HistogramSeries,
   LineStyle,
+  LineType,
   createChart,
+  type AutoscaleInfoProvider,
   type IChartApi,
   type ISeriesApi,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { CandlestickChart } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { Coin } from "@cook/shared";
+import Link from "next/link";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { otcPolicy, type CoinDetail } from "@gantry/shared";
+import { bucketHex } from "@/lib/buckets";
 import { useCandles } from "@/lib/data";
-import { num, sig, usd } from "@/lib/format";
-import { Change, Segmented, Skeleton } from "@/components/ui";
-import { TinyPrice } from "./TinyPrice";
+import { bps, num, sig } from "@/lib/format";
+import { Panel, Segmented, Skeleton } from "@/components/ui";
 
-type Interval = "1m" | "5m" | "15m" | "1h";
+type Timeframe = "1m" | "5m" | "15m" | "1h";
+type Look = "line" | "candles";
 
-const colors = {
-  up: "#2BD99A",
-  down: "#FF5C7C",
-  upVol: "rgba(43,217,154,0.28)",
-  downVol: "rgba(255,92,124,0.28)",
-  text: "#6F7CA6",
-  grid: "rgba(148,166,230,0.05)",
-  cross: "rgba(148,166,230,0.25)",
-  label: "#19233F",
+const timeframes: { value: Timeframe; label: string }[] = [
+  { value: "1m", label: "1m" },
+  { value: "5m", label: "5m" },
+  { value: "15m", label: "15m" },
+  { value: "1h", label: "1h" },
+];
+const looks: { value: Look; label: string }[] = [
+  { value: "line", label: "Line" },
+  { value: "candles", label: "Candles" },
+];
+
+/* The canvas cannot read CSS variables, so the chart's colours are written out here. */
+const palette = {
+  text: "#858892",
+  grid: "rgba(255, 255, 255, 0.04)",
+  crosshair: "rgba(255, 255, 255, 0.2)",
+  crosshairLabel: "#2A2C33",
+  up: "#5DD39E",
+  down: "#F2777A",
+  // the OTC reserve's line: `desk`, and `desk` at 18% over the card for the fill of its label
+  reserve: bucketHex.otcReserve,
+  reserveLabel: "#323043",
 } as const;
+const fade = (hex: string, alpha: number) => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+};
 
-export function PriceChart({ coin }: { coin: Coin }) {
-  const [interval, setInterval] = useState<Interval>("5m");
-  const [mode, setMode] = useState<"mcap" | "price">("mcap");
-  const { data, isLoading, isError } = useCandles(coin.address, interval);
+/**
+ * The coin's price in USD (or in its pair's token when that has no USD price), as a soft line or as candles.
+ * While the OTC reserve is open for the coin, a dashed line marks what it pays per coin right now and a sentence
+ * under the chart says so. That price follows the market, so the line moves with it.
+ */
+export function PriceChart({ coin }: { coin: CoinDetail }) {
+  const [timeframe, setTimeframe] = useState<Timeframe>("5m");
+  const [look, setLook] = useState<Look>("line");
+  const { data, isLoading, isError } = useCandles(coin.address, timeframe);
   const el = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
+  const line = useRef<ISeriesApi<"Area"> | null>(null);
   const candles = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volume = useRef<ISeriesApi<"Histogram"> | null>(null);
 
-  // circulating supply, so price candles can be shown as market cap
-  const supply = coin.price > 0 ? coin.marketCap / coin.price : 1e9;
-  // candles are in the quote asset; the chart shows USD whenever the quote has a USD price
+  // candles come in the pair's token; the chart shows USD whenever that token has a USD price
   const toUsd = coin.quote.usdPerUnit > 0 ? coin.quote.usdPerUnit : 0;
-  const factor = (mode === "mcap" ? supply : 1) * (toUsd || 1);
+  const factor = toUsd || 1;
   const prefix = toUsd ? "$" : "";
 
-  // prices and market caps never go below zero; the scale's bottom margin (room for volume) would otherwise be labelled negative
+  // nothing here goes below zero; without this the scale's bottom margin gets negative labels
   const fmt = useMemo(() => (p: number) => (p < 0 ? "" : `${prefix}${Math.abs(p) >= 1 ? num(p) : sig(p, 4)}`), [prefix]);
+
+  const sorted = useMemo(() => (data ? [...data].sort((a, b) => a.t - b.t) : []), [data]);
+
+  // what the reserve pays per coin right now, in the chart's unit; 0 while it is not open for this coin
+  const reserve = coin.otc.twapReady && coin.otc.sellPrice > 0 ? coin.otc.sellPrice * factor : 0;
 
   useEffect(() => {
     if (!el.current) return;
@@ -57,48 +88,75 @@ export function PriceChart({ coin }: { coin: Coin }) {
       autoSize: true,
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
-        textColor: colors.text,
-        // the canvas can't read CSS variables: hand it the body's resolved font stack
-        fontFamily: getComputedStyle(document.body).fontFamily,
-        fontSize: 11,
+        textColor: palette.text,
+        // axis labels are set in the page's own font: hand the canvas the resolved stack of the container
+        fontFamily: getComputedStyle(el.current).fontFamily,
+        fontSize: 12,
         attributionLogo: false,
       },
-      grid: { vertLines: { color: "transparent" }, horzLines: { color: colors.grid } },
-      rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.22 } },
-      timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false },
+      grid: { vertLines: { visible: false }, horzLines: { color: palette.grid } },
+      rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.14, bottom: look === "candles" ? 0.22 : 0.08 } },
+      // the edges are fixed to the data: the view cannot be dragged into empty space, and the first and last
+      // time labels are kept inside the plot instead of being cut off
+      timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false, fixLeftEdge: true, fixRightEdge: true },
       crosshair: {
-        mode: CrosshairMode.Normal,
-        horzLine: { color: colors.cross, style: LineStyle.Dashed, labelBackgroundColor: colors.label },
-        vertLine: { color: colors.cross, style: LineStyle.Dashed, labelBackgroundColor: colors.label },
+        mode: CrosshairMode.Magnet,
+        horzLine: { color: palette.crosshair, style: LineStyle.Dashed, labelBackgroundColor: palette.crosshairLabel },
+        vertLine: { color: palette.crosshair, style: LineStyle.Dashed, labelBackgroundColor: palette.crosshairLabel },
       },
+      // a vertical drag on a phone scrolls the page, not the price scale
+      handleScroll: { vertTouchDrag: false },
       localization: { priceFormatter: fmt },
     });
-    candles.current = c.addSeries(CandlestickSeries, {
-      upColor: colors.up,
-      downColor: colors.down,
-      wickUpColor: colors.up,
-      wickDownColor: colors.down,
-      borderVisible: false,
-      priceFormat: { type: "custom", formatter: fmt, minMove: 1e-12 },
-    });
-    volume.current = c.addSeries(HistogramSeries, {
-      priceScaleId: "vol",
-      priceFormat: { type: "volume" },
-      lastValueVisible: false,
-      priceLineVisible: false,
-    });
-    c.priceScale("vol").applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } });
+    const priceFormat = { type: "custom" as const, formatter: fmt, minMove: 1e-12 };
+    if (look === "line") {
+      line.current = c.addSeries(AreaSeries, {
+        lineWidth: 2,
+        lineType: LineType.Curved,
+        priceLineVisible: false,
+        crosshairMarkerRadius: 4,
+        crosshairMarkerBorderWidth: 0,
+        priceFormat,
+      });
+    } else {
+      candles.current = c.addSeries(CandlestickSeries, {
+        upColor: palette.up,
+        downColor: palette.down,
+        wickUpColor: palette.up,
+        wickDownColor: palette.down,
+        borderVisible: false,
+        priceLineVisible: false,
+        priceFormat,
+      });
+      volume.current = c.addSeries(HistogramSeries, {
+        priceScaleId: "vol",
+        priceFormat: { type: "volume" },
+        lastValueVisible: false,
+        priceLineVisible: false,
+      });
+      c.priceScale("vol").applyOptions({ scaleMargins: { top: 0.86, bottom: 0 } });
+    }
     chart.current = c;
     return () => {
       c.remove();
       chart.current = null;
+      line.current = null;
+      candles.current = null;
+      volume.current = null;
     };
-  }, [fmt]);
+  }, [fmt, look]);
 
   useEffect(() => {
-    if (!candles.current || !volume.current || !data) return;
-    const sorted = [...data].sort((a, b) => a.t - b.t);
-    candles.current.setData(
+    if (!chart.current || !data) return;
+    if (line.current) {
+      // the line is green when the period ends above where it began, red when it ends below
+      const first = sorted[0];
+      const last = sorted[sorted.length - 1];
+      const tone = !first || !last || last.c >= first.o ? palette.up : palette.down;
+      line.current.applyOptions({ lineColor: tone, topColor: fade(tone, 0.24), bottomColor: fade(tone, 0), crosshairMarkerBackgroundColor: tone });
+      line.current.setData(sorted.map((d) => ({ time: d.t as UTCTimestamp, value: d.c * factor })));
+    }
+    candles.current?.setData(
       sorted.map((d) => ({
         time: d.t as UTCTimestamp,
         open: d.o * factor,
@@ -107,74 +165,117 @@ export function PriceChart({ coin }: { coin: Coin }) {
         close: d.c * factor,
       })),
     );
-    volume.current.setData(
+    volume.current?.setData(
       sorted.map((d) => ({
         time: d.t as UTCTimestamp,
-        value: d.v * (toUsd || 1),
-        color: d.c >= d.o ? colors.upVol : colors.downVol,
+        value: d.v * factor,
+        color: fade(d.c >= d.o ? palette.up : palette.down, 0.22),
       })),
     );
-    chart.current?.timeScale().fitContent();
-  }, [data, factor, toUsd]);
+    chart.current.timeScale().fitContent();
+  }, [data, sorted, factor, fmt, look]);
 
-  const headline =
-    mode === "mcap" ? (toUsd ? usd(coin.marketCapUsd) : `${fmt(coin.marketCap)} ${coin.quote.symbol}`) : null;
+  // the reserve's price as one dashed line; the scale stretches to it, so it is in view at every candle length
+  useEffect(() => {
+    const series = line.current ?? candles.current;
+    if (!series || !(reserve > 0)) return;
+    const stretch: AutoscaleInfoProvider = (original) => {
+      const info = original();
+      if (info?.priceRange) {
+        info.priceRange.minValue = Math.min(info.priceRange.minValue, reserve);
+        info.priceRange.maxValue = Math.max(info.priceRange.maxValue, reserve);
+      }
+      return info;
+    };
+    series.applyOptions({ autoscaleInfoProvider: stretch });
+    const mark = series.createPriceLine({
+      price: reserve,
+      title: "Reserve",
+      color: fade(palette.reserve, 0.7),
+      lineWidth: 1,
+      lineStyle: LineStyle.Dashed,
+      axisLabelVisible: true,
+      axisLabelColor: palette.reserveLabel,
+      axisLabelTextColor: palette.reserve,
+    });
+    return () => {
+      // a change of style or unit has already removed this series together with its chart
+      if (line.current !== series && candles.current !== series) return;
+      series.removePriceLine(mark);
+      series.applyOptions({ autoscaleInfoProvider: undefined });
+    };
+  }, [reserve, fmt, look]);
+
+  const empty = !isLoading && (isError || sorted.length === 0);
 
   return (
-    <section className="surface rounded-[24px] p-4 sm:p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-xs text-muted">
-            <CandlestickChart size={14} className="text-accent" />
-            {mode === "mcap" ? "Market cap" : toUsd ? "Price (USD)" : `Price in ${coin.quote.symbol}`}
-          </div>
-          <div className="mt-1 flex items-baseline gap-2.5">
-            <span className="num font-display text-[28px] leading-tight font-bold">
-              {headline ??
-                (toUsd ? (
-                  <>
-                    $<TinyPrice value={coin.priceUsd} />
-                  </>
-                ) : (
-                  <>
-                    <TinyPrice value={coin.price} /> {coin.quote.symbol}
-                  </>
-                ))}
-            </span>
-            <Change value={coin.change24h} pill className="text-xs" />
-            <span className="text-[11px] text-faint">24h</span>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Segmented
-            size="sm"
-            value={mode}
-            onChange={setMode}
-            options={[
-              { value: "mcap", label: "MCap" },
-              { value: "price", label: "Price" },
-            ]}
-          />
-          <Segmented
-            size="sm"
-            value={interval}
-            onChange={setInterval}
-            options={(["1m", "5m", "15m", "1h"] as const).map((v) => ({ value: v, label: v }))}
-          />
-        </div>
+    <Panel as="section" aria-label={`${coin.symbol} price chart`}>
+      <div className="flex flex-wrap items-center justify-between gap-2 px-[var(--card-pad)] pt-[var(--card-pad)]">
+        <Segmented size="sm" aria-label="Chart style" value={look} onChange={setLook} options={looks} />
+        <Segmented size="sm" aria-label="Candle length" value={timeframe} onChange={setTimeframe} options={timeframes} />
       </div>
-      <div className="relative mt-4 h-[320px] sm:h-[420px]">
-        <div ref={el} className="absolute inset-0" />
-        {isLoading && <Skeleton className="absolute inset-0 rounded-2xl" />}
-        {(isError || (data && data.length === 0)) && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
-            <div className="spectrum h-1 w-10 rounded-full opacity-70" />
-            <p className="text-xs text-muted">
-              {isError ? "Chart data unavailable right now." : "No trades yet. The first buy draws the first candle."}
+
+      <div className="relative mt-4 h-[300px] sm:h-[380px] lg:h-[440px]">
+        <div ref={el} className={clsx("absolute top-0 right-2 bottom-3 left-[var(--card-pad)]", (isLoading || empty) && "invisible")} />
+        {isLoading && <Skeleton className="absolute inset-[var(--card-pad)] top-0" />}
+        {empty && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center">
+            <p className="text-base font-medium text-ink">{isError ? "The chart did not load" : "Nothing to chart yet"}</p>
+            <p className="mt-1.5 max-w-xs text-sm leading-relaxed text-ink-2">
+              {isError ? "It keeps retrying on its own." : "The chart starts with this coin's first trade."}
             </p>
           </div>
         )}
       </div>
-    </section>
+
+      {reserve > 0 && !empty && <ReserveNote coin={coin} price={toUsd ? fmt(reserve) : `${fmt(reserve)} ${coin.quote.symbol}`} />}
+    </Panel>
+  );
+}
+
+/**
+ * The line under the chart that names the dashed line: what the OTC reserve pays for this coin right now and how
+ * much it can take, with the way to sell into it. The price is the market's, never a promise, and the sentence
+ * behind "What is this?" says how it is set.
+ */
+function ReserveNote({ coin, price }: { coin: CoinDetail; price: string }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  const limit = coin.otc.sellLimitSol;
+  const reserveLink = (
+    <Link href={`/otc?coin=${coin.address}`} className="link">
+      OTC reserve
+    </Link>
+  );
+  const figure = "num font-medium text-ink";
+  return (
+    <div className="px-[var(--card-pad)] pt-1 pb-[var(--card-pad)] text-sm leading-relaxed text-ink-2">
+      <p>
+        <span aria-hidden className="mr-2.5 inline-block w-5 border-t border-dashed border-desk align-middle" />
+        {limit > 0 ? (
+          <>
+            The {reserveLink} buys at <span className={figure}>{price}</span> right now, up to <span className={figure}>{num(limit, 2)} SOL</span>.
+          </>
+        ) : (
+          <>
+            The {reserveLink} would buy at <span className={figure}>{price}</span>, but it is empty for now.
+          </>
+        )}{" "}
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={id}
+          onClick={() => setOpen((o) => !o)}
+          // the ::after stretches the tap target on phones
+          className="relative rounded-sm text-[13px] whitespace-nowrap text-ink-3 underline decoration-white/20 underline-offset-[3px] transition-colors after:absolute after:-inset-x-2 after:-inset-y-3 hover:text-ink"
+        >
+          What is this?
+        </button>
+      </p>
+      <p id={id} hidden={!open} className="mt-2 max-w-2xl text-[13px] leading-relaxed text-ink-2">
+        The reserve is a SOL wallet you can sell this coin into with no slippage. Its price follows the market: the lower of the current price
+        and the {otcPolicy.twapSeconds / 60}-minute average, minus {bps(otcPolicy.spreadBps)}, and it only buys up to its limit.
+      </p>
+    </div>
   );
 }

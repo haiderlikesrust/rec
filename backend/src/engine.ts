@@ -1,22 +1,11 @@
-import type {
-  Balances,
-  LaunchRequest,
-  LaunchResponse,
-  PairSetup,
-  SolToQuote,
-  SwapQuote,
-  SwapRequest,
-  SwapResponse,
-  SwapSide,
-  TxEnvelope,
-} from "@cook/shared";
+import type { Balances, LaunchRequest, LaunchResponse, SolToQuote, SwapQuote, SwapRequest, SwapResponse, SwapSide, TxEnvelope } from "@gantry/shared";
 import type { Role } from "./config";
 import type { CoinRow, OtcQuoteRow } from "./db";
 
 /**
- * Everything that touches money goes through an Engine. `chain/engine.ts` does it on Solana with Meteora pools and
- * the backend-controlled wallets; `demo/engine.ts` simulates the same moves in the database. The API, the fee
- * router, Nest entries, OTC and protection only ever talk to this interface.
+ * Everything that touches money goes through an Engine. `chain/engine.ts` does it on Solana with Raydium's pools
+ * (a LaunchLab curve, then CPMM) and the backend-controlled wallets; `demo/engine.ts` simulates the same moves in the
+ * database. The API, the fee router, Fleet entries, OTC and protection only ever talk to this interface.
  */
 /** Periodic background work. Only the server holding the lease runs it (see lease.ts). */
 export type Job = { name: string; ms: number; run: () => Promise<unknown> | unknown };
@@ -27,7 +16,7 @@ export interface Engine {
   readonly wallets: Record<Role, string>;
 
   start(): Promise<void>;
-  /** The engine's own background work (chain indexing, migrations, holder reconciliation). */
+  /** The engine's own background work (chain indexing, finding graduated pools, holder reconciliation). */
   jobs(): Job[];
 
   // ---- reads
@@ -37,26 +26,36 @@ export interface Engine {
   // ---- user transactions (built here, signed by the user's wallet)
   swapQuote(c: CoinRow, side: SwapSide, amount: bigint, slippageBps: number, wallet?: string): Promise<SwapQuote>;
   swap(c: CoinRow, req: SwapRequest): Promise<SwapResponse>;
-  /** `entry`: a copy's Nest entry in raw quote, bought with the first buy for the fee wallet, and the leader it goes to. */
+  /**
+   * Creates the coin and its curve, with the creator's first buy, in one transaction.
+   * `entry`: a copy's Fleet entry in raw quote, bought with the first buy for the fee wallet, and the leader it goes to.
+   */
   launch(req: LaunchRequest, metadataUri: string, entry?: { raw: bigint; to: string }): Promise<LaunchResponse>;
-  /** A custom pair's config, created with the launcher as payer; no transaction when a current one exists. */
-  pairSetup(wallet: string, quote: string): Promise<PairSetup>;
+  /**
+   * Brings what is known about a quote up to date before a coin is launched on it: its price, and whether its fees
+   * could be turned into SOL. With hundreds of quotes these are otherwise looked at in turn, minutes apart.
+   */
+  checkQuote(mint: string): Promise<void>;
   /** Jupiter swap from SOL into a quote, for a first buy paid in SOL. Demo mode settles it immediately. */
   solToQuote(wallet: string, quote: string, lamports: bigint): Promise<SolToQuote>;
-  /** Throws a UserError when a mint can't be a custom pair; returns its decimals (null in demo mode, which has no chain). */
-  checkQuoteMint(mint: string): Promise<{ decimals: number } | null>;
   /** OTC trade as one transaction co-signed by the OTC wallet. Demo mode settles it immediately. */
   otcTx(q: OtcQuoteRow, c: CoinRow): Promise<TxEnvelope>;
   /** True once `signature` landed successfully and carries `memo` signed by the given backend wallet. */
   verify(signature: string, memo: string, signer: Role): Promise<"ok" | "pending" | "failed">;
   /** Index one transaction right away (the UI calls this after sending). */
   ingest(signature: string): Promise<void>;
-  /** Memos on a backend wallet's recent transactions, to find transfers that landed without being recorded. */
-  recentMemos(wallet: Role): Promise<{ signature: string; memo: string }[]>;
 
   // ---- treasury moves (fee wallet and friends)
-  /** Claims the fee wallet's accrued trading fees on a coin's pool. Returns the raw quote received. */
+  /**
+   * Brings the platform fees a coin's curve trades left in the platform's vault into the fee wallet. Returns the raw
+   * quote the coin had waiting there.
+   */
   claimFees(c: CoinRow): Promise<bigint>;
+  /**
+   * After graduation: collects what the coin's CPMM pool owes the fee wallet (the locked LP's fees and the creator
+   * fee) and burns the part that arrives in the coin itself. Returns the raw quote received and the coins burned.
+   */
+  harvestFees(c: CoinRow): Promise<{ quote: bigint; burned: bigint; sig: string }>;
   /** Burns up to `amount` of a coin a backend wallet holds; returns what it actually burned. */
   burnHeld(from: Role, c: CoinRow, amount: bigint): Promise<{ burned: bigint; sig: string }>;
   /** Swaps inside the fee wallet (Jupiter on mainnet). Wrapped-SOL mint means native SOL. */
@@ -68,5 +67,4 @@ export interface Engine {
 
 export class UserError extends Error {}
 
-// the prefix predates the rename; landed transactions carry it, so it stays
-export const memoFor = (kind: "otc" | "claim", id: string) => `recur:${kind}:${id}`;
+export const memoFor = (kind: "otc", id: string) => `gantry:${kind}:${id}`;

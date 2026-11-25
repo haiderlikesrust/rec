@@ -1,125 +1,68 @@
 "use client";
 
-import clsx from "clsx";
-import { ArrowLeft, Check, Copy, Egg, ExternalLink, Globe, GraduationCap, Send } from "lucide-react";
-import Link from "next/link";
 import { useState, type ReactNode } from "react";
-import { brand, isSolanaAddress, type CoinDetail } from "@cook/shared";
+import { isSolanaAddress } from "@gantry/shared";
 import { useCoin, useStats } from "@/lib/data";
-import { explorerAddress, explorerToken } from "@/lib/explorer";
-import { age, num, short, tokens, units, usd } from "@/lib/format";
 import { useStickyTop } from "@/lib/useStickyTop";
-import { CoinAvatar } from "@/components/CoinAvatar";
-import { GraduationBar } from "@/components/GraduationBar";
-import { QuoteChip } from "@/components/QuoteChip";
-import { Badge, ButtonLink, Change, EmptyState, ErrorState, Skeleton } from "@/components/ui";
-import { XLogo } from "@/components/XLogo";
-import { ActivityTabs } from "./ActivityTabs";
-import { FeesPanel } from "./FeesPanel";
+import { ButtonLink, EmptyState, ErrorState, Skeleton } from "@/components/ui";
+import { CoinHeader } from "./CoinHeader";
+import { CoinTabs } from "./CoinTabs";
 import { MobileTradeBar } from "./MobileTradeBar";
-import { NestPanel } from "./NestPanel";
-import { OtcPanel } from "./OtcPanel";
 import { PositionCard } from "./PositionCard";
 import { PriceChart } from "./PriceChart";
-import { TinyPrice } from "./TinyPrice";
 import { TradePanel } from "./TradePanel";
 
-function ensureHttp(u: string) {
-  return /^https?:\/\//.test(u) ? u : `https://${u}`;
-}
+/*
+ * The coin page: a compact header, then two columns from 1024px.
+ *
+ *   left (wide)     the price chart, and under it the tabs (trades, holders, fees, about)
+ *   right (360px)   the buy/sell box, and under it the wallet's position when it holds the coin; sticks while scrolling
+ *
+ * Below 1024px it is one column: header, chart, position, tabs. The buy/sell box moves into the sheet that the
+ * Buy and Sell buttons docked at the bottom open. The side column dissolves (`contents`), so the position card
+ * takes its place under the chart and a wallet that holds nothing leaves no gap.
+ */
+const columns = "flex flex-col gap-5 lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-6";
+const cell = {
+  chart: "min-w-0 lg:col-start-1 lg:row-start-1",
+  side: "max-lg:contents lg:sticky lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:space-y-6",
+  tabs: "min-w-0 lg:col-start-1 lg:row-start-2",
+};
 
-function SocialButton({ href, label, children }: { href?: string; label: string; children: ReactNode }) {
-  if (!href) return null;
+const browse = (
+  <ButtonLink href="/" variant="secondary" size="sm">
+    Browse coins
+  </ButtonLink>
+);
+
+/** The page when there is no coin to show: a title for the page, then what happened and the way back. */
+function NoCoin({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      aria-label={label}
-      title={label}
-      className="flex h-9 w-9 items-center justify-center rounded-full bg-elev-2 text-muted transition-all hover:-translate-y-0.5 hover:text-fg"
-    >
+    <div className="mx-auto max-w-xl pt-6">
+      <h1 className="sr-only">{title}</h1>
       {children}
-    </a>
-  );
-}
-
-/** One cell of the stats strip. */
-function Stat({ label, value, sub }: { label: string; value: ReactNode; sub?: ReactNode }) {
-  return (
-    <div className="min-w-0 rounded-2xl bg-elev px-3.5 py-3 shadow-card sm:px-4">
-      <div className="font-display truncate text-[10px] font-semibold tracking-[0.08em] text-faint uppercase">{label}</div>
-      <div className="num font-display mt-1 truncate text-base font-bold sm:text-lg">{value}</div>
-      {sub && <div className="num mt-0.5 truncate text-[11px] text-faint">{sub}</div>}
     </div>
   );
 }
 
-/** Long descriptions stay two lines until opened. */
-function Description({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
+function PageSkeleton() {
   return (
-    <div className="relative mt-3 max-w-3xl">
-      <p className={clsx("text-sm leading-relaxed text-muted", !open && "line-clamp-2")}>{text}</p>
-      {text.length > 140 && (
-        <button onClick={() => setOpen((o) => !o)} className="font-display mt-1 text-xs font-semibold text-accent-2 hover:underline">
-          {open ? "Show less" : "Show more"}
-        </button>
-      )}
-    </div>
-  );
-}
-
-function GraduationStatus({ coin }: { coin: CoinDetail }) {
-  const q = coin.quote;
-  if (coin.graduated)
-    return (
-      <div className="surface flex flex-col gap-2 rounded-[24px] px-5 py-4 sm:flex-row sm:items-center sm:gap-4">
-        <div className="flex shrink-0 items-center gap-2 text-sm">
-          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-up-soft text-up">
-            <GraduationCap size={15} />
-          </span>
-          <span className="font-display font-semibold">Graduated to Meteora DAMM v2</span>
+    <div className="space-y-6" aria-busy="true" aria-label="Loading the coin">
+      <div className="space-y-5">
+        <div className="flex items-center gap-4">
+          <Skeleton className="size-[52px]" />
+          <div className="flex-1 space-y-2.5">
+            <Skeleton className="h-7 w-48 sm:w-64" />
+            <Skeleton className="h-4 w-56 sm:w-80" />
+          </div>
+          <Skeleton className="hidden h-12 w-40 sm:block" />
         </div>
-        <span className="text-xs text-muted sm:flex-1">
-          Same 3% fee on every trade. The pool&apos;s liquidity is locked for good, and its fees keep funding OTC and {brand.landing}.
-        </span>
-        {coin.dammPool && (
-          <a
-            href={explorerAddress(coin.dammPool)}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex shrink-0 items-center gap-1 text-xs text-muted transition-colors hover:text-fg"
-          >
-            View pool <ExternalLink size={12} />
-          </a>
-        )}
+        <Skeleton className="h-2 w-full" />
       </div>
-    );
-  return (
-    <div className="surface flex flex-col gap-3 rounded-[24px] px-5 py-4 sm:flex-row sm:items-center sm:gap-5">
-      <div className="flex shrink-0 items-center gap-2 text-sm">
-        <GraduationCap size={17} className="text-accent-2" />
-        <span className="font-display font-semibold">Graduation</span>
-        <span className="num text-xs text-muted">
-          {num(coin.quoteInPool)} / {num(coin.graduationThreshold)} {q.symbol} in the curve
-        </span>
+      <div className={columns}>
+        <Skeleton className={`${cell.chart} h-[360px] sm:h-[440px] lg:h-[500px]`} />
+        <Skeleton className="hidden h-[420px] lg:col-start-2 lg:row-start-1 lg:block" />
       </div>
-      <GraduationBar className="flex-1" progress={coin.graduationProgress} graduated={false} />
-      <span className="hidden shrink-0 text-[11px] text-faint xl:inline">moves to Meteora DAMM v2 at {usd(q.graduationMcapUsd)}</span>
-    </div>
-  );
-}
-
-function TokenSkeleton() {
-  return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
-      <div className="space-y-4">
-        <Skeleton className="h-28 w-full rounded-[24px]" />
-        <Skeleton className="h-16 w-full rounded-2xl" />
-        <Skeleton className="h-[440px] rounded-[24px]" />
-      </div>
-      <Skeleton className="h-[520px] rounded-[24px]" />
     </div>
   );
 }
@@ -129,176 +72,54 @@ export function TokenView({ address }: { address: string }) {
   const { data: coin, isLoading, isError, error } = useCoin(valid ? address : undefined);
   const { data: stats } = useStats();
   const solUsd = stats?.solUsd ?? 0;
-  const [copied, setCopied] = useState(false);
-  const [aside, setAside] = useState<HTMLElement | null>(null);
-  const asideTop = useStickyTop(aside);
+  const [side, setSide] = useState<HTMLElement | null>(null);
+  // where the side column's top sits once its end is in view; its resting place under the navbar comes from the
+  // shell's own metrics in CSS, so the hook's fixed offset is set out of reach
+  const sideEnd = useStickyTop(side, 100_000);
 
-  if (!valid) return <EmptyState title="That's not a coin address" action={<ButtonLink href="/">Back to coins</ButtonLink>} />;
-  if (isLoading) return <TokenSkeleton />;
-  if (isError || !coin)
-    return String(error).includes("404") ? (
-      <EmptyState title="Coin not found" detail="It may not be indexed yet. Give it a few seconds." action={<ButtonLink href="/">Back to coins</ButtonLink>} />
-    ) : (
-      <ErrorState />
+  if (!valid)
+    return (
+      <NoCoin title="Not a coin address">
+        <EmptyState title="That is not a coin address" detail="A coin page needs the coin's full Solana address in the link." action={browse} />
+      </NoCoin>
     );
-
-  const q = coin.quote;
-  const burnedPct = (units(coin.burned, coin.decimals) / 1e9) * 100;
-  const copy = () => {
-    navigator.clipboard?.writeText(coin.address).then(
-      () => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1200);
-      },
-      () => {},
+  if (isLoading) return <PageSkeleton />;
+  if (isError || !coin) {
+    // the backend answers an unknown mint with 404 and `{ error: "not found" }`
+    const missing = /404|not found/i.test(String(error));
+    return (
+      <NoCoin title={missing ? "Coin not found" : "Coin did not load"}>
+        {missing ? (
+          <EmptyState
+            title="No coin at this address"
+            detail="A coin launched seconds ago can take a moment to show up. This page keeps checking."
+            action={browse}
+          />
+        ) : (
+          <ErrorState title="This coin did not load" />
+        )}
+      </NoCoin>
     );
-  };
-  const twitter = coin.twitter
-    ? coin.twitter.startsWith("http")
-      ? coin.twitter
-      : `https://x.com/${coin.twitter.replace(/^@/, "")}`
-    : undefined;
-  const telegram = coin.telegram
-    ? coin.telegram.startsWith("http")
-      ? coin.telegram
-      : `https://t.me/${coin.telegram.replace(/^@/, "")}`
-    : undefined;
-  const socials = (
-    <>
-      <SocialButton href={coin.website ? ensureHttp(coin.website) : undefined} label="Website">
-        <Globe size={14} />
-      </SocialButton>
-      <SocialButton href={twitter} label="X">
-        <XLogo size={12} />
-      </SocialButton>
-      <SocialButton href={telegram} label="Telegram">
-        <Send size={13} />
-      </SocialButton>
-      <SocialButton href={explorerToken(coin.address)} label="Solscan">
-        <ExternalLink size={13} />
-      </SocialButton>
-    </>
-  );
+  }
 
   return (
-    <div className="space-y-4">
-      <Link href="/" className="font-display inline-flex items-center gap-1.5 text-sm font-semibold text-muted transition-colors hover:text-fg">
-        <ArrowLeft size={15} /> All coins
-      </Link>
+    <div className="space-y-6">
+      <CoinHeader coin={coin} />
 
-      {/* phones read top to bottom: header, chart, your position, then the details; desktop keeps trading in a side column */}
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-x-6 lg:gap-y-4">
-        <div className="min-w-0 space-y-3 lg:col-start-1 lg:row-start-1">
-          <section className="surface relative overflow-hidden rounded-[32px] p-5 sm:p-6">
-            <div className="spectrum pointer-events-none absolute -top-28 -right-24 h-56 w-56 rounded-full opacity-[0.14] blur-3xl" aria-hidden />
-            <div className="relative flex items-start gap-3 sm:gap-4">
-              <div className="relative shrink-0">
-                <div className="spectrum absolute -inset-1 rounded-full opacity-40 blur-md" aria-hidden />
-                <CoinAvatar src={coin.image} symbol={coin.symbol} seed={coin.address} size={56} className="relative" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex min-w-0 items-baseline gap-2">
-                  <h1 className="font-display truncate text-[26px] leading-tight font-bold sm:text-4xl">{coin.name}</h1>
-                  <span className="font-display shrink-0 text-base font-semibold text-muted sm:text-xl">${coin.symbol}</span>
-                </div>
-                <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted">
-                  <QuoteChip symbol={q.symbol} logo={q.logo} pair={coin.symbol} />
-                  {coin.isMain && <Badge tone="accent">Official {brand.name} token</Badge>}
-                  {coin.bloodline &&
-                    (coin.bloodline.unpaid ? (
-                      <Badge tone="down">
-                        <Egg size={11} /> Copy of ${coin.bloodline.og.symbol} · skipped the entry
-                      </Badge>
-                    ) : coin.bloodline.og.address === coin.address ? (
-                      <Badge tone="nest">
-                        <Egg size={11} /> {brand.nest} of {coin.bloodline.members} · {coin.bloodline.members - 1}{" "}
-                        {coin.bloodline.members === 2 ? "copy" : "copies"}
-                      </Badge>
-                    ) : (
-                      <Link href={`/token/${coin.bloodline.og.address}`}>
-                        <Badge tone="nest">
-                          <Egg size={11} /> Copy of ${coin.bloodline.og.symbol}
-                        </Badge>
-                      </Link>
-                    ))}
-                  {coin.graduated && (
-                    <Badge tone="up">
-                      <GraduationCap size={11} /> Graduated
-                    </Badge>
-                  )}
-                  <span className="whitespace-nowrap">
-                    by{" "}
-                    <a href={explorerAddress(coin.creator)} target="_blank" rel="noreferrer" className="num text-fg/80 hover:text-fg">
-                      {short(coin.creator)}
-                    </a>
-                  </span>
-                  <span className="text-faint">·</span>
-                  <span className="whitespace-nowrap">{age(coin.createdAt)} ago</span>
-                  <button
-                    onClick={copy}
-                    className="num inline-flex items-center gap-1.5 rounded-full bg-elev-2 px-2.5 py-0.5 font-semibold transition-colors hover:text-fg"
-                  >
-                    {short(coin.address, 5)}
-                    {copied ? <Check size={11} className="text-up" /> : <Copy size={11} />}
-                  </button>
-                </div>
-              </div>
-              <div className="hidden shrink-0 gap-1.5 sm:flex">{socials}</div>
-            </div>
-            <div className="relative mt-3 flex gap-1.5 sm:hidden">{socials}</div>
-            {coin.description && <Description text={coin.description} />}
-          </section>
-
-          <div className="grid grid-cols-3 gap-2 xl:grid-cols-6">
-            <Stat label="Market cap" value={usd(coin.marketCapUsd)} sub={<Change value={coin.change24h} className="text-[11px]" />} />
-            <Stat
-              label="Price"
-              value={
-                <>
-                  $<TinyPrice value={coin.priceUsd} />
-                </>
-              }
-              sub={
-                <>
-                  <TinyPrice value={coin.price} /> {q.symbol}
-                </>
-              }
-            />
-            <Stat label="24h volume" value={usd(coin.volume24hUsd)} sub={`${coin.trades24h} trades`} />
-            <Stat label="Holders" value={num(coin.holders)} sub="wallets" />
-            <Stat label="Burned via OTC" value={`${burnedPct.toFixed(2)}%`} sub={`${tokens(coin.burned, coin.decimals)} ${coin.symbol}`} />
-            <Stat label="Fees paid" value={usd(coin.feesUsd)} sub={`all to OTC + ${brand.landing}`} />
-          </div>
-        </div>
-
-        <div className="min-w-0 lg:col-start-1 lg:row-start-2">
+      <div className={columns}>
+        <div className={cell.chart}>
           <PriceChart coin={coin} />
         </div>
 
-        {/* trading stays in view on desktop: the column sticks, and scrolls with the page when it's taller than the screen */}
-        <aside ref={setAside} style={{ top: asideTop }} className="space-y-4 lg:sticky lg:col-start-2 lg:row-span-6 lg:row-start-1">
-          {/* phones trade from the bottom bar's sheet instead */}
-          <div className="hidden lg:block">
-            <TradePanel coin={coin} />
-          </div>
+        {/* sticks under the navbar; a column taller than the window scrolls until its end is in view */}
+        <aside ref={setSide} style={{ top: `min(calc(var(--chrome-top) + 20px), ${sideEnd}px)` }} aria-label="Trade" className={cell.side}>
+          <TradePanel coin={coin} className="max-lg:hidden" />
           <PositionCard coin={coin} />
         </aside>
 
-        <div className="min-w-0 lg:col-start-1 lg:row-start-3">
-          <GraduationStatus coin={coin} />
-        </div>
-        {/* what this coin's 3% has built, side by side on wide screens */}
-        <div className="grid min-w-0 grid-cols-1 items-start gap-4 lg:col-start-1 lg:row-start-4 xl:grid-cols-[1.35fr_1fr]">
-          <FeesPanel coin={coin} solUsd={solUsd} />
-          <OtcPanel coin={coin} solUsd={solUsd} />
-        </div>
-        <div className="min-w-0 lg:col-start-1 lg:row-start-5">
-          <NestPanel coin={coin} />
-        </div>
-        <div className="min-w-0 lg:col-start-1 lg:row-start-6">
-          <ActivityTabs coin={coin} />
-        </div>
+        <CoinTabs coin={coin} solUsd={solUsd} className={cell.tabs} />
       </div>
+
       <MobileTradeBar coin={coin} />
     </div>
   );

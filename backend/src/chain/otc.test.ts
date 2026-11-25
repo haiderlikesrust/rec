@@ -8,13 +8,13 @@ import type { CoinRow, OtcQuoteRow } from "../db";
 
 // an isolated real-mode database; the RPC calls the OTC transaction needs are stubbed, so no network
 process.env.DB_FILE = ":memory:";
-process.env.DATA_DIR = mkdtempSync(path.join(tmpdir(), "recur-otc-test-"));
+process.env.DATA_DIR = mkdtempSync(path.join(tmpdir(), "gantry-otc-test-"));
 process.env.CLUSTER = "mainnet-beta";
 delete process.env.DEMO;
 
 const { Keypair, SystemProgram, Transaction } = await import("@solana/web3.js");
 const { TOKEN_PROGRAM_ID, TokenInstruction, getAssociatedTokenAddressSync } = await import("@solana/spl-token");
-const { NATIVE_MINT } = await import("@cook/shared");
+const { NATIVE_MINT } = await import("@gantry/shared");
 const { ChainEngine } = await import("./engine");
 
 const keys = { fees: Keypair.generate(), otc: Keypair.generate(), protection: Keypair.generate() };

@@ -1,8 +1,8 @@
-import { NATIVE_MINT, PROTECTION_MIN_PAYOUT_SOL, otcPolicy, protectionPayout, splitRaw } from "@cook/shared";
+import { NATIVE_MINT, PROTECTION_MIN_PAYOUT_SOL, otcPolicy, protectionPayout, splitRaw } from "@gantry/shared";
 import { config, log } from "./config";
-import { all, big, claimByCoin, kvGet, kvSet, one, run, tx, type ClaimRow, type CoinRow, type LossRow, type OtcQuoteRow } from "./db";
+import { all, big, kvGet, kvSet, one, run, tx, type CoinRow, type LossRow, type OtcQuoteRow } from "./db";
 import { memoFor, type Engine } from "./engine";
-import { leaderOf } from "./bloodline";
+import { leaderOf } from "./fleet";
 import { getCoin, ledger, quoteDecimals, recordBurn, recordTrade } from "./ledger";
 import { solPerUnit, solUsd, toUnits } from "./prices";
 import { coinPotSol, isRugged, now, owedProtectionSol, treasury } from "./services";
@@ -12,15 +12,17 @@ const lamports = (sol: number) => BigInt(Math.floor(sol * LAMPORTS));
 
 // ---------------------------------------------------------------- fee router
 //
-// Per coin: claim the pool's accrued fees into the fee wallet, then convert what was received (partner fee + referral
-// rebate, plus the launch fee and any OTC tax paid in SOL) to SOL and split it in half:
+// Per coin: bring what its pools owe into the fee wallet, then convert it (plus any OTC tax paid in SOL) to SOL and
+// split it in half:
 //   OTC reserve → sent to the OTC wallet (the coin earns 2× sell credit)
 //   protection  → sent to the protection wallet (the coin's pot for its sellers' losses)
-// A copy that doesn't lead its Nest credits both halves to the Nest's leader instead (see bloodline.ts).
+// On the curve that is the platform fee of each trade, an exact amount waiting in the platform's vault. After
+// graduation it is harvested from the CPMM pool: the quote side joins the split, the coin side is burned.
+// A copy that doesn't lead its Fleet credits both halves to the Fleet's leader instead (see fleet.ts).
 
 export async function processFees(engine: Engine, at = now()) {
   let processed = 0;
-  for (const c0 of all<CoinRow>("SELECT * FROM coin WHERE income_quote != split_quote OR claimable_quote != '0' OR pending_sol > 0")) {
+  for (const c0 of all<CoinRow>("SELECT * FROM coin WHERE income_quote != split_quote OR claimable_quote != '0' OR harvest_quote != '0' OR pending_sol > 0")) {
     try {
       if (await processCoin(engine, c0, at)) processed++;
     } catch (e) {
@@ -35,9 +37,17 @@ async function processCoin(engine: Engine, c0: CoinRow, at: number) {
   const q = one<{ usd: number; decimals: number }>("SELECT usd, decimals FROM quote WHERE mint = ?", c0.quote)!;
   if (big(c0.claimable_quote) > 0n) {
     const got = await engine.claimFees(c0);
-    run("UPDATE coin SET claimable_quote = '0' WHERE mint = ?", c0.mint);
+    // on a quote with a transfer fee less arrives than waited in the vault: that part was never income
+    const short = big(c0.claimable_quote) - got;
+    const income = big(getCoin(c0.mint)!.income_quote) - (short > 0n ? short : 0n);
+    run("UPDATE coin SET claimable_quote = '0', income_quote = ? WHERE mint = ?", (income > 0n ? income : 0n).toString(), c0.mint);
     if (got > 0n) ledger({ coin: c0.mint, kind: "claim", mint: c0.quote, amount: got });
   }
+  // a harvest costs two transactions, so it waits until what the pool holds for us is worth the split's minimum
+  if (c0.cpmm_pool && toUnits(c0.harvest_quote, q.decimals) * q.usd >= config.feeMinUsd)
+    // a harvest that fails is tried again next pass; what the coin already earned is still split now
+    await harvest(engine, c0).catch((e: Error) => log(`harvest ${c0.symbol}: ${e.message}`));
+
   const c = getCoin(c0.mint)!;
   const quoteIn = big(c.income_quote) - big(c.split_quote);
   const solIn = lamports(c.pending_sol);
@@ -61,12 +71,12 @@ async function processCoin(engine: Engine, c0: CoinRow, at: number) {
   const { otcReserve: otc, protection } = splitRaw(total);
   const lead = leaderOf(c, at);
   const routed = lead.mint !== c.mint;
-  const note = routed ? `nest: from ${c.symbol} (${c.mint})` : undefined;
+  const note = routed ? `fleet: from ${c.symbol} (${c.mint})` : undefined;
   /** A copy's half that reached its leader: tallied on both sides as it lands. */
   const tally = (sol: number) => {
     if (!routed) return;
-    run("UPDATE coin SET blood_sent_sol = blood_sent_sol + ? WHERE mint = ?", sol, c.mint);
-    run("UPDATE coin SET blood_received_sol = blood_received_sol + ? WHERE mint = ?", sol, lead.mint);
+    run("UPDATE coin SET fleet_sent_sol = fleet_sent_sol + ? WHERE mint = ?", sol, c.mint);
+    run("UPDATE coin SET fleet_received_sol = fleet_received_sol + ? WHERE mint = ?", sol, lead.mint);
   };
   const send = async (to: string, amount: bigint, unsent: bigint) => {
     try {
@@ -98,6 +108,26 @@ async function processCoin(engine: Engine, c0: CoinRow, at: number) {
   return true;
 }
 
+/**
+ * Collects what a graduated coin's pool owes the fee wallet. What arrived in the quote becomes income for the next
+ * split; what arrived in the coin was burned on the way and comes off the supply. The estimate that triggered the
+ * harvest is replaced by what it actually brought in.
+ */
+async function harvest(engine: Engine, c0: CoinRow) {
+  const got = await engine.harvestFees(c0);
+  tx(() => {
+    const c = getCoin(c0.mint)!;
+    // swaps indexed while the harvest was in flight keep their estimate
+    const left = big(c.harvest_quote) - big(c0.harvest_quote);
+    run("UPDATE coin SET harvest_quote = ?, income_quote = ? WHERE mint = ?", (left > 0n ? left : 0n).toString(), (big(c.income_quote) + got.quote).toString(), c.mint);
+    if (got.quote > 0n) ledger({ coin: c.mint, kind: "harvest", mint: c.quote, amount: got.quote, tx: got.sig });
+    if (got.burned > 0n) {
+      recordBurn(c.mint, got.burned, "fees");
+      ledger({ coin: c.mint, kind: "fee-burn", mint: c.mint, amount: got.burned, tx: got.sig, note: "the coin side of the pool's fees" });
+    }
+  });
+}
+
 // ---------------------------------------------------------------- protection payouts
 
 /**
@@ -106,7 +136,6 @@ async function processCoin(engine: Engine, c0: CoinRow, at: number) {
  * wallet owed at least the minimum is paid from the protection wallet in batched transfers.
  */
 export async function runProtection(engine: Engine, at = now()) {
-  await payOldRounds(engine);
   coverLosses();
   return sendPayouts(engine, at);
 }
@@ -151,12 +180,13 @@ export function coverLosses() {
     tx(() => {
       run("UPDATE loss SET processed = 1 WHERE id = ?", l.id);
       run(
-        "INSERT INTO protection_payout (id, wallet, coin, ts, loss_sol, hold, tier_bps, amount_sol, limit_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO protection_payout (id, wallet, coin, ts, loss_sol, sol_usd, hold, tier_bps, amount_sol, limit_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         l.id,
         l.wallet,
         l.coin,
         l.ts,
         l.loss_sol,
+        l.sol_usd,
         l.hold,
         p.tierBps,
         amount,
@@ -216,49 +246,13 @@ async function sendPayouts(engine: Engine, at: number) {
   return sent.size;
 }
 
-/**
- * Claims still open from when protection paid in 6-day rounds become ordinary owed payouts, so they're sent
- * without a claim. One whose claim transaction already landed (memo on the protection wallet) is just recorded.
- */
-async function payOldRounds(engine: Engine) {
-  const open = all<ClaimRow>("SELECT * FROM protection_claim WHERE status = 'open'");
-  if (open.length === 0) return;
-  const landed = await engine.recentMemos("protection");
-  for (const c of open) {
-    const hit = landed.find((m) => m.memo.includes(memoFor("claim", c.id)));
-    if (hit) {
-      settleClaim(c.id, hit.signature);
-      continue;
-    }
-    const items = JSON.parse(c.breakdown) as { coin: string; lossSol: number; coverageBps: number; holdSeconds: number }[];
-    const amounts = new Map(claimByCoin(c.amount, c.breakdown));
-    tx(() => {
-      run("UPDATE protection_claim SET status = 'converted' WHERE id = ?", c.id);
-      // the coins' pots were charged for these when the round was published
-      for (const b of items)
-        run(
-          "INSERT OR IGNORE INTO protection_payout (id, wallet, coin, ts, loss_sol, hold, tier_bps, amount_sol, limit_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'round')",
-          `claim:${c.id}:${b.coin}`,
-          c.wallet,
-          b.coin,
-          one<{ t: number }>("SELECT published_at AS t FROM protection_epoch WHERE id = ?", c.epoch)?.t ?? now(),
-          b.lossSol,
-          b.holdSeconds,
-          b.coverageBps,
-          Number(lamports(amounts.get(b.coin) ?? 0)) / LAMPORTS,
-        );
-    });
-  }
-  log(`protection: ${open.length} open claim(s) from the old rounds will be paid automatically`);
-}
-
 // ---------------------------------------------------------------- housekeeping
 
-/** Expires stale OTC quotes, and settles OTC trades and old-round claims the UI sent but never confirmed. */
+/** Expires stale OTC quotes, and settles OTC trades the UI sent but never confirmed. */
 export async function sweep(engine: Engine, at = now()) {
   for (const q of all<OtcQuoteRow>("SELECT * FROM otc_quote WHERE status = 'issued'")) {
     if (q.signature) {
-      const s = await engine.verify(q.signature, `recur:otc:${q.id}`, "otc").catch(() => "pending" as const);
+      const s = await engine.verify(q.signature, memoFor("otc", q.id), "otc").catch(() => "pending" as const);
       if (s === "ok") {
         settleOtc(q.id, q.signature);
         continue;
@@ -266,44 +260,10 @@ export async function sweep(engine: Engine, at = now()) {
     }
     if (q.expires_at < at - 90) run("UPDATE otc_quote SET status = 'expired' WHERE id = ?", q.id);
   }
-  for (const c of all<ClaimRow>("SELECT * FROM protection_claim WHERE status = 'pending'")) {
-    if (!c.signature) {
-      if (c.last_valid_height === 0 || at > (c.claimed_at ?? 0) + 120) run("UPDATE protection_claim SET status = 'open' WHERE id = ?", c.id);
-      continue;
-    }
-    const s = await engine.verify(c.signature, `recur:claim:${c.id}`, "protection").catch(() => "pending" as const);
-    if (s === "ok") settleClaim(c.id, c.signature, at);
-    else if (s === "failed" || at > (c.claimed_at ?? 0) + 120) run("UPDATE protection_claim SET status = 'open', signature = NULL WHERE id = ?", c.id);
-  }
-  await burnOtcLeftovers(engine);
 }
 
 /**
- * Coins the OTC reserve bought before it started burning them on arrival: burn those too, so it never holds any.
- * The amount is taken off the books before the burn and put back if the burn fails, so two servers can't both burn it.
- */
-async function burnOtcLeftovers(engine: Engine) {
-  for (const c of all<CoinRow>("SELECT * FROM coin WHERE otc_inventory != '0'")) {
-    const amount = big(c.otc_inventory);
-    run("UPDATE coin SET otc_inventory = '0' WHERE mint = ?", c.mint);
-    if (amount <= 0n) continue;
-    try {
-      const { burned, sig } = await engine.burnHeld("otc", c, amount);
-      if (burned > 0n)
-        tx(() => {
-          recordBurn(c.mint, burned, "otc");
-          ledger({ coin: c.mint, kind: "otc-burn", mint: c.mint, amount: burned, tx: sig, note: "inventory from before burn-on-arrival" });
-        });
-      log(`OTC reserve: burned ${toUnits(burned, c.decimals).toFixed(0)} leftover ${c.symbol}`);
-    } catch (e) {
-      run("UPDATE coin SET otc_inventory = ? WHERE mint = ?", amount.toString(), c.mint);
-      log(`OTC leftover burn ${c.symbol}: ${(e as Error).message}`);
-    }
-  }
-}
-
-/**
- * Books a confirmed OTC trade: limits, the burn, the 3% tax as SOL fee income for the coin. The transaction that
+ * Books a confirmed OTC sale: limits, the burn, the 3% tax as SOL fee income for the coin. The transaction that
  * paid the seller also burned the coins, so a confirmed sale is a confirmed burn.
  */
 export function settleOtc(id: string, signature: string, at = now()) {
@@ -312,56 +272,40 @@ export function settleOtc(id: string, signature: string, at = now()) {
     if (!q || q.status === "done") return false;
     const c = getCoin(q.coin)!;
     const taxSol = Number(BigInt(q.tax)) / LAMPORTS;
-    // quotes issued before the reserve started burning could also buy from its inventory
-    const isSell = q.side === "sell";
-    const tokens = BigInt(isSell ? q.amount_in : q.amount_out);
+    const tokens = BigInt(q.amount_in);
     run("UPDATE otc_quote SET status = 'done', signature = ? WHERE id = ?", signature, id);
     run(
-      "UPDATE coin SET otc_credit = MAX(0, otc_credit + ?), pending_sol = pending_sol + ?, fees_sol = fees_sol + ? WHERE mint = ?",
-      isSell ? -q.sol_gross : q.sol_gross,
+      "UPDATE coin SET otc_credit = MAX(0, otc_credit - ?), pending_sol = pending_sol + ?, fees_sol = fees_sol + ? WHERE mint = ?",
+      q.sol_gross,
       taxSol,
       taxSol,
       c.mint,
     );
-    if (isSell) recordBurn(c.mint, tokens, "otc");
-    else run("UPDATE coin SET otc_inventory = ? WHERE mint = ?", (big(c.otc_inventory) - tokens).toString(), c.mint);
+    recordBurn(c.mint, tokens, "otc");
     // the trade counts like any other for cost basis and realized losses, priced in the coin's quote
     const solPer = solPerUnit(c.quote) || 1;
     const qDec = quoteDecimals(c.quote);
     const quoteAmount = BigInt(Math.floor((q.sol_gross / solPer) * 10 ** qDec));
     const taxQuote = BigInt(Math.floor((taxSol / solPer) * 10 ** qDec));
     recordTrade({
-        id: `otc:${id}`,
-        coin: c.mint,
-        trader: q.wallet,
-        isBuy: !isSell,
-        quoteAmount,
-        tokenAmount: tokens,
-        tax: taxQuote,
-        meteora: 0n,
-        claimable: 0n,
-        referral: 0n,
-        sqrtPrice: c.sqrt_price,
-        ts: at,
-        tx: signature,
-        kind: "otc",
+      id: `otc:${id}`,
+      coin: c.mint,
+      trader: q.wallet,
+      isBuy: false,
+      quoteAmount,
+      tokenAmount: tokens,
+      tax: taxQuote,
+      // the tax was paid in SOL straight to the fee wallet: it is split as pending SOL, not claimed from a pool
+      protocol: 0n,
+      claimable: 0n,
+      harvestable: 0n,
+      price: c.price,
+      ts: at,
+      tx: signature,
+      kind: "otc",
     });
-    treasury.otcSol += isSell ? -q.sol_gross : q.sol_gross - taxSol;
-    ledger({ coin: c.mint, kind: isSell ? "otc-burn" : "otc-sell", mint: c.mint, amount: tokens, sol: q.sol_gross, tx: signature });
-    return true;
-  });
-}
-
-export function settleClaim(id: string, signature: string, at = now()) {
-  return tx(() => {
-    const c = one<ClaimRow>("SELECT * FROM protection_claim WHERE id = ?", id);
-    if (!c || c.status === "claimed") return false;
-    run("UPDATE protection_claim SET status = 'claimed', signature = ?, claimed_at = ? WHERE id = ?", signature, at, id);
-    const e = one<{ claimed: string }>("SELECT claimed FROM protection_epoch WHERE id = ?", c.epoch)!;
-    run("UPDATE protection_epoch SET claimed = ? WHERE id = ?", (big(e.claimed) + big(c.amount)).toString(), c.epoch);
-    kvSet("protection_paid", big(kvGet("protection_paid")) + big(c.amount));
-    treasury.protectionSol -= Number(big(c.amount)) / LAMPORTS;
-    ledger({ kind: "protection-payout", mint: NATIVE_MINT, amount: big(c.amount), sol: Number(big(c.amount)) / LAMPORTS, tx: signature, note: c.wallet });
+    treasury.otcSol -= q.sol_gross;
+    ledger({ coin: c.mint, kind: "otc-burn", mint: c.mint, amount: tokens, sol: q.sol_gross, tx: signature });
     return true;
   });
 }
