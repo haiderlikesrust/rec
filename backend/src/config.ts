@@ -13,6 +13,9 @@ const cluster = (process.env.CLUSTER ?? (demo ? "mainnet-beta" : "devnet")) as C
 if (!clusters[cluster]) throw new Error(`Unknown CLUSTER ${cluster}`);
 const port = Number(process.env.PORT ?? 42069);
 
+/** The platform token's mint as set, stray spaces and quotes removed. */
+const mainTokenEnv = (process.env.MAIN_TOKEN_MINT ?? "").trim().replace(/^["']|["']$/g, "");
+
 export const config = {
   /** Demo mode: no chain. Coins, trades and wallets are simulated in the database. */
   demo,
@@ -25,8 +28,8 @@ export const config = {
   pinataJwt: process.env.PINATA_JWT,
   jupiterApi: (process.env.JUPITER_API ?? "https://lite-api.jup.ag").replace(/\/$/, ""),
   jupiterKey: process.env.JUPITER_API_KEY,
-  /** The platform token's mint, shown on the home page. Nothing buys it back; it trades like any coin. */
-  mainToken: isSolanaAddress(process.env.MAIN_TOKEN_MINT ?? "") ? process.env.MAIN_TOKEN_MINT! : null,
+  /** The platform token's mint, featured on the site. Nothing buys it back; it trades like any coin. */
+  mainToken: isSolanaAddress(mainTokenEnv) ? mainTokenEnv : null,
   // The fee router loops every few seconds and splits a coin's fees as soon as they are worth more than the network
   // fees it costs to move them.
   /** Split a coin's fees (convert to SOL, send to OTC and protection) once they are worth this much. */
@@ -98,3 +101,5 @@ export function loadWallets(create = config.demo): Record<Role, Keypair> {
 }
 
 export const log = (...args: unknown[]) => console.log(new Date().toISOString().slice(11, 19), ...args);
+
+if (mainTokenEnv && !config.mainToken) log("MAIN_TOKEN_MINT is not a Solana address; no platform token is shown");

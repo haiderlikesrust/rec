@@ -31,6 +31,7 @@ import { UserError, type Engine } from "./engine";
 import { fleetInfo, fleetTags, checkLaunch, tagOf } from "./fleet";
 import { otcConfirm, otcQuote } from "./flows";
 import { getCoin } from "./ledger";
+import { platformToken } from "./platformToken";
 import { listedQuotes, quoteGroupInfo, quoteRow, solUsd, toQuoteAsset, toUnits, unavailableReason } from "./prices";
 import {
   allCoins,
@@ -109,6 +110,7 @@ export function createApi(engine: Engine) {
       solUsd: sUsd,
       coins: sums.coins,
       mainToken: config.mainToken,
+      platformToken: platformToken(),
       volume24hSol: vol,
       volume24hUsd: vol * sUsd,
       totalFeesSol: sums.fees,

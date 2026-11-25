@@ -83,7 +83,7 @@ export default function DocsPage() {
             <Details summary={`Does ${brand.name} have its own token?`}>
               <Prose>
                 <p>
-                  Yes, ${brand.mainTicker}. It is shown first on the home page, and that is all of its special treatment: it gets no
+                  Yes, ${brand.mainTicker}. It is featured on the site, and that is all of its special treatment: it gets no
                   share of anyone&apos;s fees and nothing buys it back. Its own trades pay the same fee as any other coin.
                 </p>
               </Prose>

@@ -1,7 +1,7 @@
 /** Brand in one place: rename the launchpad by editing this file. */
 export const brand = {
   name: "Gantry",
-  /** The platform token's ticker. Its mint comes from MAIN_TOKEN_MINT; it's featured on the home page, and no fees go to it. */
+  /** The platform token's ticker until its own is read from its mint (MAIN_TOKEN_MINT). The site features it; no fees go to it. */
   mainTicker: "GANTRY",
   tagline: "Launch on Solana. Every fee stays behind to hold the holders up.",
   /** Short line for titles and link previews. */

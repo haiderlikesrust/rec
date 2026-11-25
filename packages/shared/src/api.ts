@@ -266,6 +266,19 @@ export type TreasuryWallet = {
   sol: number;
 };
 
+/** The platform token (MAIN_TOKEN_MINT) as the site shows it. Its numbers are null until they are known. */
+export type PlatformToken = {
+  address: Address;
+  symbol: string;
+  name: string;
+  image: string;
+  priceUsd: number | null;
+  marketCapUsd: number | null;
+  change24h: number | null; // percent
+  /** launched here, so it has a coin page; otherwise it trades elsewhere */
+  listed: boolean;
+};
+
 export type PlatformStats = {
   cluster: Cluster;
   demo: boolean;
@@ -273,6 +286,8 @@ export type PlatformStats = {
   coins: number;
   /** the platform token's mint (MAIN_TOKEN_MINT), or null before it's set */
   mainToken: Address | null;
+  /** that token's ticker, image and price, or null before it's set */
+  platformToken: PlatformToken | null;
   volume24hSol: number;
   volume24hUsd: number;
   totalFeesSol: number;

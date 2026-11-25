@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { brand } from "@gantry/shared";
 import { XLogo } from "@/components/XLogo";
+import { FootToken } from "./FootToken";
 
 const link = "inline-flex h-8 items-center gap-1.5 rounded-sm text-ink-2 transition-colors hover:text-ink";
 
-/** The end of the content column: one quiet line with the name, two links and the fine print. Not a sitemap. */
+/** The end of the content column: one quiet line with the name, its links and the fine print. Not a sitemap. */
 export function FootLine() {
   return (
     <footer className="mx-auto mt-20 w-full max-w-[var(--content-max)] px-[var(--gutter)] pb-8 sm:mt-28">
@@ -14,6 +15,7 @@ export function FootLine() {
           <Link href={brand.docsPath} className={link}>
             Docs
           </Link>
+          <FootToken className={link} />
           {brand.x && (
             <a href={brand.x} target="_blank" rel="noreferrer" aria-label={`${brand.name} on X (opens in a new tab)`} className={link}>
               <XLogo size={12} /> {brand.xHandle}

@@ -39,7 +39,17 @@ export function syncQuotes() {
   }
 }
 
-export type JupToken = { id: string; name?: string; symbol?: string; usdPrice?: number; icon?: string; decimals?: number; liquidity?: number };
+export type JupToken = {
+  id: string;
+  name?: string;
+  symbol?: string;
+  usdPrice?: number;
+  icon?: string;
+  decimals?: number;
+  liquidity?: number;
+  mcap?: number;
+  stats24h?: { priceChange?: number };
+};
 
 /** The most mints Jupiter's token API answers for in one request; it drops the rest without saying so. */
 const JUP_BATCH = 100;

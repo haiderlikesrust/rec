@@ -341,7 +341,7 @@ export function TokenMint() {
     return (
       <Panel className="p-5 sm:p-6">
         <p className="text-[14px] leading-relaxed text-ink-2">
-          This is the only ${brand.mainTicker} address to trust. Compare it character by character before you buy.
+          This is the only ${s.platformToken?.symbol ?? brand.mainTicker} address to trust. Compare it character by character before you buy.
         </p>
         <AddressLine address={s.mainToken} cluster={s.cluster} />
       </Panel>

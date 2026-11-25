@@ -3,12 +3,12 @@ import Link from "next/link";
 import { LAUNCH_RENT_SOL, brand } from "@gantry/shared";
 import { ButtonLink } from "@/components/ui";
 import { HeroVisual } from "./HeroVisual";
-import { TokenAddress } from "./TokenAddress";
+import { TokenCard } from "./TokenCard";
 
 /**
  * The top of the home page: what this is in one headline and one sentence, the way to launch, the way to the docs,
- * and the coin picture beside them (above them on a phone). The platform token's address sits under the buttons
- * once its mint is set; the line is kept free for it so nothing moves when it arrives.
+ * and the coin picture beside them (above them on a phone). The platform token sits under the buttons once
+ * its mint is set.
  */
 export function Intro() {
   return (
@@ -30,9 +30,7 @@ export function Intro() {
             How it works <ArrowRight size={16} aria-hidden />
           </Link>
         </div>
-        <div className="mt-2 min-h-9">
-          <TokenAddress />
-        </div>
+        <TokenCard className="mt-7" />
       </div>
     </section>
   );

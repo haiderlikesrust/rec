@@ -7,6 +7,7 @@ import { runEntries } from "./fleet";
 import { processFees, runProtection, sweep } from "./jobs";
 import { lease, releaseLease, renewLease } from "./lease";
 import { SYSTEM } from "./ledger";
+import { refreshPlatformToken } from "./platformToken";
 import { refreshPrices, syncQuotes } from "./prices";
 import { treasury } from "./services";
 
@@ -74,6 +75,8 @@ function every(job: Job, leaderOnly = true) {
 }
 
 every({ name: "treasury", ms: 10_000, run: refreshTreasuryBalances }, false);
+void refreshPlatformToken().catch((e) => log(`platform token: ${(e as Error).message}`));
+every({ name: "platform token", ms: 60_000, run: refreshPlatformToken }, false);
 for (const job of [
   { name: "prices", ms: 60_000, run: refreshPrices },
   // fees are split continuously: this loops every few seconds
